@@ -39,6 +39,7 @@ export function createWorld(now = Date.now(), forms = false) {
     receipts: new Map(), // recipient|op_id -> reply
     uploads: new Map(),
     viewRev: 1,
+    arrival: new Map(), // conversation_seq -> arrival tick
     sessionLive: true,
     inactive: false,
     displayName: 'Dana Reyes',
@@ -50,6 +51,7 @@ export function createWorld(now = Date.now(), forms = false) {
 const key = (s, m) => `${s}\u0000${m}`;
 
 function pushEvent(w, frame) {
+  w.tick = (w.tick ?? 0) + 1;
   w.seq += 1;
   const ev = { v: 1, ...frame, seq: w.seq };
   w.events.push(ev);
@@ -57,6 +59,7 @@ function pushEvent(w, frame) {
 }
 
 function pushConv(w, k, frame) {
+  w.tick = (w.tick ?? 0) + 1;
   w.convSeq += 1;
   const m = w.messages.get(k);
   const ev = {
@@ -70,7 +73,9 @@ function pushConv(w, k, frame) {
     ...frame,
   };
   if (frame.kind === 'read_position') delete ev.request_revision;
+  w.viewRev += 1;
   w.conv.push(ev);
+  w.arrival.set(ev.conversation_seq, w.tick);
   return ev;
 }
 
@@ -100,6 +105,7 @@ export function addMessage(w, payload, opts = {}) {
     ...(m.files.length ? { files: m.files } : {}),
   });
   m.acceptedSeq = ev.seq;
+  m.arrival = w.tick;
   for (const c of opts.chatTurns ?? []) agentOrPersonTurn(w, k, c);
   if (opts.answered) terminate(w, k, { state: 'answered', answer_outcome: opts.answered });
   if (opts.readThrough) {
@@ -159,6 +165,36 @@ function outcomeFor(answer) {
   if (answer === null) return { kind: 'seen' };
   if (typeof answer === 'string') return { kind: 'reply', text: answer };
   return undefined;
+}
+
+/** The baseline view with free order: active (waiting messages and chats
+ * with unread replies, newest first), then history (the rest). */
+function listItemsOf(w) {
+  const active = [];
+  const history = [];
+  for (const m of w.messages.values()) {
+    const item = { kind: 'message', sender_id: m.sender_id, message_id: m.message_id, at: m.arrival };
+    (m.terminal ? history : active).push(item);
+    const k = key(m.sender_id, m.message_id);
+    const replies = w.conv.filter((e) => e.kind === 'reply' && key(e.sender_id, e.message_id) === k);
+    if (!replies.length) continue;
+    const read = w.readPositions.get(k) ?? 0;
+    const unread = replies.filter((e) => e.conversation_seq > read);
+    const newest = replies[replies.length - 1];
+    const reply = {
+      kind: 'reply',
+      sender_id: m.sender_id,
+      message_id: m.message_id,
+      conversation_seq: (unread[unread.length - 1] ?? newest).conversation_seq,
+      open_at_conversation_seq: (unread[0] ?? newest).conversation_seq,
+      unseen_count: unread.length,
+      at: w.arrival.get(newest.conversation_seq),
+    };
+    (unread.length ? active : history).push(reply);
+  }
+  const order = (a, b) => b.at - a.at;
+  const tag = (list, state) => list.sort(order).map(({ at, ...it }) => ({ ...it, free_section: { state, group: 'common' } }));
+  return [...tag(active, 'active'), ...tag(history, 'history')];
 }
 
 function viewOf(w) {
@@ -333,7 +369,7 @@ function serveConnection(ws, w, recipient) {
         const rev = `fake:${w.viewRev}`;
         st.viewRev = w.viewRev;
         if (f.known_view_rev === rev) return ok({ view_rev: rev, unchanged: true });
-        ok({ view_rev: rev, algorithm: 'baseline', basis: 'selected', entries: viewOf(w), replies: [] });
+        ok({ view_rev: rev, algorithm: 'baseline', basis: 'selected', entries: viewOf(w), replies: [], list_items: listItemsOf(w), free_order_version: 1 });
         break;
       }
       case 'message_open': {
@@ -377,6 +413,7 @@ function serveConnection(ws, w, recipient) {
         break;
       }
       case 'discussion': {
+        if (w.refuseInactive) return err('inactive_account');
         const rk = `${recipient}|${f.op_id}`;
         if (w.receipts.has(rk)) return send({ ...w.receipts.get(rk), ...ref, duplicate: true });
         const k = key(f.sender_id, f.message_id);
@@ -574,6 +611,21 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         agentOrPersonTurn(world, k, { author: 'origin', text: body.text, files: body.files });
         return json(res, 200, { ok: true });
       }
+      case 'bulk': {
+        // Many open requests, newer than everything else, to push older messages to later pages.
+        for (let i = 0; i < (body.count ?? 25); i++)
+          addMessage(world, { sender_id: 'agent:bulk', message_id: `bulk-${i}`, title: `Bulk request ${i}`, created_at: Date.now(), message_type: 'request', answer_ui: { schema: 'attention-client.actions/1', actions: [{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }] } }, { chat: false });
+        return json(res, 200, { ok: true });
+      }
+      case 'answer-oldest': {
+        // Answer the oldest open message, so it belongs to Replied and to a later page.
+        const m = [...world.messages.values()].filter((x) => !x.terminal).sort((a, b) => a.acceptedSeq - b.acceptedSeq)[0];
+        terminate(world, key(m.sender_id, m.message_id), { state: 'answered', answer_outcome: { kind: 'reply', text: 'Done' } });
+        return json(res, 200, { ok: true });
+      }
+      case 'refuse-inactive':
+        world.refuseInactive = true;
+        return json(res, 200, { ok: true });
       case 'end-session':
         world.sessionLive = false;
         return json(res, 200, { ok: true });

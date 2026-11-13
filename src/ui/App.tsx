@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import type { Config } from '../config';
 import type { RelaySession } from '../relay/session';
 import { fileUrl } from '../relay/files';
-import { rows as rowsFor, type Tab } from '../state/inbox';
+import { entries as entriesFor, rows as rowsFor, type ReplyRow, type Tab } from '../state/inbox';
 import { answerForm, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
 import type { Json, WireFile } from '../state/types';
@@ -62,33 +62,39 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   /** Wide: chat column shown unless closed. Medium and phone: chat shown when opened. */
   const [chatShown, setChatShown] = useState(false);
   const [chatHiddenWide, setChatHiddenWide] = useState(false);
+  /** Opened from a chat reply row: the open is not reported, as on the phone. */
+  const [viaReply, setViaReply] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     const on = () => {
       setPage(pageFromPath(location.pathname));
-      const st = history.state as { selected?: string | null; chat?: boolean } | null;
+      const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean } | null;
       setSelected(st?.selected ?? null);
       setChatShown(!!st?.chat);
+      setViaReply(!!st?.viaReply);
     };
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
   }, []);
 
   const base = useMemo(() => location.pathname.replace(/\/(inbox|settings)\/?$/, ''), []);
-  const go = (p: Page, sel: string | null, chat: boolean) => {
-    history.pushState({ selected: sel, chat }, '', `${base}/${p}`);
+  const go = (p: Page, sel: string | null, chat: boolean, fromReply = false) => {
+    history.pushState({ selected: sel, chat, viaReply: fromReply }, '', `${base}/${p}`);
     setPage(p);
     setSelected(sel);
     setChatShown(chat);
+    setViaReply(fromReply);
   };
 
+  const listEntries = useMemo(() => entriesFor(s, tab), [s, tab]);
   const rows = useMemo(() => rowsFor(s, tab), [s, tab]);
   const message = selected ? s.messages.get(selected) : undefined;
 
   // Report the open once the detail is on screen (D-2).
   useEffect(() => {
-    if (message && page === 'inbox') session.messageOpened(message);
-  }, [message?.sender_id, message?.message_id, message?.revision, page, s.connection]);
+    if (message && page === 'inbox' && !viaReply) session.messageOpened(message);
+  }, [message?.sender_id, message?.message_id, message?.revision, page, s.connection, viaReply]);
 
   const open = (key: string) => go('inbox', key, false);
   const index = selected ? rows.findIndex((r) => r.key === selected) : -1;
@@ -142,8 +148,21 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const list = (
     <InboxList
       tab={tab}
-      rows={rows}
+      entries={listEntries}
       selected={selected}
+      expanded={expanded}
+      onToggleThread={(id) => {
+        const next = new Set(expanded);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        setExpanded(next);
+      }}
+      replyText={(key, seq) => s.threads.get(key)?.turns.find((t) => t.seq === seq)?.text ?? null}
+      onOpenReply={(r: ReplyRow) => {
+        setChatHiddenWide(false);
+        go('inbox', r.key, true, true);
+      }}
+      morePages={s.morePages}
       unread={unread}
       seen={seen}
       needsAnswer={needsAnswer}

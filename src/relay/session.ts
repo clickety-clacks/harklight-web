@@ -10,7 +10,8 @@ import {
   takePendingTerminal,
   type Store,
 } from '../state/store';
-import type { ChatSend, HeldMessage, Json, ViewEntry } from '../state/types';
+import type { ChatSend, HeldMessage, Json } from '../state/types';
+import { parseView } from '../state/view';
 import { keyOf } from '../state/types';
 import {
   byRef,
@@ -177,7 +178,7 @@ export class RelaySession {
     this.convCursor = 0;
     this.convAcked = 0;
     const startRef = `start-${uuid()}`;
-    const start = await conn.request(
+    const start = await this.req(conn, 
       { v: 1, type: 'inbox_start', paging_version: 1, startup_id: uuid(), since: 0, ref: startRef },
       byRef(startRef),
     );
@@ -197,7 +198,7 @@ export class RelaySession {
     let receipts = typeof start.receipt_cursor === 'string' ? start.receipt_cursor : null;
     while (receipts) {
       const ref = `receipts-${uuid()}`;
-      const r = await conn.request(
+      const r = await this.req(conn, 
         { v: 1, type: 'inbox_receipts', paging_version: 1, snapshot_id: this.snapshotId, cursor: receipts, ref },
         byRef(ref),
       );
@@ -206,7 +207,7 @@ export class RelaySession {
     }
 
     const ckRef = `checkpoint-${uuid()}`;
-    const ck = await conn.request(
+    const ck = await this.req(conn, 
       {
         v: 1,
         type: 'inbox_checkpoint_ack',
@@ -229,7 +230,7 @@ export class RelaySession {
   private async replay(conn: Connection, since: number): Promise<boolean> {
     const ref = `replay-${uuid()}`;
     const done = (f: Frame) => f.type === 'resynced' || (f.type === 'error' && f.ref === ref);
-    const end = await conn.request(
+    const end = await this.req(conn, 
       { v: 1, type: 'inbox_attach', paging_version: 1, snapshot_id: this.snapshotId, mode: 'replay', since, ref },
       done,
     );
@@ -245,7 +246,7 @@ export class RelaySession {
     const done = (f: Frame) => f.type === 'conversation_resynced' || (f.type === 'error' && f.ref === ref);
     this.resyncingConversation = true;
     try {
-      const end = await conn.request({ v: 1, type: 'conversation_open', since: this.convAcked, ref }, done);
+      const end = await this.req(conn, { v: 1, type: 'conversation_open', since: this.convAcked, ref }, done);
       if (end.type === 'error') {
         if (end.reason === 'inactive_account') throw new InactiveAccount();
         if (end.reason === 'unknown_type') {
@@ -272,7 +273,7 @@ export class RelaySession {
     if (this.convCursor <= this.convAcked) return;
     const target = this.convCursor;
     const ref = `conversation-ack-${uuid()}`;
-    const r = await conn.request({ v: 1, type: 'conversation_ack', conversation_seq: target, ref }, byRef(ref));
+    const r = await this.req(conn, { v: 1, type: 'conversation_ack', conversation_seq: target, ref }, byRef(ref));
     if (r.type === 'ok') this.convAcked = Math.max(this.convAcked, target);
   }
 
@@ -280,7 +281,7 @@ export class RelaySession {
     const ref = `view-${uuid()}`;
     const frame: Frame = { v: 1, type: 'view_get', ref };
     if (this.viewRev) frame.known_view_rev = this.viewRev;
-    const r = await conn.request(frame, byRef(ref));
+    const r = await this.req(conn, frame, byRef(ref));
     if (r.type !== 'ok') {
       if (r.reason === 'inactive_account') throw new InactiveAccount();
       this.viewRev = null;
@@ -291,20 +292,12 @@ export class RelaySession {
     }
     if (r.unchanged === true) return;
     this.viewRev = typeof r.view_rev === 'string' ? r.view_rev : null;
-    const entries: ViewEntry[] = [];
-    if (Array.isArray(r.entries)) {
-      for (const e of r.entries as Record<string, unknown>[]) {
-        if (!e || typeof e.sender_id !== 'string' || typeof e.message_id !== 'string') continue;
-        entries.push({
-          key: keyOf({ sender_id: e.sender_id, message_id: e.message_id }),
-          score: typeof e.score === 'number' ? e.score : null,
-          thread: typeof e.thread === 'string' ? e.thread : null,
-        });
-      }
-    }
+    const view = parseView(r);
     this.store.update((s) => {
-      s.view = entries;
+      s.view = view;
     });
+    // Load older pages until every message the view lists is held.
+    void this.fillForView();
   }
 
   /** After connecting: settle anything this tab sent before the drop. */
@@ -342,6 +335,18 @@ export class RelaySession {
     });
   }
 
+  /** Page in older messages until every message the view lists is held. */
+  private async fillForView(): Promise<void> {
+    for (;;) {
+      const view = this.store.state.view;
+      const missing = view?.listItems?.some((it) => !this.store.state.messages.has(it.key)) ?? false;
+      if (!missing || !this.nextCursor || !this.ready) return;
+      const before = this.store.state.messages.size;
+      await this.loadMore();
+      if (this.store.state.messages.size === before) return; // no progress
+    }
+  }
+
   /** Load the next older inbox page, if the Server has one. */
   async loadMore(): Promise<void> {
     const conn = this.conn;
@@ -349,7 +354,7 @@ export class RelaySession {
     this.paging = true;
     try {
       const ref = `page-${uuid()}`;
-      const r = await conn.request(
+      const r = await this.req(conn, 
         { v: 1, type: 'inbox_page', paging_version: 1, snapshot_id: this.snapshotId, cursor: this.nextCursor, ref },
         byRef(ref),
       );
@@ -490,6 +495,17 @@ export class RelaySession {
     (this.deps.setTimer ?? setTimeout)(() => void this.connect(), delay);
   }
 
+  /**
+   * Send one request. A refusal because the account cannot use messaging
+   * (B-5a) shows the account notice and stops the session, whatever the
+   * request was.
+   */
+  private async req(conn: Connection, frame: Frame, done: (f: Frame) => boolean): Promise<Frame> {
+    const r = await conn.request(frame, done);
+    if (r.type === 'error' && r.reason === 'inactive_account' && conn === this.conn) this.setInactive(conn);
+    return r;
+  }
+
   private setInactive(conn: Connection): void {
     this.store.update((s) => {
       s.connection = 'inactive';
@@ -515,8 +531,8 @@ export class RelaySession {
     if (!conn || !this.ready || this.sentOpens.has(id)) return;
     this.sentOpens.add(id);
     const ref = `open-${uuid()}`;
-    conn
-      .request(
+    this.req(
+      conn,
         {
           v: 1,
           type: 'message_open',
@@ -580,7 +596,7 @@ export class RelaySession {
     });
     let r: Frame;
     try {
-      r = await conn.request(frame, refless);
+      r = await this.req(conn, frame, refless);
     } catch {
       return; // marked unconfirmed on close; resent after reconnect
     }
@@ -665,7 +681,7 @@ export class RelaySession {
     const ref = `discussion-${uuid()}`;
     let r: Frame;
     try {
-      r = await conn.request(
+      r = await this.req(conn, 
         {
           v: 1,
           type: 'discussion',
@@ -738,8 +754,8 @@ export class RelaySession {
     this.readsInFlight.add(id);
     const [sender_id, message_id] = key.split('\u0000');
     const ref = `read-${uuid()}`;
-    conn
-      .request(
+    this.req(
+      conn,
         {
           v: 1,
           type: 'conversation_read',

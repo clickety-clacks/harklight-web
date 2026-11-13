@@ -39,7 +39,7 @@ These go to Harklight Server, same origin, with the browser sign-in cookie:
 | `POST /browser/v1/upload?recipient=<uuid>` | one raw file body, `application/octet-stream`, `Content-Length` equal to the file size, no multipart; up to the Server's published per-file cap |
 | `GET /browser/v1/files/<upload id>` | file download |
 | `POST /sign-out` | sign-out form (`confirm=sign_out`) |
-| the display-name read | path set in `accountInfoPath` |
+| `GET /api/profile` | the account's display name, `{"display_name": ...}` (`accountInfoPath`) |
 
 Pages it links to: `/devices`, `/components`, the hosted account page.
 
@@ -58,7 +58,7 @@ A JSON object; every key is optional and falls back to the default in
 | `accountUrl` | `/account/` |
 | `componentsPath` | `/components` |
 | `devicesPath` | `/devices` |
-| `accountInfoPath` | `""` (no display name shown) |
+| `accountInfoPath` | `/api/profile` |
 | `flags.webClient` | `false`: customers see a short notice and the page opens no connection |
 | `flags.attachments` | `false`: no attach control; files show name and size only |
 

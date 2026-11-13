@@ -36,8 +36,8 @@ export interface Config {
   componentsPath: string;
   /** The Server's Devices page (E-1, E-3). */
   devicesPath: string;
-  /** JSON read of the signed-in account's display name (E-1, contract Q2).
-   * Empty when the Server places the name in the page instead. */
+  /** JSON read of the signed-in account's display name (E-1, contract Q2):
+   * an authenticated GET answering {"display_name": ...}. */
   accountInfoPath: string;
   flags: Flags;
 }
@@ -51,7 +51,7 @@ export const DEFAULT_CONFIG: Config = {
   accountUrl: '/account/',
   componentsPath: '/components',
   devicesPath: '/devices',
-  accountInfoPath: '',
+  accountInfoPath: '/api/profile',
   flags: { webClient: false, attachments: false, answerForms: false },
 };
 

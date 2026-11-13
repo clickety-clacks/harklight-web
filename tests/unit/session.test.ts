@@ -53,7 +53,8 @@ describe('relay session', () => {
     await until(() => store.state.connection === 'connected');
     expect(store.state.messages.size).toBe(6);
     expect(store.state.threads.get(LISBON)?.turns.length).toBe(3);
-    expect(store.state.view?.length).toBeGreaterThan(0);
+    expect(store.state.view?.entries.length).toBeGreaterThan(0);
+    expect(store.state.view?.listItems?.length).toBeGreaterThan(0);
     s.stop();
   });
 

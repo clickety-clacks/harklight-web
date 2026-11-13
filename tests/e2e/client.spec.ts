@@ -7,6 +7,9 @@ test.beforeEach(async ({ page }) => {
   await control(page, 'reset');
 });
 
+/** Open a message from its own row (not a chat reply row about it). */
+const openRow = (page: Page, title: string) => page.getByTestId('row').filter({ hasText: title }).first().click();
+
 async function openInbox(page: Page) {
   await page.goto('/inbox');
   await expect(page.getByTestId('row').first()).toBeVisible();
@@ -16,7 +19,7 @@ test('lists the inbox and opens a message, reporting the open', async ({ page })
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await expect(page.getByTestId('row')).toHaveCount(8);
-  await page.getByText('Which hotel should I book for Lisbon?').first().click();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await expect.poll(async () => (await control(page, 'state')).opens).toBe(1);
   // Three columns at wide width: the chat is beside the message.
@@ -26,7 +29,7 @@ test('lists the inbox and opens a message, reporting the open', async ({ page })
 test('answers with a choice and shows the answered card', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await page.getByText('Approve the survey questions?').first().click();
+  await openRow(page, 'Approve the survey questions?');
   const send = page.getByRole('button', { name: 'Send answer' });
   await expect(send).toBeDisabled();
   await page.getByRole('radio', { name: 'Approve' }).click();
@@ -42,7 +45,7 @@ test('answers with a choice and shows the answered card', async ({ page }) => {
 test('writes a reply in the one-card reply field', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await page.getByText('Production deploy failed').first().click();
+  await openRow(page, 'Production deploy failed');
   await page.getByRole('radio', { name: 'Reply' }).click();
   await page.getByRole('textbox', { name: 'Reply' }).fill('Hold it, I will look after lunch');
   await page.getByRole('button', { name: 'Send answer' }).click();
@@ -53,7 +56,7 @@ test('writes a reply in the one-card reply field', async ({ page }) => {
 test('marks an information message Seen with JSON null', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await page.getByText('Quarterly report is ready').first().click();
+  await openRow(page, 'Quarterly report is ready');
   await page.locator('.seen-under').click();
   await expect(page.getByTestId('answered')).toContainText('Seen');
   expect((await control(page, 'state')).lastAnswer.answer).toBe(null);
@@ -62,20 +65,20 @@ test('marks an information message Seen with JSON null', async ({ page }) => {
 test('chats with the agent and sees the reply live', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await page.getByText('Which hotel should I book for Lisbon?').first().click();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
   await page.getByRole('textbox', { name: 'Write a message' }).fill('Is breakfast included?');
   await page.keyboard.press('Enter');
   await expect(page.locator('.turn--me', { hasText: 'Is breakfast included?' })).toBeVisible();
   await expect.poll(async () => (await control(page, 'state')).lastDiscussion?.text).toBe('Is breakfast included?');
   await control(page, 'reply', { sender_id: 'agent:research', message_id: 'lisbon', text: 'Yes, until 10 AM.' });
-  await expect(page.getByText('Yes, until 10 AM.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chat' }).getByText('Yes, until 10 AM.')).toBeVisible();
   await expect(page.locator('.turn--me', { hasText: 'Is breakfast included?' })).toContainText('Delivered');
 });
 
 test('sends files with a chat message: small inline, large uploaded', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await page.getByText('Which hotel should I book for Lisbon?').first().click();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
   const small = { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.alloc(20_000, 'a') };
   const big = { name: 'plan.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(600_000, 'b') };
   await page.locator('input[type=file]').setInputFiles([small, big]);
@@ -94,7 +97,7 @@ test('sends files with a chat message: small inline, large uploaded', async ({ p
 test('refuses a file over the Server limit and sends nothing', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await page.getByText('Which hotel should I book for Lisbon?').first().click();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
   // Learn the limit, as the client does before it shows one.
   await page.getByRole('textbox', { name: 'Write a message' }).fill('first');
   await page.keyboard.press('Enter');
@@ -108,7 +111,7 @@ test('refuses a file over the Server limit and sends nothing', async ({ page }) 
 test('closes the chat once the message is answered, keeping it readable', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await page.getByText('Which hotel should I book for Lisbon?').first().click();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
   await page.getByRole('radio', { name: 'Lisboa Plaza' }).click();
   await page.getByRole('button', { name: 'Send answer' }).click();
   await expect(page.getByText('This chat is closed. You can still read it and download its files.')).toBeVisible();
@@ -118,14 +121,14 @@ test('closes the chat once the message is answered, keeping it readable', async 
 test('shows a new message live', async ({ page }) => {
   await openInbox(page);
   await control(page, 'send', { message: { sender_id: 'agent:new', message_id: 'n1', display_name: 'New agent', title: 'Fresh news' } });
-  await expect(page.getByText('Fresh news')).toBeVisible();
+  await expect(page.getByTestId('row').filter({ hasText: 'Fresh news' })).toBeVisible();
 });
 
 test('phone width shows one column at a time', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openInbox(page);
   await expect(page.getByRole('tab', { name: 'Inbox' })).toBeVisible();
-  await page.getByText('Which hotel should I book for Lisbon?').first().click();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByTestId('row')).toHaveCount(0);
   await page.getByRole('button', { name: /^Chat/ }).click();
   await expect(page.getByText('Yes. Every room has a desk and wired internet.')).toBeVisible();
@@ -187,7 +190,7 @@ test('with the web client off for customers, the page opens no connection; #prev
 test('answers a custom form: marks a point on the floor plan and adds a note', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openInbox(page);
-  await page.getByText('Where should the repair crew start?').first().click();
+  await openRow(page, 'Where should the repair crew start?');
   const send = page.getByRole('button', { name: 'Send', exact: true });
   await send.click();
   await expect(page.getByRole('alert')).toHaveText('Complete the response before sending your answer.');
@@ -207,10 +210,39 @@ test('answers a custom form: marks a point on the floor plan and adds a note', a
 test('answers a custom form with pictures: picks a cover', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openInbox(page);
-  await page.getByText('Which cover for the November issue?').first().click();
+  await openRow(page, 'Which cover for the November issue?');
   await expect(page.locator('svg image')).toHaveCount(1);
   await page.getByRole('radio', { name: /Use cover B/ }).click();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByTestId('answered')).toContainText('Use cover B');
   expect((await control(page, 'state')).lastAnswer.answer).toEqual({ cover: 'B' });
+});
+
+test('draws the Server view: a chat reply row opens the chat without reporting an open, and finished messages sit under History', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openInbox(page);
+  const reply = page.getByTestId('reply-row').filter({ hasText: 'Which hotel should I book for Lisbon?' });
+  await expect(reply).toContainText('Yes. Every room has a desk and wired internet.');
+  await expect(page.getByText('History', { exact: true })).toBeVisible();
+  await reply.click();
+  await expect(page.getByRole('region', { name: 'Chat' })).toBeVisible();
+  expect((await control(page, 'state')).opens).toBe(0);
+});
+
+test('Replied loads older pages even when it starts empty and cannot scroll', async ({ page }) => {
+  await control(page, 'bulk', { count: 25 });
+  await control(page, 'answer-oldest');
+  await page.goto('/inbox');
+  await page.getByRole('tab', { name: 'Replied' }).click();
+  await expect(page.getByTestId('row').first()).toBeVisible();
+});
+
+test('a chat refused because the account cannot use messaging shows the account notice', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await control(page, 'refuse-inactive');
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('Hello?');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('link', { name: 'Open your account' })).toBeVisible();
 });

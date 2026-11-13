@@ -113,9 +113,3 @@ export interface PickedFile {
   size: number;
   file: Blob;
 }
-
-export interface ViewEntry {
-  key: string;
-  score: number | null;
-  thread: string | null;
-}

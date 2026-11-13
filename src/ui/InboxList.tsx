@@ -1,11 +1,19 @@
-import type { Row, Tab } from '../state/inbox';
+import { useEffect, useRef } from 'preact/hooks';
+import type { Entry, ReplyRow, Row, Tab } from '../state/inbox';
 import { body, createdAt, friendlyTime, initials, messageType, senderLabel, title, TYPE_ICON } from '../state/message';
 import { Icon } from './Icon';
 
 export function InboxList(props: {
   tab: Tab;
-  rows: Row[];
+  entries: Entry[];
   selected: string | null;
+  /** Thread groups the person opened. */
+  expanded: Set<string>;
+  onToggleThread: (id: string) => void;
+  /** The quoted text of a chat reply, if its turn is held. */
+  replyText: (key: string, seq: number) => string | null;
+  onOpenReply: (r: ReplyRow) => void;
+  morePages: boolean;
   unread: (key: string) => boolean;
   seen: (key: string) => boolean;
   needsAnswer: (key: string) => boolean;
@@ -16,6 +24,24 @@ export function InboxList(props: {
   onNearEnd: () => void;
   phone: boolean;
 }) {
+  const list = useRef<HTMLDivElement>(null);
+  // Load older pages while the list does not fill its column (an empty or
+  // short tab cannot be scrolled to ask for more).
+  useEffect(() => {
+    const el = list.current;
+    if (el && props.morePages && el.scrollHeight - el.clientHeight < 80) props.onNearEnd();
+  });
+  const messageRow = (r: Row) => (
+    <MessageRow
+      key={r.key}
+      row={r}
+      selected={r.key === props.selected}
+      unread={props.unread(r.key)}
+      seen={props.seen(r.key)}
+      needsAnswer={props.needsAnswer(r.key)}
+      onOpen={props.onOpen}
+    />
+  );
   const tabs = (
     <div class={props.phone ? 'tabbar' : 'seg'} role="tablist" aria-label="Messages">
       <TabButton tab="inbox" label="Inbox" icon="mail" current={props.tab} onTab={props.onTab} />
@@ -36,24 +62,43 @@ export function InboxList(props: {
       {!props.phone && tabs}
       <div
         class="rows"
+        ref={list}
         role="tabpanel"
         onScroll={(e) => {
           const el = e.currentTarget as HTMLElement;
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) props.onNearEnd();
         }}
       >
-        {props.rows.map((r) => (
-          <MessageRow
-            key={r.key}
-            row={r}
-            selected={r.key === props.selected}
-            unread={props.unread(r.key)}
-            seen={props.seen(r.key)}
-            needsAnswer={props.needsAnswer(r.key)}
-            onOpen={props.onOpen}
-          />
-        ))}
-        {props.loaded && props.rows.length === 0 && (
+        {props.entries.map((e) => {
+          if (e.type === 'message') return messageRow(e);
+          if (e.type === 'heading')
+            return (
+              <div key={`h:${e.title}`} class="list-heading">
+                <span class="label">{e.title}</span>
+                {e.note && <span class="list-note">{e.note}</span>}
+              </div>
+            );
+          if (e.type === 'reply')
+            return (
+              <ReplyRowView
+                key={`r:${e.key}`}
+                row={e}
+                quote={props.replyText(e.key, e.conversationSeq)}
+                onOpen={() => props.onOpenReply(e)}
+              />
+            );
+          const open = props.expanded.has(e.id) || e.members.some((m) => m.key === props.selected);
+          return (
+            <div key={`t:${e.id}`} class="thread">
+              <button type="button" class="thread-head" aria-expanded={open} onClick={() => props.onToggleThread(e.id)}>
+                <Icon name="chev" class={open ? 'thread-chev thread-chev--open' : 'thread-chev'} />
+                {e.label}
+              </button>
+              {open && e.members.map(messageRow)}
+            </div>
+          );
+        })}
+        {props.loaded && props.entries.length === 0 && !props.morePages && (
           <p class="rows-empty">{props.tab === 'inbox' ? 'No messages' : 'Nothing replied yet'}</p>
         )}
       </div>
@@ -95,6 +140,7 @@ function MessageRow(props: {
   else if (row.priority === 'high') cls.push('row--high');
   if (props.selected) cls.push('row--selected');
   if (m.terminal) cls.push('row--done');
+  if (row.history) cls.push('row--history');
   const meta: string[] = [];
   if (row.priority === 'urgent') meta.push('Urgent');
   if (row.priority === 'high') meta.push('High priority');
@@ -126,6 +172,35 @@ function MessageRow(props: {
         {props.seen && <span class="visually-hidden">Seen</span>}
       </span>
       {body(m) && <span class="row-body">{body(m)}</span>}
+      {meta.length > 0 && <span class="row-meta label">{meta.join(' · ')}</span>}
+    </button>
+  );
+}
+
+/** A chat reply row: the agent answered in a message's chat. */
+function ReplyRowView(p: { row: ReplyRow; quote: string | null; onOpen: () => void }) {
+  const { row } = p;
+  const m = row.message;
+  const sender = m ? senderLabel(m) : row.key.split('\u0000')[0];
+  const parent = m ? title(m) : row.key.split('\u0000')[1];
+  const type = m ? messageType(m.payload) : 'request';
+  const cls = ['row', 'row--reply', `type-${type}`];
+  if (row.priority === 'urgent') cls.push('row--urgent');
+  else if (row.priority === 'high') cls.push('row--high');
+  if (row.history) cls.push('row--history');
+  const meta: string[] = [];
+  if (row.unseen > 1) meta.push(`${row.unseen} new`);
+  const prio = row.priority === 'urgent' ? 'Urgent' : row.priority === 'high' ? 'High priority' : null;
+  if (prio) meta.push(row.historical ? `Previous priority: ${prio}` : prio);
+  return (
+    <button type="button" class={cls.join(' ')} onClick={p.onOpen} data-testid="reply-row">
+      <span class="row-head">
+        <Icon name="chat" class="reply-ic" />
+        <span class="sender">
+          Reply · {sender} · {parent}
+        </span>
+      </span>
+      <span class="row-body reply-quote">{p.quote ?? ''}</span>
       {meta.length > 0 && <span class="row-meta label">{meta.join(' · ')}</span>}
     </button>
   );

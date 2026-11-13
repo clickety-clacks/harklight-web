@@ -12,10 +12,10 @@ import type {
   Terminal,
   Thread,
   Turn,
-  ViewEntry,
   WireFile,
 } from './types';
 import { keyOf } from './types';
+import type { ServerView } from './view';
 
 export type AnswerSendState =
   | 'sending'
@@ -46,8 +46,8 @@ export interface State {
   /** Account chat read positions: key -> conversation_seq read through. */
   readThrough: Map<string, number>;
   readSupport: boolean;
-  /** Priority view entries in the Server's order, if a view is held. */
-  view: ViewEntry[] | null;
+  /** The Server's priority view (order, sections, reply rows), if held. */
+  view: ServerView | null;
   answers: Map<string, LocalAnswer>;
   chatSends: ChatSend[];
   /** True while older inbox pages remain on the Server. */
@@ -58,6 +58,14 @@ export interface State {
   fileLimits: { inline: number; cap: number | null } | null;
   /** Lifecycle events for messages not yet held wait here until they arrive. */
   pendingTerminals: Map<string, Terminal>;
+  /** Revisions for messages not yet held (their page has not loaded) wait here. */
+  pendingRevisions: Map<string, PendingRevision>;
+}
+
+export interface PendingRevision {
+  payload: JsonObject;
+  revision: number;
+  files: WireFile[];
 }
 
 export function initialState(): State {
@@ -76,6 +84,7 @@ export function initialState(): State {
     chatAvailable: true,
     fileLimits: null,
     pendingTerminals: new Map(),
+    pendingRevisions: new Map(),
   };
 }
 
@@ -101,6 +110,7 @@ export class Store {
       answers: new Map(this.state.answers),
       chatSends: [...this.state.chatSends],
       pendingTerminals: new Map(this.state.pendingTerminals),
+      pendingRevisions: new Map(this.state.pendingRevisions),
     };
     fn(next);
     this.state = next;
@@ -121,6 +131,7 @@ export class Store {
       s.readThrough = new Map();
       s.view = null;
       s.pendingTerminals = new Map();
+      s.pendingRevisions = new Map();
       s.loaded = false;
       s.morePages = false;
     });
@@ -193,16 +204,22 @@ export function applyDelivery(s: State, ev: Record<string, unknown>): boolean {
   if (!payload || typeof ev.sender_id !== 'string' || typeof ev.message_id !== 'string') return false;
   const key = keyOf({ sender_id: ev.sender_id, message_id: ev.message_id });
   const prev = s.messages.get(key);
-  const revision = num(ev.request_revision) ?? num(payload.request_revision) ?? prev?.revision ?? 1;
   const seq = num(ev.seq) ?? 0;
+  // A delivery always carries revision 1. Later revisions arrive as
+  // conversation events, possibly before this message's inbox page loads.
+  const pending = s.pendingRevisions.get(key);
+  s.pendingRevisions.delete(key);
+  const newer = [prev && prev.revision > 1 ? prev : null, pending ?? null]
+    .filter((x): x is { payload: JsonObject; revision: number; files: WireFile[] } => x !== null)
+    .sort((a, b) => b.revision - a.revision)[0];
   s.messages.set(key, {
     sender_id: ev.sender_id,
     message_id: ev.message_id,
-    payload,
-    revision,
+    payload: newer?.payload ?? payload,
+    revision: newer?.revision ?? 1,
     acceptedSeq: Math.max(prev?.acceptedSeq ?? 0, seq),
     terminal: prev?.terminal ?? null,
-    files: prev && prev.revision > 1 ? prev.files : parseFiles(ev.files),
+    files: newer?.files ?? parseFiles(ev.files),
     firstFiles: parseFiles(ev.files),
     chat: typeof ev.session_handle === 'string' || (prev?.chat ?? false),
   });
@@ -329,13 +346,13 @@ export function applyConversation(s: State, ev: Record<string, unknown>): void {
     case 'revision': {
       const m = s.messages.get(key);
       const message = obj(ev.message);
-      if (m && message && revision >= m.revision) {
-        s.messages.set(key, {
-          ...m,
-          payload: message,
-          revision,
-          files: parseFiles(ev.files),
-        });
+      if (!message) break;
+      if (!m) {
+        // Its inbox page has not loaded yet; apply when it does.
+        const held = s.pendingRevisions.get(key);
+        if (!held || revision > held.revision) s.pendingRevisions.set(key, { payload: message, revision, files: parseFiles(ev.files) });
+      } else if (revision >= m.revision) {
+        s.messages.set(key, { ...m, payload: message, revision, files: parseFiles(ev.files) });
       }
       break;
     }

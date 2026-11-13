@@ -40,7 +40,7 @@ async function shot(p, name, layout, mode) {
   shots.push(file);
 }
 
-const open = (p, title) => p.getByText(title).first().click();
+const open = (p, title) => p.getByTestId('row').filter({ hasText: title }).first().click();
 const chatButton = (p) => p.getByRole('button', { name: /^Chat/ }).first();
 
 for (const [layout, w, h] of WIDTHS) {

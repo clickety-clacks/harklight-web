@@ -103,3 +103,27 @@ describe('chat', () => {
     expect(s.messages.get(K)?.payload.title).toBe('Hello again');
   });
 });
+
+describe('revisions that arrive before their message', () => {
+  it('keeps a revision replayed before the message’s inbox page and applies it when the page arrives', () => {
+    const s = initialState();
+    applyConversation(s, {
+      sender_id: 'agent:a',
+      message_id: 'm1',
+      conversation_seq: 3,
+      kind: 'revision',
+      request_revision: 2,
+      message: { title: 'Revised' },
+    });
+    // The older page's acceptance carries revision 1.
+    applyDelivery(s, { seq: 3, sender_id: 'agent:a', message_id: 'm1', request_revision: 1, message: { title: 'Original' } });
+    expect(s.messages.get(K)?.revision).toBe(2);
+    expect(s.messages.get(K)?.payload.title).toBe('Revised');
+  });
+  it('does not let a later page’s revision 1 replace a newer revision', () => {
+    const s = delivered();
+    applyConversation(s, { sender_id: 'agent:a', message_id: 'm1', conversation_seq: 4, kind: 'revision', request_revision: 3, message: { title: 'Third' } });
+    applyDelivery(s, { seq: 3, sender_id: 'agent:a', message_id: 'm1', request_revision: 1, message: { title: 'Hello' } });
+    expect(s.messages.get(K)?.revision).toBe(3);
+  });
+});
