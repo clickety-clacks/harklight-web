@@ -45,3 +45,19 @@ This repository is public. Keep machine names, user ids, account or person
 identifiers, secrets, internal addresses and internal notes out of every file,
 commit message and pull request. Every address and setting comes from
 deployment configuration.
+
+## Working in this repository
+
+- Stack: Preact and TypeScript, built with Vite into static files. Keep it
+  small; add a dependency only when the job needs it.
+- `npm run build`, `npm test` and `npm run test:e2e` are the checks CI runs on
+  every push to `main`. Run them before you push.
+- `dev/fake-server.mjs` stands in for Harklight Server's browser door during
+  development and tests. When the real door behaves differently, the real door
+  and the browser messaging contract win; fix the fake to match.
+- Configuration and feature flags live in `src/config.ts`. The deployment
+  overrides them with `config.json`. Flags: `attachments` (chat files) stays off
+  until the Server's browser file routes are live.
+- The look follows the accepted Harklight design: dark is the harklight.net
+  look, light is derived from it. Shared pieces (the reply card, the answered
+  card, label colours) must match the iPhone app.

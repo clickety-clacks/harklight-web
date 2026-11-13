@@ -1,0 +1,269 @@
+/* Harklight web client look.
+ * Dark mode is the harklight.net look as the site serves it. Light mode is
+ * derived from it, value by value, as the accepted design lists. The page
+ * follows the system's light or dark setting. */
+
+:root {
+  color-scheme: dark;
+  --bg: #070b14;
+  --fg: #e9edf5;
+  --muted: #9aa4b8;
+  --faint: #5f6b82;
+  --label: #9aa4b8; /* small labels: the darker gray is too faint as text in dark */
+  --line: rgba(255, 255, 255, 0.1);
+  --raised: rgba(255, 255, 255, 0.025);
+  --field: rgba(255, 255, 255, 0.04);
+  --focus: rgba(255, 255, 255, 0.35);
+  --hover: rgba(255, 255, 255, 0.04);
+  --on-fg: #0b1020;
+  --on-beam: #070b14;
+  --panel: #101725;
+  --panel-edge: #ffffff30;
+  --scrim: #02050be8;
+  --band: #07141c;
+  --pane: rgba(0, 0, 0, 0.24); /* text pane inside the reply card */
+  --chat-over-shadow: -18px 0 40px rgba(0, 0, 0, 0.35);
+  --dialog-shadow: none;
+
+  /* beams: symbols, text and lines */
+  --amber: #ffc857;
+  --sky: #62b6ff;
+  --teal: #5fd3bc;
+  --violet: #9d8cff;
+  --coral: #ff8a5c;
+  /* the bright beams, used for mixing tints */
+  --amber-b: #ffc857;
+  --sky-b: #62b6ff;
+  --teal-b: #5fd3bc;
+  --violet-b: #9d8cff;
+  --coral-b: #ff8a5c;
+  --tint: 8%;
+  --wash-urgent: color-mix(in srgb, var(--coral-b) 16%, var(--bg));
+  --wash-high: color-mix(in srgb, var(--amber-b) 12%, var(--bg));
+
+  --serif: 'Fraunces', Georgia, 'Iowan Old Style', 'Times New Roman', serif;
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #e9edf5;
+    --fg: #070b14;
+    --muted: #3b444d;
+    --faint: #4f5a6e;
+    --label: #4f5a6e;
+    --line: rgba(7, 11, 20, 0.14);
+    --raised: rgba(255, 255, 255, 0.55);
+    --field: rgba(255, 255, 255, 0.85);
+    --focus: rgba(7, 11, 20, 0.45);
+    --hover: rgba(7, 11, 20, 0.05);
+    --on-fg: #e9edf5;
+    --on-beam: #ffffff;
+    --panel: #ffffff;
+    --panel-edge: rgba(7, 11, 20, 0.19);
+    --scrim: rgba(7, 11, 20, 0.45);
+    --band: #d6e9ed;
+    --pane: rgba(255, 255, 255, 0.48);
+    --chat-over-shadow: -14px 0 36px rgba(7, 11, 20, 0.14);
+    --dialog-shadow: 0 18px 48px rgba(7, 11, 20, 0.16);
+
+    --amber: #7d5100;
+    --sky: #125aa8;
+    --teal: #0f6657;
+    --violet: #5240cc;
+    --coral: #a13811;
+    --tint: 16%;
+    --wash-urgent: color-mix(in srgb, var(--coral-b) 24%, var(--bg));
+    --wash-high: color-mix(in srgb, var(--amber-b) 26%, var(--bg));
+  }
+}
+
+/* message types: each takes one beam */
+.type-request { --t-icon: var(--violet); --t-beam: var(--violet-b); }
+.type-info { --t-icon: var(--sky); --t-beam: var(--sky-b); }
+.type-done { --t-icon: var(--teal); --t-beam: var(--teal-b); }
+.type-warn { --t-icon: var(--amber); --t-beam: var(--amber-b); }
+.type-error { --t-icon: var(--coral); --t-beam: var(--coral-b); }
+[class*='type-'] { --t-bg: color-mix(in srgb, var(--t-beam) var(--tint), var(--bg)); }
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--sky);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+svg.icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+/* ---------- buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 22px;
+  border-radius: 8px;
+  border: 0;
+  background: var(--fg);
+  color: var(--on-fg);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn:hover {
+  filter: brightness(1.08);
+}
+.btn--bordered {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line);
+}
+.btn--bordered:hover {
+  background: var(--hover);
+  filter: none;
+}
+.btn--block {
+  width: 100%;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 38px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  font-size: 13.6px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  text-decoration: none;
+}
+.tool--square {
+  width: 38px;
+  padding: 0;
+}
+.tool svg.icon {
+  width: 18px;
+  height: 18px;
+}
+.tool--commit {
+  background: var(--fg);
+  color: var(--on-fg);
+  border-color: transparent;
+}
+.tool--commit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.tool--seen {
+  background: var(--teal);
+  color: var(--on-beam);
+  border-color: transparent;
+}
+.tool:disabled {
+  cursor: default;
+}
+.badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--coral);
+  color: var(--on-beam);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.label {
+  color: var(--label);
+  font-size: 12.8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pill::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+}
+.pill--ok::before {
+  background: var(--teal);
+  border-color: var(--teal);
+}
+.pill--bad::before {
+  background: var(--coral);
+  border-color: var(--coral);
+}

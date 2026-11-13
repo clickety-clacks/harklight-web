@@ -1,0 +1,255 @@
+import { useEffect, useRef, useState } from 'preact/hooks';
+import type { ChatSend, HeldMessage, PickedFile, Thread, Turn } from '../state/types';
+import { formatSize } from './format';
+import { FileRow } from './FileRow';
+import { Icon } from './Icon';
+
+export interface ChatProps {
+  message: HeldMessage;
+  sender: string;
+  thread: Thread | undefined;
+  sends: ChatSend[];
+  open: boolean;
+  available: boolean;
+  attachments: boolean;
+  uploadCap: number | null;
+  canSend: boolean;
+  /** Back (phone) or close (wide and medium). */
+  onClose: () => void;
+  closeLabel: string;
+  phone: boolean;
+  onSend: (text: string, files: PickedFile[]) => void;
+  onRetry: (opId: string) => void;
+  onReplyVisible: (seq: number) => void;
+  fileHref: (uploadId: string) => string;
+}
+
+export function Chat(p: ChatProps) {
+  const [text, setText] = useState('');
+  const [files, setFiles] = useState<PickedFile[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const turns = p.thread?.turns ?? [];
+  const pending = p.sends.filter((s) => s.key === `${p.message.sender_id}\u0000${p.message.message_id}`);
+
+  // Keep the newest turn in view as turns arrive.
+  useEffect(() => {
+    const el = list.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns.length, pending.length]);
+
+  // Reading an agent reply advances the account's read position (D-5).
+  useEffect(() => {
+    const el = list.current;
+    if (!el || typeof IntersectionObserver === 'undefined') {
+      for (const t of turns) if (t.kind === 'reply' && t.author !== 'person' && t.seq !== null) p.onReplyVisible(t.seq);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const seq = Number((e.target as HTMLElement).dataset.seq);
+          if (Number.isFinite(seq)) p.onReplyVisible(seq);
+        }
+      },
+      { root: el, threshold: 0.5 },
+    );
+    el.querySelectorAll<HTMLElement>('[data-seq]').forEach((n) => io.observe(n));
+    return () => io.disconnect();
+  }, [turns.length, p.onReplyVisible]);
+
+  const delivered = (t: Turn) => p.thread?.delivered.has(t.id) ?? false;
+  const shown = turns.filter((t) => t.kind === 'discussion' || t.kind === 'reply');
+  const empty = shown.length === 0 && pending.length === 0;
+
+  const submit = () => {
+    // Read the field itself: a fast Enter can arrive before the re-render.
+    const body = field.current?.value ?? text;
+    if (!p.canSend || body.trim() === '') return;
+    p.onSend(body, files);
+    setText('');
+    setFiles([]);
+    setError(null);
+  };
+
+  const pick = (list: FileList | null) => {
+    if (!list) return;
+    const next = [...files];
+    for (const f of Array.from(list)) {
+      if (p.uploadCap !== null && f.size > p.uploadCap) {
+        setError(`${f.name} is larger than the ${formatSize(p.uploadCap)} limit. Nothing was sent.`);
+        continue;
+      }
+      if (next.some((x) => x.name === f.name)) continue;
+      next.push({ id: crypto.randomUUID(), name: f.name, size: f.size, file: f });
+    }
+    setFiles(next);
+  };
+
+  return (
+    <section class="chat" aria-label="Chat">
+      <header class="chat-head">
+        {p.phone && (
+          <button type="button" class="icon-btn" aria-label={p.closeLabel} onClick={p.onClose}>
+            <Icon name="back" />
+          </button>
+        )}
+        <h2 class="chat-title">Chat</h2>
+        {!p.phone && (
+          <button type="button" class="icon-btn" aria-label={p.closeLabel} onClick={p.onClose}>
+            <Icon name="chev" />
+          </button>
+        )}
+      </header>
+      <div class="turns" ref={list}>
+        {!p.available && <p class="chat-empty">Chat is not available yet.</p>}
+        {p.available && !p.message.chat && (
+          <p class="chat-empty">
+            <Icon name="chat" />
+            {p.sender} did not open a chat for this message.
+          </p>
+        )}
+        {p.available && p.message.chat && empty && p.open && (
+          <p class="chat-empty">
+            <Icon name="chat" />
+            Ask {p.sender} about this message.
+          </p>
+        )}
+        {shown.map((t) => {
+          const mine = t.author === 'person';
+          return (
+            <div
+              key={t.id}
+              class={mine ? 'turn turn--me' : 'turn'}
+              data-seq={!mine && t.kind === 'reply' && t.seq !== null ? t.seq : undefined}
+            >
+              <span class="who">{mine ? 'You' : p.sender}</span>
+              <span class="turn-text">{t.text}</span>
+              {t.files.map((f) => (
+                <FileRow key={f.name} file={f} download={p.attachments} fileHref={p.fileHref} />
+              ))}
+              {mine && (
+                <span class="turn-st">
+                  {delivered(t) ? (
+                    <>
+                      <Icon name="check" />
+                      Delivered
+                    </>
+                  ) : (
+                    'Sent'
+                  )}
+                </span>
+              )}
+            </div>
+          );
+        })}
+        {pending.map((s) => (
+          <div key={s.op_id} class="turn turn--me">
+            <span class="who">You</span>
+            <span class="turn-text">{s.text}</span>
+            {s.files.map((f) => (
+              <FileRow key={f.id} file={{ name: f.name, size: f.size }} download={false} fileHref={p.fileHref} />
+            ))}
+            <span class={s.state === 'failed' ? 'turn-st turn-st--bad' : 'turn-st'}>
+              {s.state === 'sending' && 'Sending'}
+              {s.state === 'sent' && 'Sent'}
+              {s.state === 'closed' && 'Not sent. This chat is closed.'}
+              {s.state === 'failed' && (
+                <>
+                  <Icon name="warn" />
+                  {s.reason?.startsWith('upload_cap_exceeded') ? 'Not sent. A file is over the size limit.' : 'Not sent.'}
+                  <button type="button" class="link-btn" onClick={() => p.onRetry(s.op_id)}>
+                    Retry
+                  </button>
+                </>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      {error && (
+        <p class="chat-error" role="alert">
+          {error}
+        </p>
+      )}
+      {p.available && p.message.chat && !p.open && (
+        <p class="chat-closed">This chat is closed. You can still read it and download its files.</p>
+      )}
+      {p.available && p.message.chat && p.open && (
+        <div class="composer-wrap">
+          {files.length > 0 && (
+            <div class="pending-files">
+              {files.map((f) => (
+                <FileRow
+                  key={f.id}
+                  file={{ name: f.name, size: f.size }}
+                  download={false}
+                  fileHref={p.fileHref}
+                  onRemove={() => setFiles(files.filter((x) => x.id !== f.id))}
+                />
+              ))}
+            </div>
+          )}
+          <form
+            class="composer"
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit();
+            }}
+          >
+            {p.attachments && (
+              <>
+                <button
+                  type="button"
+                  class="square"
+                  aria-label="Attach a file"
+                  disabled={!p.canSend}
+                  onClick={() => picker.current?.click()}
+                >
+                  <Icon name="plus" />
+                </button>
+                <input
+                  ref={picker}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    pick((e.currentTarget as HTMLInputElement).files);
+                    (e.currentTarget as HTMLInputElement).value = '';
+                  }}
+                />
+              </>
+            )}
+            <textarea
+              ref={field}
+              class="compose-field"
+              rows={1}
+              placeholder="Write a message…"
+              aria-label="Write a message"
+              value={text}
+              disabled={!p.canSend}
+              onInput={(e) => {
+                const el = e.currentTarget as HTMLTextAreaElement;
+                setText(el.value);
+                el.style.height = 'auto';
+                el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
+            />
+            <button type="submit" class="square square--send" aria-label="Send message" disabled={!p.canSend || text.trim() === ''}>
+              <Icon name="send" />
+            </button>
+          </form>
+        </div>
+      )}
+    </section>
+  );
+}
