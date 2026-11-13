@@ -147,3 +147,20 @@ describe('relay session', () => {
     await until(() => store2.state.connection === 'inactive');
   });
 });
+
+describe('view catch-up', () => {
+  it('pages in every message the view lists as soon as the connection is ready, without scrolling', async () => {
+    // 25 newer requests fill the first page; older listed requests sit on page two.
+    await post('bulk', { count: 25 });
+    const store = new Store();
+    const s = session(store);
+    s.start();
+    await until(() => store.state.connection === 'connected');
+    await until(() => {
+      const items = store.state.view?.listItems ?? [];
+      return items.length > 0 && items.every((it) => store.state.messages.has(it.key));
+    });
+    expect(store.state.messages.has(LISBON)).toBe(true);
+    s.stop();
+  });
+});

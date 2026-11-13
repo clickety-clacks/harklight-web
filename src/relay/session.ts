@@ -62,7 +62,9 @@ export class RelaySession {
   private attempt = 0;
   private stopped = false;
   private ready = false;
-  private paging = false;
+  /** The page load in flight, so callers can wait for it instead of skipping. */
+  private paging: Promise<void> | null = null;
+  private filling = false;
   private convAckScheduled = false;
   private viewFetchPending = false;
   private resyncingConversation = false;
@@ -145,6 +147,9 @@ export class RelaySession {
         s.connection = 'connected';
       });
       void this.afterConnect(conn);
+      // Bootstrap fetched the view before the connection was ready; page in
+      // whatever it lists now.
+      void this.fillForView();
     } catch (e) {
       if (e instanceof ConnectionClosed) return; // onClosed decides what happens next
       if (e instanceof InactiveAccount) {
@@ -296,8 +301,9 @@ export class RelaySession {
     this.store.update((s) => {
       s.view = view;
     });
-    // Load older pages until every message the view lists is held.
-    void this.fillForView();
+    // Load older pages until every message the view lists is held. During
+    // bootstrap this waits for the connection to be ready (see connect).
+    if (this.ready) void this.fillForView();
   }
 
   /** After connecting: settle anything this tab sent before the drop. */
@@ -337,6 +343,16 @@ export class RelaySession {
 
   /** Page in older messages until every message the view lists is held. */
   private async fillForView(): Promise<void> {
+    if (this.filling) return; // the running fill re-reads the view each page
+    this.filling = true;
+    try {
+      await this.fillLoop();
+    } finally {
+      this.filling = false;
+    }
+  }
+
+  private async fillLoop(): Promise<void> {
     for (;;) {
       const view = this.store.state.view;
       const missing = view?.listItems?.some((it) => !this.store.state.messages.has(it.key)) ?? false;
@@ -349,12 +365,20 @@ export class RelaySession {
 
   /** Load the next older inbox page, if the Server has one. */
   async loadMore(): Promise<void> {
+    if (this.paging) return this.paging; // wait for the page already loading
     const conn = this.conn;
-    if (!conn || !this.ready || !this.nextCursor || this.paging) return;
-    this.paging = true;
+    if (!conn || !this.ready || !this.nextCursor) return;
+    this.paging = this.loadPage(conn).finally(() => {
+      this.paging = null;
+    });
+    return this.paging;
+  }
+
+  private async loadPage(conn: Connection): Promise<void> {
     try {
       const ref = `page-${uuid()}`;
-      const r = await this.req(conn, 
+      const r = await this.req(
+        conn,
         { v: 1, type: 'inbox_page', paging_version: 1, snapshot_id: this.snapshotId, cursor: this.nextCursor, ref },
         byRef(ref),
       );
@@ -366,8 +390,6 @@ export class RelaySession {
       });
     } catch {
       // A dropped connection resumes on reconnect.
-    } finally {
-      this.paging = false;
     }
   }
 
