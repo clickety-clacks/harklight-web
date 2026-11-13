@@ -10,7 +10,7 @@ export default defineConfig({
   use: { baseURL: `http://127.0.0.1:${PORT}`, trace: 'retain-on-failure' },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: `node dev/fake-server.mjs --port ${PORT} --flags attachments --upload-cap 2000000`,
+    command: `node dev/fake-server.mjs --port ${PORT} --flags attachments,answer-forms --upload-cap 2000000`,
     url: `http://127.0.0.1:${PORT}/inbox`,
     reuseExistingServer: false,
   },

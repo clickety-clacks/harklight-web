@@ -62,6 +62,8 @@ export interface HeldMessage extends MessageKey {
   acceptedSeq: number;
   terminal: Terminal | null;
   files: WireFile[];
+  /** Revision 1's files, which custom answer forms' images name. */
+  firstFiles: WireFile[];
   /** The agent opened a chat for this message (delivery carries session_handle). */
   chat: boolean;
 }

@@ -13,14 +13,17 @@ import {
   type Choice,
 } from '../state/message';
 import type { LocalAnswer } from '../state/store';
-import type { HeldMessage, Json } from '../state/types';
+import type { HeldMessage, Json, WireFile } from '../state/types';
+import { compose, emptyDraft, summarize, terminalScene, type Draft } from '../ui1/form';
+import { Scene } from '../ui1/Ui1Form';
 import { FileRow } from './FileRow';
 import { Icon } from './Icon';
 
 export type AnswerChoice =
   | { kind: 'value'; choice: Choice }
   | { kind: 'text'; choice: Choice; text: string }
-  | { kind: 'no_comment' };
+  | { kind: 'no_comment' }
+  | { kind: 'ui1'; answer: unknown; summary: string };
 
 export interface DetailProps {
   message: HeldMessage;
@@ -31,6 +34,9 @@ export interface DetailProps {
   chatButton: boolean;
   phone: boolean;
   attachments: boolean;
+  /** Draw custom answer forms (attention-client.ui/1). */
+  answerForms: boolean;
+  imageUrl: (f: WireFile) => Promise<string | null>;
   canAct: boolean;
   onPrev: (() => void) | null;
   onNext: (() => void) | null;
@@ -44,10 +50,12 @@ export interface DetailProps {
 export function Detail(p: DetailProps) {
   const m = p.message;
   const type = messageType(m.payload);
-  const form = answerForm(m.payload);
+  const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name) });
   const sender = senderLabel(m);
   const [picked, setPicked] = useState<string | null>(null);
   const [text, setText] = useState('');
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const local = p.local;
   const sending = local?.state === 'sending';
@@ -62,14 +70,29 @@ export function Detail(p: DetailProps) {
 
   const choices = form.kind === 'choices' ? form.choices : [];
   const pickedChoice = choices.find((c) => c.id === picked) ?? null;
+  // A custom form's checkmark stays on while the message is open; what is
+  // missing is said when it is pressed, as on the phone.
   const ready =
     picked === 'no_comment' ||
+    form.kind === 'ui1' ||
     (pickedChoice !== null && (pickedChoice.kind === 'value' || text.trim() !== ''));
 
   const commit = () => {
     if (!ready || !canAnswer) return;
     if (picked === 'no_comment') p.onAnswer({ kind: 'no_comment' });
-    else if (pickedChoice?.kind === 'value') p.onAnswer({ kind: 'value', choice: pickedChoice });
+    else if (form.kind === 'ui1') {
+      const c = compose(form.doc, draft);
+      if (!c.ok) {
+        setFormError(
+          c.reason === 'incomplete'
+            ? 'Complete the response before sending your answer.'
+            : 'This answer is too large to send.',
+        );
+        return;
+      }
+      setFormError(null);
+      p.onAnswer({ kind: 'ui1', answer: c.answer, summary: summarize(form.doc, draft) });
+    } else if (pickedChoice?.kind === 'value') p.onAnswer({ kind: 'value', choice: pickedChoice });
     else if (pickedChoice) {
       // Read the field itself: a fast send can arrive before the re-render.
       const typed = document.querySelector<HTMLTextAreaElement>('.rc-pane')?.value ?? text;
@@ -123,7 +146,7 @@ export function Detail(p: DetailProps) {
             <button
               type="button"
               class="tool tool--square tool--commit"
-              aria-label="Send answer"
+              aria-label={form.kind === 'ui1' ? String((form.doc.submission as Record<string, unknown>).label) : 'Send answer'}
               disabled={!ready || !canAnswer}
               onClick={commit}
             >
@@ -231,6 +254,50 @@ export function Detail(p: DetailProps) {
                 compact={writing}
                 disabled={!canAnswer}
                 onPick={() => setPicked('no_comment')}
+              />
+            </div>
+          )}
+          {open && form.kind === 'ui1' && (
+            <div class="u-form">
+              <Scene
+                node={form.doc.open as Record<string, unknown>}
+                ctx={{
+                  doc: form.doc,
+                  draft,
+                  onDraft: canAnswer
+                    ? (d) => {
+                        setDraft(d);
+                        if (picked === 'no_comment') setPicked(null);
+                      }
+                    : null,
+                  files: m.firstFiles,
+                  imageUrl: p.imageUrl,
+                }}
+              />
+              <div class="choices" role="radiogroup" aria-label="No comment">
+                <ChoiceCard
+                  choice={{ id: 'no_comment', label: 'No comment', kind: 'value', suggested: false }}
+                  on={picked === 'no_comment'}
+                  compact={false}
+                  disabled={!canAnswer}
+                  onPick={() => {
+                    setPicked('no_comment');
+                    setDraft({ ...draft, selected: {} });
+                  }}
+                />
+              </div>
+              {formError && (
+                <p class="msg-note msg-note--bad" role="alert">
+                  {formError}
+                </p>
+              )}
+            </div>
+          )}
+          {form.kind === 'ui1' && m.terminal && !answered && !seenDone && !m.terminal.retracted && (
+            <div class="u-form">
+              <Scene
+                node={terminalScene(form.doc, m.terminal.state)}
+                ctx={{ doc: form.doc, draft: emptyDraft(), onDraft: null, files: m.firstFiles, imageUrl: p.imageUrl }}
               />
             </div>
           )}

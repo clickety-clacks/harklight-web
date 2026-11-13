@@ -15,7 +15,7 @@ async function openInbox(page: Page) {
 test('lists the inbox and opens a message, reporting the open', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
-  await expect(page.getByTestId('row')).toHaveCount(6);
+  await expect(page.getByTestId('row')).toHaveCount(8);
   await page.getByText('Which hotel should I book for Lisbon?').first().click();
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await expect.poll(async () => (await control(page, 'state')).opens).toBe(1);
@@ -182,4 +182,35 @@ test('with the web client off for customers, the page opens no connection; #prev
   await expect(page).toHaveURL(/\/inbox$/);
   await page.goto('/inbox#preview-off');
   await expect(page.getByRole('heading', { name: 'Harklight in the browser is coming soon' })).toBeVisible();
+});
+
+test('answers a custom form: marks a point on the floor plan and adds a note', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openInbox(page);
+  await page.getByText('Where should the repair crew start?').first().click();
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  await send.click();
+  await expect(page.getByRole('alert')).toHaveText('Complete the response before sending your answer.');
+  const plan = page.getByRole('img', { name: /Floor plan/ });
+  const box = (await plan.boundingBox())!;
+  await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.5);
+  await expect(page.getByText(/Horizontal 25\d, vertical 500/)).toBeVisible();
+  await page.getByPlaceholder('Note').fill('Start by the door');
+  await send.click();
+  await expect(page.getByTestId('answered')).toContainText('Start by the door');
+  const answer = (await control(page, 'state')).lastAnswer.answer;
+  expect(answer.note).toBe('Start by the door');
+  expect(answer.drawingRevision).toBe(7);
+  expect(answer.point.y).toBe(500);
+});
+
+test('answers a custom form with pictures: picks a cover', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openInbox(page);
+  await page.getByText('Which cover for the November issue?').first().click();
+  await expect(page.locator('svg image')).toHaveCount(1);
+  await page.getByRole('radio', { name: /Use cover B/ }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByTestId('answered')).toContainText('Use cover B');
+  expect((await control(page, 'state')).lastAnswer.answer).toEqual({ cover: 'B' });
 });

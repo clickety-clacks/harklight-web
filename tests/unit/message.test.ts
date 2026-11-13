@@ -8,7 +8,7 @@ const seen = {
 };
 
 function held(payload: JsonObject, terminal: HeldMessage['terminal'] = null): HeldMessage {
-  return { sender_id: 'agent:x', message_id: 'm', payload, revision: 1, acceptedSeq: 1, terminal, files: [], chat: true };
+  return { sender_id: 'agent:x', message_id: 'm', payload, revision: 1, acceptedSeq: 1, terminal, files: [], firstFiles: [], chat: true };
 }
 
 describe('message type', () => {

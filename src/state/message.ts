@@ -2,6 +2,8 @@
 // answer controls and its status. Pure functions over the payload the Server
 // delivered, so they are easy to test.
 
+import { sameJson } from '../relay/json';
+import { UI1_SCHEMA, validateUi1 } from '../ui1/validate';
 import type { HeldMessage, Json, JsonObject } from './types';
 
 export type MessageType = 'request' | 'info' | 'done' | 'warn' | 'error';
@@ -21,6 +23,8 @@ export type AnswerForm =
   | { kind: 'seen'; value: Json }
   /** Choices and/or a text reply, sent with the checkmark. */
   | { kind: 'choices'; choices: Choice[] }
+  /** A custom answer form (attention-client.ui/1) that passed the grammar. */
+  | { kind: 'ui1'; doc: JsonObject }
   /** An answer format this client does not draw. No comment stays offered. */
   | { kind: 'unsupported' };
 
@@ -44,7 +48,11 @@ export function seenValue(payload: JsonObject): Json | null {
   return a.value as Json;
 }
 
-export function answerForm(payload: JsonObject): AnswerForm {
+/**
+ * How the message is answered. Custom forms are drawn only when `forms` is
+ * on and the form passes the grammar against revision 1's file names.
+ */
+export function answerForm(payload: JsonObject, forms?: { enabled: boolean; fileNames: string[] }): AnswerForm {
   const seen = seenValue(payload);
   if (seen !== null) return { kind: 'seen', value: seen };
   if (!('answer_ui' in payload)) {
@@ -52,6 +60,14 @@ export function answerForm(payload: JsonObject): AnswerForm {
     return { kind: 'choices', choices: [{ id: 'reply', label: 'Reply', kind: 'text', suggested: false }] };
   }
   const ui = payload.answer_ui;
+  if (isObject(ui) && ui.schema === UI1_SCHEMA && forms?.enabled) {
+    try {
+      validateUi1(ui, forms.fileNames);
+      return { kind: 'ui1', doc: ui };
+    } catch {
+      return { kind: 'unsupported' };
+    }
+  }
   if (!isObject(ui) || ui.schema !== ACTIONS_SCHEMA || !Array.isArray(ui.actions)) {
     return { kind: 'unsupported' };
   }
@@ -83,9 +99,7 @@ export function answerForm(payload: JsonObject): AnswerForm {
   return { kind: 'choices', choices };
 }
 
-export function sameJson(a: Json, b: Json): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
+export { sameJson } from '../relay/json';
 
 /**
  * The five message types of the design. The wire has `message_type` (request

@@ -5,7 +5,8 @@ import { fileUrl } from '../relay/files';
 import { rows as rowsFor, type Tab } from '../state/inbox';
 import { answerForm, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
-import type { Json } from '../state/types';
+import type { Json, WireFile } from '../state/types';
+import { imageUrlFor } from './images';
 import { Chat } from './Chat';
 import { Detail, type AnswerChoice } from './Detail';
 import { Icon } from './Icon';
@@ -113,6 +114,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
     if (!message) return;
     if (a.kind === 'no_comment') void session.noComment(message);
     else if (a.kind === 'value') void session.answer(message, a.choice.value as Json, a.choice.label);
+    else if (a.kind === 'ui1') void session.answer(message, a.answer as Json, a.summary);
     else void session.answer(message, a.text, a.text);
   };
   // Seen sends JSON null, as the browser contract fixes (D-3).
@@ -135,6 +137,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const chatVisible = message ? (layout === 'wide' ? !chatHiddenWide || chatShown : chatShown) : false;
   const sender = message ? senderLabel(message) : '';
   const fileHref = (id: string) => fileUrl(config.filesPath, id);
+  const imageUrl = (f: WireFile) => imageUrlFor(f, config);
 
   const list = (
     <InboxList
@@ -168,6 +171,8 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       chatButton={!chatVisible}
       phone={phone}
       attachments={config.flags.attachments}
+      answerForms={config.flags.answerForms}
+      imageUrl={imageUrl}
       canAct={s.connection === 'connected'}
       onPrev={index > 0 ? () => open(rows[index - 1].key) : null}
       onNext={index >= 0 && index < rows.length - 1 ? () => open(rows[index + 1].key) : null}

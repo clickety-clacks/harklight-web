@@ -123,3 +123,124 @@ export function fixture(now) {
     },
   ];
 }
+
+const COVER_PNG = 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAYCAIAAAAH5iiXAAAAL0lEQVR4nGOI6jmBBz07UYEHUaKXYdTiUYtHLR61eNTiUYtHLR61eNTiUYuHj8UAUF0t6nxPFLMAAAAASUVORK5CYII=';
+
+/** Custom answer forms (attention-client.ui/1), drawn only with the answerForms flag. */
+export function formFixture(now) {
+  return [
+    {
+      message: {
+        sender_id: 'agent:facilities',
+        message_id: 'repair',
+        display_name: 'Facilities agent',
+        created_at: at(now, 0, 7, 30),
+        title: 'Where should the repair crew start?',
+        body: 'Mark the spot on the floor plan and add a note for the crew.',
+        message_type: 'request',
+        answer_ui: {
+          schema: 'attention-client.ui/1',
+          requires: ['scene/1', 'result/1', 'illustration/1', 'point/1', 'text/1'],
+          illustrations: [
+            {
+              id: 'floor-plan',
+              label: 'Floor plan with a door at the lower left, partition and desk at upper right',
+              width: 300,
+              height: 180,
+              primitives: [
+                { kind: 'rect', x: 0, y: 0, width: 300, height: 180, fill: '#EDF0E9' },
+                { kind: 'line', x1: 10, y1: 10, x2: 290, y2: 10, stroke: '#38535E', strokeWidth: 4 },
+                { kind: 'line', x1: 290, y1: 10, x2: 290, y2: 170, stroke: '#38535E', strokeWidth: 4 },
+                { kind: 'line', x1: 290, y1: 170, x2: 90, y2: 170, stroke: '#38535E', strokeWidth: 4 },
+                { kind: 'line', x1: 10, y1: 170, x2: 10, y2: 10, stroke: '#38535E', strokeWidth: 4 },
+                { kind: 'line', x1: 150, y1: 10, x2: 150, y2: 100, stroke: '#38535E', strokeWidth: 4 },
+                { kind: 'rect', x: 190, y: 30, width: 70, height: 40, fill: '#7795A3' },
+                { kind: 'text', x: 30, y: 155, text: 'Door', fill: '#38535E', fontSize: 16, align: 'start' },
+              ],
+            },
+          ],
+          inputs: [
+            { kind: 'point', id: 'location', label: 'Repair location', illustration: 'floor-plan' },
+            { kind: 'text', id: 'note', label: 'Note' },
+          ],
+          open: {
+            kind: 'stack',
+            axis: 'vertical',
+            children: [
+              { kind: 'text', text: 'Mark the repair location', style: 'title' },
+              { kind: 'input', id: 'location', layout: 'diagram' },
+              { kind: 'input', id: 'note', layout: 'editor' },
+            ],
+          },
+          resolved: { kind: 'text', text: 'Location request closed', style: 'title' },
+          submission: {
+            label: 'Send',
+            result: {
+              kind: 'object',
+              members: [
+                { name: 'point', value: { kind: 'input', id: 'location' } },
+                { name: 'note', value: { kind: 'input', id: 'note' } },
+                { name: 'drawingRevision', value: { kind: 'literal', value: 7 } },
+              ],
+            },
+          },
+        },
+      },
+    },
+    {
+      message: {
+        sender_id: 'agent:design',
+        message_id: 'cover',
+        display_name: 'Design agent',
+        created_at: at(now, 0, 7, 10),
+        title: 'Which cover for the November issue?',
+        body: 'Both drafts use the same headline.',
+        message_type: 'request',
+        answer_ui: {
+          schema: 'attention-client.ui/1',
+          requires: ['scene/1', 'result/1', 'illustration/1', 'image/1', 'response/1'],
+          illustrations: [
+            {
+              id: 'cover-a',
+              label: 'Cover A, blue stripes',
+              width: 400,
+              height: 240,
+              primitives: [
+                { kind: 'rect', x: 0, y: 0, width: 400, height: 240, fill: '#DDE4EE' },
+                { kind: 'image', x: 0, y: 0, width: 400, height: 240, file: 'cover-a.png' },
+                { kind: 'text', x: 200, y: 230, text: 'Cover A', fill: '#101725', fontSize: 22, align: 'middle' },
+              ],
+            },
+            {
+              id: 'cover-b',
+              label: 'Cover B, plain amber',
+              width: 400,
+              height: 240,
+              primitives: [
+                { kind: 'rect', x: 0, y: 0, width: 400, height: 240, fill: '#F2D9A6' },
+                { kind: 'circle', cx: 200, cy: 110, r: 60, fill: '#C9822B' },
+                { kind: 'text', x: 200, y: 230, text: 'Cover B', fill: '#101725', fontSize: 22, align: 'middle' },
+              ],
+            },
+          ],
+          inputs: [
+            {
+              kind: 'response',
+              id: 'cover',
+              label: 'Choose a cover',
+              actions: [
+                { id: 'a', label: 'Use cover A', kind: 'value', value: { cover: 'A' }, illustration: 'cover-a' },
+                { id: 'b', label: 'Use cover B', kind: 'value', value: { cover: 'B' }, illustration: 'cover-b' },
+                { id: 'other', label: 'Something else', kind: 'text' },
+              ],
+            },
+          ],
+          open: { kind: 'input', id: 'cover', layout: 'cards' },
+          resolved: { kind: 'text', text: 'Cover chosen', style: 'body' },
+          submission: { label: 'Send', result: { kind: 'input', id: 'cover' } },
+        },
+      },
+      files: [{ name: 'cover-a.png', tier: 'inline', size: 104, sha256: 'bd5b8be61a1301a927de593c92723a13647345f96d55ce493b2141d4ce80ee38', data_base64: COVER_PNG }],
+    },
+  ];
+}

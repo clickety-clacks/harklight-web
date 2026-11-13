@@ -11,6 +11,9 @@ export interface Flags {
    * Server's browser file routes are live. Off shows a file's name and size
    * only and offers no attach control (D-7f). */
   attachments: boolean;
+  /** Custom answer forms (attention-client.ui/1). Off shows "answer it on
+   * your iPhone" and No comment. */
+  answerForms: boolean;
 }
 
 export interface Config {
@@ -49,7 +52,7 @@ export const DEFAULT_CONFIG: Config = {
   componentsPath: '/components',
   devicesPath: '/devices',
   accountInfoPath: '',
-  flags: { webClient: false, attachments: false },
+  flags: { webClient: false, attachments: false, answerForms: false },
 };
 
 export function mergeConfig(base: Config, override: unknown): Config {

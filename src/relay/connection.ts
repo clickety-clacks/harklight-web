@@ -1,3 +1,5 @@
+import { parse, stringify } from './json';
+
 // One browser connection to the Server's relay (contract B-1). It sends one
 // request at a time and hands every unsolicited frame to the listener, the way
 // the iPhone app holds its socket for one exchange at a time.
@@ -108,7 +110,7 @@ export class Connection {
   /** Send a frame whose reply nobody waits for. */
   send(frame: Frame): void {
     if (this.closedWith || this.socket.readyState !== 1) return;
-    this.socket.send(JSON.stringify(frame) + '\n');
+    this.socket.send(stringify(frame) + '\n');
   }
 
   private pump(): void {
@@ -116,7 +118,7 @@ export class Connection {
     const next = this.queue.shift();
     if (!next) return;
     this.current = next;
-    this.socket.send(JSON.stringify(next.frame) + '\n');
+    this.socket.send(stringify(next.frame) + '\n');
   }
 
   /** Called once the socket opens so queued requests go out. */
@@ -128,7 +130,7 @@ export class Connection {
     if (typeof data !== 'string') return;
     let f: Frame;
     try {
-      f = JSON.parse(data);
+      f = parse(data) as Frame;
     } catch {
       return;
     }

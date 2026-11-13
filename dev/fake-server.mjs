@@ -12,7 +12,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { WebSocketServer } from 'ws';
-import { fixture } from './fixture.mjs';
+import { fixture, formFixture } from './fixture.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -28,7 +28,7 @@ const INLINE_LIMIT = 262_144;
 
 // ---------- account state ----------
 
-export function createWorld(now = Date.now()) {
+export function createWorld(now = Date.now(), forms = false) {
   const w = {
     seq: 0,
     convSeq: 0,
@@ -43,7 +43,7 @@ export function createWorld(now = Date.now()) {
     inactive: false,
     displayName: 'Dana Reyes',
   };
-  for (const m of fixture(now)) addMessage(w, m.message, m);
+  for (const m of [...(forms ? formFixture(now) : []), ...fixture(now)]) addMessage(w, m.message, m);
   return w;
 }
 
@@ -456,7 +456,8 @@ function json(res, status, body) {
 }
 
 export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIST, flags = FLAGS } = {}) {
-  let world = createWorld();
+  const forms = flags.includes('answer-forms');
+  let world = createWorld(Date.now(), forms);
   let webClient = !flags.includes('customer-off');
   let viteServer = null;
   if (vite) {
@@ -473,7 +474,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       if (p === '/app/config.json')
         return json(res, 200, {
           accountInfoPath: '/__fake/me',
-          flags: { webClient, attachments: flags.includes('attachments') },
+          flags: { webClient, attachments: flags.includes('attachments'), answerForms: flags.includes('answer-forms') },
         });
       if (p === '/sign-out' && req.method === 'POST') {
         const body = (await readBody(req)).toString();
@@ -559,7 +560,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         return json(res, 200, { ok: true });
       case 'reset':
         webClient = !flags.includes('customer-off');
-        world = createWorld(body.now ?? Date.now());
+        world = createWorld(body.now ?? Date.now(), forms);
         relay.dropAll();
         return json(res, 200, { ok: true });
       case 'state':

@@ -15,7 +15,7 @@ const WIDTHS = [
 ];
 const MODES = ['dark', 'light'];
 
-const server = await startFakeServer({ port: 0, vite: false, dist: 'dist', flags: ['attachments'] });
+const server = await startFakeServer({ port: 0, vite: false, dist: 'dist', flags: ['attachments', 'answer-forms'] });
 const base = `http://127.0.0.1:${server.port}`;
 const control = (what, body = {}) =>
   fetch(`${base}/__fake/${what}`, { method: 'POST', body: JSON.stringify(body) }).then((r) => r.json());
@@ -122,6 +122,22 @@ for (const [layout, w, h] of WIDTHS) {
     ]);
     await p.getByRole('alert').waitFor();
     await shot(p, '16-chat-file-too-large', layout, mode);
+    await ctx.close();
+
+    // Custom answer forms
+    await control('reset');
+    ({ ctx, p } = await page(w, h, mode));
+    await open(p, 'Where should the repair crew start?');
+    const plan = p.getByRole('img', { name: /Floor plan/ });
+    await plan.scrollIntoViewIfNeeded();
+    const box = await plan.boundingBox();
+    await p.mouse.click(box.x + box.width * 0.62, box.y + box.height * 0.7);
+    await p.getByPlaceholder('Note').fill('Start by the desk, the leak is under it');
+    await shot(p, '19-form-point', layout, mode);
+    if (phone) await p.getByRole('button', { name: 'Back to inbox' }).click();
+    await open(p, 'Which cover for the November issue?');
+    await p.getByRole('radio', { name: /Use cover A/ }).click();
+    await shot(p, '20-form-pictures', layout, mode);
     await ctx.close();
 
     // Settings and sign out

@@ -879,3 +879,123 @@ a.grow:hover .grow-l {
 .dialog form {
   display: contents;
 }
+
+/* ---------- custom answer forms (attention-client.ui/1) ---------- */
+
+.u-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.u-vstack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+.u-hstack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+.u-hstack > * {
+  flex: 1 1 auto;
+  min-width: 44px;
+}
+.u-grid {
+  display: grid;
+  gap: 12px;
+  /* At most --cols columns, each at least 150 wide, as on the phone. */
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(max(150px, calc((100% - (var(--cols) - 1) * 12px) / var(--cols))), 1fr)
+  );
+  align-items: start;
+}
+.u-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.u-text--title {
+  font-family: var(--serif);
+  font-size: 20.8px;
+  line-height: 1.3;
+}
+.u-text--body {
+  font-size: 16px;
+}
+.u-text--caption,
+.u-caption {
+  font-size: 12.8px;
+  color: var(--muted);
+}
+.u-input {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.u-label {
+  font-weight: 500;
+}
+.u-field {
+  width: 100%;
+  min-height: 96px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  color: var(--fg);
+  font: 16px/1.5 var(--sans);
+  resize: vertical;
+}
+.u-field:focus {
+  border-color: var(--focus);
+}
+.u-ill {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.u-ill--pick {
+  cursor: crosshair;
+  touch-action: none;
+}
+.u-svg-text {
+  font-family: var(--sans);
+}
+.u-img-loading {
+  fill: rgba(128, 128, 128, 0.16);
+}
+.u-img-missing {
+  fill: rgba(128, 128, 128, 0.32);
+}
+.u-img-missing-text {
+  fill: var(--fg);
+  font-family: var(--sans);
+}
+.u-marker line {
+  stroke: var(--sky);
+  stroke-width: calc(2px * var(--s));
+}
+.u-marker circle {
+  fill: #fff;
+  stroke: var(--sky);
+  stroke-width: calc(2px * var(--s));
+}
+.choice-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+.choice-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.choice--text {
+  border-style: dashed;
+}

@@ -203,6 +203,7 @@ export function applyDelivery(s: State, ev: Record<string, unknown>): boolean {
     acceptedSeq: Math.max(prev?.acceptedSeq ?? 0, seq),
     terminal: prev?.terminal ?? null,
     files: prev && prev.revision > 1 ? prev.files : parseFiles(ev.files),
+    firstFiles: parseFiles(ev.files),
     chat: typeof ev.session_handle === 'string' || (prev?.chat ?? false),
   });
   // A retraction can ride on the delivery.
