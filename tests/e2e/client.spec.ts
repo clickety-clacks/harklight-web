@@ -205,6 +205,18 @@ test('answers a custom form: marks a point on the floor plan and adds a note', a
   expect(answer.note).toBe('Start by the door');
   expect(answer.drawingRevision).toBe(7);
   expect(answer.point.y).toBe(500);
+  // The form's closing scene shows under the Answered card.
+  await expect(page.getByText('Location request closed')).toBeVisible();
+});
+
+test('a custom form answered with No comment shows its closing scene under the card', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openInbox(page);
+  await openRow(page, 'Which cover for the November issue?');
+  await page.getByRole('radio', { name: 'No comment' }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByTestId('answered')).toContainText('No comment');
+  await expect(page.getByText('Cover chosen')).toBeVisible();
 });
 
 test('answers a custom form with pictures: picks a cover', async ({ page }) => {

@@ -293,10 +293,12 @@ export function Detail(p: DetailProps) {
               )}
             </div>
           )}
-          {form.kind === 'ui1' && m.terminal && !answered && !seenDone && !m.terminal.retracted && (
+          {/* A closed custom form shows its declared closing scene, under the
+              Answered or No comment card when there is one. */}
+          {form.kind === 'ui1' && (m.terminal || answered) && !seenDone && !m.terminal?.retracted && (
             <div class="u-form">
               <Scene
-                node={terminalScene(form.doc, m.terminal.state)}
+                node={terminalScene(form.doc, m.terminal?.state ?? (local?.noComment ? 'no_comment' : 'answered'))}
                 ctx={{ doc: form.doc, draft: emptyDraft(), onDraft: null, files: m.firstFiles, imageUrl: p.imageUrl }}
               />
             </div>
