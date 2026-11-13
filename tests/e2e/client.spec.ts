@@ -166,3 +166,20 @@ test('a dropped connection shows reconnecting and recovers', async ({ page }) =>
   await control(page, 'send', { message: { sender_id: 'agent:new', message_id: 'away', title: 'Sent while away' } });
   await expect(page.getByText('Sent while away')).toBeVisible();
 });
+
+test('with the web client off for customers, the page opens no connection; #preview turns it on in this browser', async ({ page }) => {
+  await control(page, 'web-client', { on: false });
+  let sockets = 0;
+  page.on('websocket', () => sockets++);
+  await page.goto('/inbox');
+  await expect(page.getByRole('heading', { name: 'Harklight in the browser is coming soon' })).toBeVisible();
+  await page.waitForTimeout(300);
+  expect(sockets).toBe(0);
+  expect((await control(page, 'state')).connections).toBe(0);
+
+  await page.goto('/inbox#preview');
+  await expect(page.getByTestId('row').first()).toBeVisible();
+  await expect(page).toHaveURL(/\/inbox$/);
+  await page.goto('/inbox#preview-off');
+  await expect(page.getByRole('heading', { name: 'Harklight in the browser is coming soon' })).toBeVisible();
+});

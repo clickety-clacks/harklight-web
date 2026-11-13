@@ -457,6 +457,7 @@ function json(res, status, body) {
 
 export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIST, flags = FLAGS } = {}) {
   let world = createWorld();
+  let webClient = !flags.includes('customer-off');
   let viteServer = null;
   if (vite) {
     const { createServer: createVite } = await import('vite');
@@ -469,7 +470,11 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       // test controls
       if (p === '/__fake/me') return json(res, 200, { display_name: world.displayName });
       if (p.startsWith('/__fake/')) return control(req, res, p.slice(8));
-      if (p === '/config.json') return json(res, 200, { accountInfoPath: '/__fake/me', flags: { attachments: flags.includes('attachments') } });
+      if (p === '/app/config.json')
+        return json(res, 200, {
+          accountInfoPath: '/__fake/me',
+          flags: { webClient, attachments: flags.includes('attachments') },
+        });
       if (p === '/sign-out' && req.method === 'POST') {
         const body = (await readBody(req)).toString();
         if (body !== 'confirm=sign_out') return json(res, 403, { error: 'Sign out refused' });
@@ -483,11 +488,13 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         return res.end(`<!doctype html><title>${p}</title><p>Stand-in for ${p}</p>`);
       }
       if (p.startsWith('/browser/v1')) return files(req, res, url);
+      const page = p === '/' || p === '/inbox' || p === '/settings';
       if (viteServer) {
-        if (p === '/' || p === '/inbox' || p === '/settings') req.url = '/index.html';
+        if (page) req.url = '/app/';
         return viteServer.middlewares(req, res);
       }
-      let file = join(dist, p === '/' || p === '/inbox' || p === '/settings' ? 'index.html' : p);
+      if (!page && !p.startsWith('/app/')) return json(res, 404, {});
+      let file = join(dist, page ? 'index.html' : p.slice('/app/'.length));
       if (!file.startsWith(dist)) return json(res, 404, {});
       try {
         await stat(file);
@@ -547,7 +554,11 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
   async function control(req, res, what) {
     const body = req.method === 'POST' ? JSON.parse((await readBody(req)).toString() || '{}') : {};
     switch (what) {
+      case 'web-client':
+        webClient = body.on !== false;
+        return json(res, 200, { ok: true });
       case 'reset':
+        webClient = !flags.includes('customer-off');
         world = createWorld(body.now ?? Date.now());
         relay.dropAll();
         return json(res, 200, { ok: true });

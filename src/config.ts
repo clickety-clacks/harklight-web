@@ -3,6 +3,10 @@
 // any value by serving a `config.json` next to the page.
 
 export interface Flags {
+  /** The web client itself. Off for customers until the release: the page
+   * shows a short notice and opens no connection. A tester can turn it on
+   * in their own browser with `#preview` (and off with `#preview-off`). */
+  webClient: boolean;
   /** Chat files: attach, upload and download (contract D-7). Off until the
    * Server's browser file routes are live. Off shows a file's name and size
    * only and offers no attach control (D-7f). */
@@ -45,7 +49,7 @@ export const DEFAULT_CONFIG: Config = {
   componentsPath: '/components',
   devicesPath: '/devices',
   accountInfoPath: '',
-  flags: { attachments: false },
+  flags: { webClient: false, attachments: false },
 };
 
 export function mergeConfig(base: Config, override: unknown): Config {
@@ -69,7 +73,8 @@ export function mergeConfig(base: Config, override: unknown): Config {
 
 export async function loadConfig(): Promise<Config> {
   try {
-    const res = await fetch(new URL('config.json', document.baseURI), {
+    // config.json sits next to the built files, under the build's base path.
+    const res = await fetch(`${import.meta.env.BASE_URL}config.json`, {
       credentials: 'same-origin',
       cache: 'no-store',
     });
@@ -78,4 +83,14 @@ export async function loadConfig(): Promise<Config> {
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+const PREVIEW_KEY = 'harklight.preview';
+
+/** A per-browser override of the webClient flag, for testing before release. */
+export function applyPreview(config: Config, hash: string, storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>): Config {
+  if (hash === '#preview') storage.setItem(PREVIEW_KEY, '1');
+  if (hash === '#preview-off') storage.removeItem(PREVIEW_KEY);
+  if (storage.getItem(PREVIEW_KEY) !== '1') return config;
+  return { ...config, flags: { ...config.flags, webClient: true } };
 }

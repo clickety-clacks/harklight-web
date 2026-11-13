@@ -56,8 +56,10 @@ deployment configuration.
   development and tests. When the real door behaves differently, the real door
   and the browser messaging contract win; fix the fake to match.
 - Configuration and feature flags live in `src/config.ts`. The deployment
-  overrides them with `config.json`. Flags: `attachments` (chat files) stays off
-  until the Server's browser file routes are live.
+  overrides them with `/app/config.json` (`docs/deploy.md`). Flags:
+  `webClient` stays off for customers until the full iPhone set is reviewed
+  and released; `attachments` (chat files) stays off until the Server's
+  browser file routes are live.
 - The look follows the accepted Harklight design: dark is the harklight.net
   look, light is derived from it. Shared pieces (the reply card, the answered
   card, label colours) must match the iPhone app.

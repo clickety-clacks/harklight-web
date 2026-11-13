@@ -27,9 +27,8 @@ develop and test against; it is not a Server.
 ## Configuration
 
 Every address is a path on the origin the page is served from. A deployment
-can serve `config.json` next to `index.html` to override any of them (see
-`src/config.ts`), and to turn feature flags on. Nothing in the build names a
-host.
+serves `/app/config.json` to override any of them and to turn feature flags
+on; see `docs/deploy.md`. Nothing in the build names a host.
 
 ## License
 

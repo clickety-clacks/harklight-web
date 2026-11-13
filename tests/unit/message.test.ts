@@ -89,3 +89,20 @@ describe('labels', () => {
     expect(answeredText(bare, null)).toBe(null);
   });
 });
+
+import { applyPreview, DEFAULT_CONFIG } from '../../src/config';
+
+describe('web client flag', () => {
+  function mem() {
+    const m = new Map<string, string>();
+    return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k) };
+  }
+  it('is off by default and turns on only in a browser that asked for the preview', () => {
+    expect(DEFAULT_CONFIG.flags.webClient).toBe(false);
+    const st = mem();
+    expect(applyPreview(DEFAULT_CONFIG, '', st).flags.webClient).toBe(false);
+    expect(applyPreview(DEFAULT_CONFIG, '#preview', st).flags.webClient).toBe(true);
+    expect(applyPreview(DEFAULT_CONFIG, '', st).flags.webClient).toBe(true);
+    expect(applyPreview(DEFAULT_CONFIG, '#preview-off', st).flags.webClient).toBe(false);
+  });
+});

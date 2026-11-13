@@ -267,3 +267,18 @@ function AccountNotice({ config }: { config: Config }) {
     </div>
   );
 }
+
+/** Shown while the web client is not yet released for this browser. */
+export function NotYet({ config }: { config: Config }) {
+  return (
+    <div class="page">
+      <main class="page-main notice-page">
+        <h1 class="page-title">Harklight in the browser is coming soon</h1>
+        <p>For now, read and answer your messages in the Harklight iPhone app.</p>
+        <a class="btn" href={config.accountUrl}>
+          Open your account
+        </a>
+      </main>
+    </div>
+  );
+}
