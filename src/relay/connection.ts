@@ -51,8 +51,8 @@ export interface SocketLike {
   onerror: ((ev: unknown) => void) | null;
 }
 
-/** `protocol` is empty when no subprotocol is sent. */
-export type SocketFactory = (url: string, protocol: string) => SocketLike;
+/** Opens the WebSocket. The client offers no subprotocol (contract B-1). */
+export type SocketFactory = (url: string) => SocketLike;
 
 export interface ConnectionListener {
   /** An unsolicited frame, in arrival order. */
@@ -69,11 +69,10 @@ export class Connection {
 
   constructor(
     url: string,
-    protocol: string,
     factory: SocketFactory,
     private listener: ConnectionListener,
   ) {
-    this.socket = factory(url, protocol);
+    this.socket = factory(url);
     this.opened = new Promise((resolve, reject) => {
       this.socket.onopen = () => resolve();
       this.socket.onclose = (ev) => {

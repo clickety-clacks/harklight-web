@@ -242,6 +242,7 @@ function attachRelay(server, getWorld) {
       const w = getWorld();
       if (!w.sessionLive) return ws.close(4401, 'session_ended');
       if (w.inactive) return ws.close(4403, 'inactive_account');
+      w.lastSubprotocol = req.headers['sec-websocket-protocol'] ?? null;
       const recipient = url.searchParams.get('recipient') ?? '';
       if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(recipient)) return ws.close(1008, 'recipient');
       const older = conns.get(recipient);
@@ -601,7 +602,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         relay.dropAll();
         return json(res, 200, { ok: true });
       case 'state':
-        return json(res, 200, { lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, connections: relay.count() });
+        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, connections: relay.count() });
       case 'send': {
         const m = addMessage(world, { created_at: Date.now(), ...body.message }, { chat: body.chat });
         return json(res, 200, { ok: true, seq: m.acceptedSeq });

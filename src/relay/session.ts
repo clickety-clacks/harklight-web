@@ -131,7 +131,7 @@ export class RelaySession {
     this.store.update((s) => {
       if (s.connection !== 'connecting') s.connection = this.attempt === 0 && !s.loaded ? 'connecting' : 'reconnecting';
     });
-    const conn = new Connection(this.relayUrl(), this.deps.config.relayProtocol, this.deps.socketFactory, {
+    const conn = new Connection(this.relayUrl(), this.deps.socketFactory, {
       frame: (f) => this.onFrame(conn, f),
       closed: (code, reason) => this.onClosed(conn, code, reason),
     });

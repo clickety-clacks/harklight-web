@@ -19,6 +19,8 @@ test('lists the inbox and opens a message, reporting the open', async ({ page })
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await expect(page.getByTestId('row')).toHaveCount(8);
+  // The browser door takes no subprotocol and the client offers none (B-1).
+  expect((await control(page, 'state')).subprotocol).toBe(null);
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await expect.poll(async () => (await control(page, 'state')).opens).toBe(1);

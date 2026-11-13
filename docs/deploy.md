@@ -51,7 +51,6 @@ A JSON object; every key is optional and falls back to the default in
 | Key | Default |
 |---|---|
 | `relayPath` | `/browser/relay` |
-| `relayProtocol` | `""` (no subprotocol) |
 | `filesPath` | `/browser/v1` |
 | `signOutPath` | `/sign-out` |
 | `sessionEndedPath` | `/devices` (a Server page that sends a signed-out browser to hosted sign-in) |

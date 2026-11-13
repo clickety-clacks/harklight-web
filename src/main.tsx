@@ -29,8 +29,8 @@ async function main() {
   const session = new RelaySession({
     config,
     store,
-    socketFactory: (url, protocol) =>
-      (protocol ? new WebSocket(url, protocol) : new WebSocket(url)) as unknown as import('./relay/connection').SocketLike,
+    // No subprotocol: the browser door requires none and the client offers none (B-1).
+    socketFactory: (url) => new WebSocket(url) as unknown as import('./relay/connection').SocketLike,
     // The recipient id belongs to this tab only (C-1); session storage is per tab.
     storage: sessionStorage,
     files: config.flags.attachments ? { base: config.filesPath, fetch: (...a) => fetch(...a) } : undefined,

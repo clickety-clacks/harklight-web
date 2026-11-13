@@ -19,10 +19,6 @@ export interface Flags {
 export interface Config {
   /** WebSocket path for the browser relay connection (B-1). */
   relayPath: string;
-  /** WebSocket subprotocol. Empty sends none. Browsers cannot send
-   * `attention-relay/1` (a `/` is not allowed in a subprotocol token), so
-   * this waits on the Server's choice. */
-  relayProtocol: string;
   /** Base path of the browser file routes (D-7a). */
   filesPath: string;
   /** Server path that ends the sign-in and the hosted account session (F-2). */
@@ -44,7 +40,6 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   relayPath: '/browser/relay',
-  relayProtocol: '',
   filesPath: '/browser/v1',
   signOutPath: '/sign-out',
   sessionEndedPath: '/devices',
