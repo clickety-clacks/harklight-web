@@ -285,6 +285,9 @@ test('a choice shows its own sending state, then becomes the answered card, and 
   // Sending: the tapped choice spins, the others step back, the row spins, no status text.
   await expect(page.locator('.choice--sending')).toContainText('Approve');
   await expect(page.locator('.choice--dim').first()).toBeVisible();
+  // The checkmark is only disabled: the picked choice carries the spinner.
+  await expect(page.getByRole('button', { name: 'Send answer' })).toBeDisabled();
+  await expect(page.locator('.tool--commit .spinner')).toHaveCount(0);
   await expect(page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' }).getByRole('img', { name: 'Sending' })).toBeVisible();
   await expect(page.locator('.msg-note--bad')).toHaveCount(0);
   await control(page, 'release-answers');
@@ -307,6 +310,20 @@ test('a failed choice shows Not sent with Retry, and Retry sends the same answer
   await control(page, 'fail-answers', { on: false });
   await failed.getByRole('button', { name: 'Retry' }).click();
   await expect(page.getByTestId('answered')).toContainText('Approve');
+});
+
+test('a written reply spins in the send button while sending', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'hold-answers');
+  await openRow(page, 'Production deploy failed');
+  await page.getByRole('radio', { name: 'Reply' }).click();
+  await page.getByRole('textbox', { name: 'Reply' }).fill('Roll it back');
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByRole('button', { name: 'Sending', exact: true })).toBeDisabled();
+  await expect(page.locator('.tool--commit .spinner')).toHaveCount(1);
+  await control(page, 'release-answers');
+  await expect(page.getByTestId('answered')).toContainText('Roll it back');
 });
 
 test('a failed reply keeps its text and the send control comes back as Retry', async ({ page }) => {

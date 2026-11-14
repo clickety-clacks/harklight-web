@@ -79,6 +79,9 @@ export function Detail(p: DetailProps) {
   const choices = form.kind === 'choices' ? form.choices : [];
   const replyFailed = failed && choices.some((c) => c.kind === 'text' && c.id === control);
   const formFailed = failed && control === 'form';
+  // A picked choice carries its own spinner and the checkmark is only disabled;
+  // a written reply or a form has no control of its own, so the checkmark spins.
+  const barSpins = sending && (control === 'form' || choices.some((c) => c.kind === 'text' && c.id === control));
   const pickedChoice = choices.find((c) => c.id === picked) ?? null;
   // A custom form's checkmark stays on while the message is open; what is
   // missing is said when it is pressed, as on the phone.
@@ -160,17 +163,17 @@ export function Detail(p: DetailProps) {
           {open && !isSeenForm && form.kind !== 'unsupported' && !((replyFailed || formFailed) && picked === control) && (
             <button
               type="button"
-              class={sending ? 'tool tool--square tool--commit tool--busy' : 'tool tool--square tool--commit'}
-              aria-label={sending ? 'Sending' : form.kind === 'ui1' ? String((form.doc.submission as Record<string, unknown>).label) : 'Send answer'}
+              class={barSpins ? 'tool tool--square tool--commit tool--busy' : 'tool tool--square tool--commit'}
+              aria-label={barSpins ? 'Sending' : form.kind === 'ui1' ? String((form.doc.submission as Record<string, unknown>).label) : 'Send answer'}
               disabled={!ready || !canAnswer}
               onClick={commit}
             >
-              {sending ? <span class="spinner" aria-hidden="true" /> : <Icon name="check" />}
+              {barSpins ? <span class="spinner" aria-hidden="true" /> : <Icon name="check" />}
             </button>
           )}
           {open && form.kind === 'unsupported' && picked === 'no_comment' && (
-            <button type="button" class="tool tool--square tool--commit" aria-label={sending ? 'Sending' : 'Send answer'} disabled={!canAnswer} onClick={commit}>
-              {sending ? <span class="spinner" aria-hidden="true" /> : <Icon name="check" />}
+            <button type="button" class="tool tool--square tool--commit" aria-label="Send answer" disabled={!canAnswer} onClick={commit}>
+              <Icon name="check" />
             </button>
           )}
           {open && isSeenForm && (
