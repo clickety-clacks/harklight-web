@@ -283,10 +283,16 @@ function AccountNotice({ config }: { config: Config }) {
     <div class="page">
       <main class="page-main notice-page">
         <h1 class="page-title">Messages are paused for this account</h1>
-        <p>Check your plan on your account page.</p>
-        <a class="btn" href={config.accountUrl}>
-          Open your account
-        </a>
+        {config.accountUrl ? (
+          <>
+            <p>Check your plan on your account page.</p>
+            <a class="btn" href={config.accountUrl}>
+              Open your account
+            </a>
+          </>
+        ) : (
+          <p>Ask the person who runs this Harklight Server.</p>
+        )}
       </main>
     </div>
   );
@@ -299,9 +305,11 @@ export function NotYet({ config }: { config: Config }) {
       <main class="page-main notice-page">
         <h1 class="page-title">Harklight in the browser is coming soon</h1>
         <p>For now, read and answer your messages in the Harklight iPhone app.</p>
-        <a class="btn" href={config.accountUrl}>
-          Open your account
-        </a>
+        {config.accountUrl && (
+          <a class="btn" href={config.accountUrl}>
+            Open your account
+          </a>
+        )}
       </main>
     </div>
   );

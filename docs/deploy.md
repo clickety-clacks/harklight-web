@@ -47,6 +47,8 @@ Pages it links to: `/devices`, `/components`, the hosted account page.
 
 A JSON object; every key is optional and falls back to the default in
 `src/config.ts`. Values are paths on the same origin (or the account page URL).
+An empty `accountUrl`, `devicesPath`, `componentsPath` or `signOutPath` hides
+the control that leads there.
 
 | Key | Default |
 |---|---|

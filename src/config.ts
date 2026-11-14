@@ -26,7 +26,9 @@ export interface Config {
   /** Server page to open when the sign-in has ended, so the Server's own
    * redirect to hosted sign-in applies (A-3). */
   sessionEndedPath: string;
-  /** Hosted account page for plan and billing (E-1). */
+  /** Hosted account page for plan and billing (E-1). Each link below may be
+   * empty: a deployment without that page (a self-hosted Server has no
+   * hosted account page) hides the row that leads to it. */
   accountUrl: string;
   /** The Server's Components page: how to connect an agent (E-1). */
   componentsPath: string;

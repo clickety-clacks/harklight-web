@@ -44,13 +44,15 @@ export function Settings(props: {
             <span class="grow-l">Account</span>
             <span class="grow-v">{displayName ?? ''}</span>
           </div>
-          <a class="grow" href={config.accountUrl} target="_blank" rel="noopener">
-            <Icon name="card" />
-            <span class="grow-l">Plan and billing</span>
-            <span class="grow-v">
-              <Icon name="ext" />
-            </span>
-          </a>
+          {config.accountUrl && (
+            <a class="grow" href={config.accountUrl} target="_blank" rel="noopener">
+              <Icon name="card" />
+              <span class="grow-l">Plan and billing</span>
+              <span class="grow-v">
+                <Icon name="ext" />
+              </span>
+            </a>
+          )}
         </section>
         <section class="group" aria-labelledby="g-conn">
           <h2 id="g-conn" class="label group-title">
@@ -64,23 +66,29 @@ export function Settings(props: {
               </span>
             </span>
           </div>
-          <a class="grow" href={config.devicesPath}>
-            <Icon name="phone" />
-            <span class="grow-l">Devices</span>
-            <span class="grow-v">
-              <Icon name="chev" />
-            </span>
-          </a>
-          <a class="grow" href={config.componentsPath} target="_blank" rel="noopener">
-            <span class="grow-l">Connect an agent</span>
-            <span class="grow-v">
-              <Icon name="ext" />
-            </span>
-          </a>
+          {config.devicesPath && (
+            <a class="grow" href={config.devicesPath}>
+              <Icon name="phone" />
+              <span class="grow-l">Devices</span>
+              <span class="grow-v">
+                <Icon name="chev" />
+              </span>
+            </a>
+          )}
+          {config.componentsPath && (
+            <a class="grow" href={config.componentsPath} target="_blank" rel="noopener">
+              <span class="grow-l">Connect an agent</span>
+              <span class="grow-v">
+                <Icon name="ext" />
+              </span>
+            </a>
+          )}
         </section>
-        <button type="button" class="btn btn--bordered btn--block" onClick={() => setAsking(true)}>
-          Sign out
-        </button>
+        {config.signOutPath && (
+          <button type="button" class="btn btn--bordered btn--block" onClick={() => setAsking(true)}>
+            Sign out
+          </button>
+        )}
       </main>
       {asking && <SignOutDialog action={config.signOutPath} onCancel={() => setAsking(false)} onSubmit={props.onSignOut} />}
     </div>
