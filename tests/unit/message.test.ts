@@ -105,4 +105,11 @@ describe('web client flag', () => {
     expect(applyPreview(DEFAULT_CONFIG, '', st).flags.webClient).toBe(true);
     expect(applyPreview(DEFAULT_CONFIG, '#preview-off', st).flags.webClient).toBe(false);
   });
+  it('turns every feature on in the previewing browser, leaving the deployment settings alone', () => {
+    const st = mem();
+    const live = { ...DEFAULT_CONFIG, flags: { webClient: true, answerForms: true, attachments: false } };
+    expect(applyPreview(live, '', st).flags.attachments).toBe(false);
+    expect(applyPreview(live, '#preview', st).flags).toEqual({ webClient: true, answerForms: true, attachments: true });
+    expect(live.flags.attachments).toBe(false);
+  });
 });

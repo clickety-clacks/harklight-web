@@ -88,10 +88,14 @@ export async function loadConfig(): Promise<Config> {
 
 const PREVIEW_KEY = 'harklight.preview';
 
-/** A per-browser override of the webClient flag, for testing before release. */
+/**
+ * A per-browser preview for testers: every feature flag on in this browser
+ * only, so unreleased features (the client itself, custom forms, chat files)
+ * can be checked live while customers keep the deployment's settings.
+ */
 export function applyPreview(config: Config, hash: string, storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>): Config {
   if (hash === '#preview') storage.setItem(PREVIEW_KEY, '1');
   if (hash === '#preview-off') storage.removeItem(PREVIEW_KEY);
   if (storage.getItem(PREVIEW_KEY) !== '1') return config;
-  return { ...config, flags: { ...config.flags, webClient: true } };
+  return { ...config, flags: { webClient: true, answerForms: true, attachments: true } };
 }
