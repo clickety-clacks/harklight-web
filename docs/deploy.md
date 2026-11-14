@@ -60,7 +60,7 @@ the control that leads there.
 | `componentsPath` | `/components` |
 | `devicesPath` | `/devices` |
 | `accountInfoPath` | `/api/profile` |
-| `flags.webClient` | `false`: customers see a short notice and the page opens no connection |
+| `flags.webClient` | `false`: customers see a short "Web messaging is coming soon" note linking to `devicesPath`, and the page opens no connection |
 | `flags.attachments` | `false`: no attach control; files show name and size only |
 
 While `flags.webClient` is off, a tester can turn the client on in their own

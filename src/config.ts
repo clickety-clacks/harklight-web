@@ -4,7 +4,8 @@
 
 export interface Flags {
   /** The web client itself. Off for customers until the release: the page
-   * shows a short notice and opens no connection. A tester can turn it on
+   * shows a short "coming soon" note linking to Devices and opens no
+   * connection. A tester can turn it on
    * in their own browser with `#preview` (and off with `#preview-off`). */
   webClient: boolean;
   /** Chat files: attach, upload and download (contract D-7). Off until the

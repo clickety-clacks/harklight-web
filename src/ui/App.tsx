@@ -298,16 +298,19 @@ function AccountNotice({ config }: { config: Config }) {
   );
 }
 
-/** Shown while the web client is not yet released for this browser. */
+/**
+ * Shown while the web client is off for customers. Sign-in lands on /inbox,
+ * so this leads on to the Devices page rather than ending there.
+ */
 export function NotYet({ config }: { config: Config }) {
   return (
     <div class="page">
       <main class="page-main notice-page">
-        <h1 class="page-title">Harklight in the browser is coming soon</h1>
+        <h1 class="page-title">Web messaging is coming soon</h1>
         <p>For now, read and answer your messages in the Harklight iPhone app.</p>
-        {config.accountUrl && (
-          <a class="btn" href={config.accountUrl}>
-            Open your account
+        {config.devicesPath && (
+          <a class="btn" href={config.devicesPath}>
+            Go to your devices
           </a>
         )}
       </main>

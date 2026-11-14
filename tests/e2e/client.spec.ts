@@ -177,7 +177,8 @@ test('with the web client off for customers, the page opens no connection; #prev
   let sockets = 0;
   page.on('websocket', () => sockets++);
   await page.goto('/inbox');
-  await expect(page.getByRole('heading', { name: 'Harklight in the browser is coming soon' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Web messaging is coming soon' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Go to your devices' })).toHaveAttribute('href', '/devices');
   await page.waitForTimeout(300);
   expect(sockets).toBe(0);
   expect((await control(page, 'state')).connections).toBe(0);
@@ -186,7 +187,7 @@ test('with the web client off for customers, the page opens no connection; #prev
   await expect(page.getByTestId('row').first()).toBeVisible();
   await expect(page).toHaveURL(/\/inbox$/);
   await page.goto('/inbox#preview-off');
-  await expect(page.getByRole('heading', { name: 'Harklight in the browser is coming soon' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Web messaging is coming soon' })).toBeVisible();
 });
 
 test('answers a custom form: marks a point on the floor plan and adds a note', async ({ page }) => {
