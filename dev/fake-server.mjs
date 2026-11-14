@@ -497,6 +497,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
   const forms = flags.includes('answer-forms');
   let world = createWorld(Date.now(), forms);
   let webClient = !flags.includes('customer-off');
+  let attachments = flags.includes('attachments');
   let viteServer = null;
   if (vite) {
     const { createServer: createVite } = await import('vite');
@@ -512,7 +513,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       if (p === '/app/config.json')
         return json(res, 200, {
           accountInfoPath: '/__fake/me',
-          flags: { webClient, attachments: flags.includes('attachments'), answerForms: flags.includes('answer-forms') },
+          flags: { webClient, attachments, answerForms: flags.includes('answer-forms') },
         });
       if (p === '/sign-out' && req.method === 'POST') {
         const body = (await readBody(req)).toString();
@@ -596,8 +597,12 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       case 'web-client':
         webClient = body.on !== false;
         return json(res, 200, { ok: true });
+      case 'attachments':
+        attachments = body.on !== false;
+        return json(res, 200, { ok: true });
       case 'reset':
         webClient = !flags.includes('customer-off');
+        attachments = flags.includes('attachments');
         world = createWorld(body.now ?? Date.now(), forms);
         relay.dropAll();
         return json(res, 200, { ok: true });

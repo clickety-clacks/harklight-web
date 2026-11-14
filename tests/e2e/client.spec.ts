@@ -261,3 +261,16 @@ test('a chat refused because the account cannot use messaging shows the account 
   await page.keyboard.press('Enter');
   await expect(page.getByRole('link', { name: 'Open your account' })).toBeVisible();
 });
+
+test('#preview turns chat files on in this browser even when the deployment has them off', async ({ page }) => {
+  await control(page, 'attachments', { on: false });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.getByRole('button', { name: 'Attach a file' })).toHaveCount(0);
+  await page.goto('/inbox#preview');
+  await expect(page.getByTestId('row').first()).toBeVisible();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.getByRole('button', { name: 'Attach a file' })).toBeVisible();
+  await page.goto('/inbox#preview-off');
+});
