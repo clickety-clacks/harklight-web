@@ -17,15 +17,13 @@ import type {
 import { keyOf } from './types';
 import type { ServerView } from './view';
 
-export type AnswerSendState =
-  | 'sending'
-  | 'accepted'
-  | 'failed'
-  | 'stale'
-  | 'closed'
-  | 'retracted'
-  | 'inactive'
-  | 'unconfirmed';
+/**
+ * A submission's state, carried by the control the person tapped: sending
+ * (a spinner), accepted (it becomes the answered card or the Seen check) or
+ * failed (Not sent, with Retry). A refusal because the message changed,
+ * closed or was retracted clears it: the message's own state shows instead.
+ */
+export type AnswerSendState = 'sending' | 'accepted' | 'failed' | 'inactive';
 
 export interface LocalAnswer {
   state: AnswerSendState;
@@ -33,8 +31,12 @@ export interface LocalAnswer {
   label: string | null;
   seen: boolean;
   noComment: boolean;
+  /** The control that was tapped: a choice id, 'no_comment', 'form' or 'seen'. */
+  control: string;
+  /** Typed text, kept so a failed reply can be retried as written. */
+  text?: string;
   reason?: string;
-  /** The exact frame to send again if the outcome is unknown after a drop. */
+  /** The exact frame, sent again unchanged (same op_id) by Retry. */
   resend?: { type: string; [key: string]: unknown };
 }
 

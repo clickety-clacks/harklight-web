@@ -60,7 +60,7 @@ test('marks an information message Seen with JSON null', async ({ page }) => {
   await openInbox(page);
   await openRow(page, 'Quarterly report is ready');
   await page.locator('.seen-under').click();
-  await expect(page.getByTestId('answered')).toContainText('Seen');
+  await expect(page.getByTestId('seen-done')).toBeVisible();
   expect((await control(page, 'state')).lastAnswer.answer).toBe(null);
 });
 
@@ -273,4 +273,68 @@ test('#preview turns chat files on in this browser even when the deployment has 
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByRole('button', { name: 'Attach a file' })).toBeVisible();
   await page.goto('/inbox#preview-off');
+});
+
+test('a choice shows its own sending state, then becomes the answered card, and its row keeps in step', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'hold-answers');
+  await openRow(page, 'Approve the survey questions?');
+  await page.getByRole('radio', { name: 'Approve' }).click();
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  // Sending: the tapped choice spins, the others step back, the row spins, no status text.
+  await expect(page.locator('.choice--sending')).toContainText('Approve');
+  await expect(page.locator('.choice--dim').first()).toBeVisible();
+  await expect(page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' }).getByRole('img', { name: 'Sending' })).toBeVisible();
+  await expect(page.locator('.msg-note--bad')).toHaveCount(0);
+  await control(page, 'release-answers');
+  await expect(page.getByTestId('answered')).toContainText('Approve');
+  await expect(page.getByRole('img', { name: 'Sending' })).toHaveCount(0);
+});
+
+test('a failed choice shows Not sent with Retry, and Retry sends the same answer', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'fail-answers');
+  await openRow(page, 'Approve the survey questions?');
+  await page.getByRole('radio', { name: 'Approve' }).click();
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  const failed = page.getByTestId('choice-failed');
+  await expect(failed).toContainText('Not sent');
+  await expect(page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' }).getByRole('img', { name: 'Not sent' })).toBeVisible();
+  // The other choices are tappable again.
+  await expect(page.getByRole('radio', { name: 'No comment' })).toBeEnabled();
+  await control(page, 'fail-answers', { on: false });
+  await failed.getByRole('button', { name: 'Retry' }).click();
+  await expect(page.getByTestId('answered')).toContainText('Approve');
+});
+
+test('a failed reply keeps its text and the send control comes back as Retry', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'fail-answers');
+  await openRow(page, 'Production deploy failed');
+  await page.getByRole('radio', { name: 'Reply' }).click();
+  await page.getByRole('textbox', { name: 'Reply' }).fill('Hold until I look at the logs');
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('reply-failed')).toContainText('Not sent');
+  await expect(page.getByRole('textbox', { name: 'Reply' })).toHaveValue('Hold until I look at the logs');
+  await control(page, 'fail-answers', { on: false });
+  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(page.getByTestId('answered')).toContainText('Hold until I look at the logs');
+});
+
+test('Seen spins while sending, comes back as Retry Seen on failure, and confirms with its check', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'fail-answers');
+  await openRow(page, 'Quarterly report is ready');
+  await page.locator('.seen-under').click();
+  await expect(page.getByRole('button', { name: 'Retry Seen' }).first()).toBeVisible();
+  await control(page, 'fail-answers', { on: false });
+  await control(page, 'hold-answers');
+  await page.getByRole('button', { name: 'Retry Seen' }).first().click();
+  await expect(page.locator('.seen-under[aria-busy="true"]')).toBeVisible();
+  await control(page, 'release-answers');
+  await expect(page.getByTestId('seen-done')).toBeVisible();
 });

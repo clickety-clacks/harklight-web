@@ -80,7 +80,7 @@ describe('relay session', () => {
     await until(() => store.state.messages.get(LISBON)?.terminal?.state === 'answered');
 
     const quarterly = store.state.messages.get(keyOf({ sender_id: 'agent:build', message_id: 'quarterly' }))!;
-    await s.answer(quarterly, null, null, true);
+    await s.answer(quarterly, null, null, { seen: true, control: 'seen' });
     expect((await fetch(`${base()}/__fake/state`).then((r) => r.json())).lastAnswer.answer).toBe(null);
     s.stop();
   });

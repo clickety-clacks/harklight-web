@@ -316,9 +316,8 @@ export class RelaySession {
     }
     const sends = this.store.state.chatSends.filter((c) => c.state === 'sending');
     for (const c of sends) void this.sendDiscussion(c);
-    for (const [key, a] of this.store.state.answers) {
-      if (a.state === 'unconfirmed' && a.resend) void this.resendAnswer(key, a.resend);
-    }
+    // Answers are not resent on their own: a dropped send shows Not sent with
+    // Retry, and the replay above already settled any that went through.
     void conn;
   }
 
@@ -539,7 +538,7 @@ export class RelaySession {
   private markInFlightUnconfirmed(): void {
     this.store.update((s) => {
       for (const [key, a] of s.answers) {
-        if (a.state === 'sending') s.answers.set(key, { ...a, state: 'unconfirmed' });
+        if (a.state === 'sending') s.answers.set(key, { ...a, state: 'failed', reason: 'connection' });
       }
     });
   }
@@ -573,7 +572,12 @@ export class RelaySession {
   }
 
   /** Answer with a value (a choice, typed text, or Seen as JSON null). */
-  async answer(m: HeldMessage, value: Json, label: string | null, seen = false): Promise<void> {
+  async answer(
+    m: HeldMessage,
+    value: Json,
+    label: string | null,
+    opts: { seen?: boolean; control: string; text?: string } = { control: 'choice' },
+  ): Promise<void> {
     const frame: Frame = {
       v: 1,
       type: 'answer',
@@ -583,19 +587,25 @@ export class RelaySession {
       answer: value,
       request_revision: m.revision,
     };
-    await this.sendAnswer(keyOf(m), frame, { label, seen, noComment: false });
+    await this.sendAnswer(keyOf(m), frame, {
+      label,
+      seen: opts.seen ?? false,
+      noComment: false,
+      control: opts.control,
+      text: opts.text,
+    });
   }
 
   async noComment(m: HeldMessage): Promise<void> {
     // The Server takes exactly these three keys for No comment.
     const frame: Frame = { type: 'answer_no_comment', request_id: m.message_id, request_revision: m.revision };
-    await this.sendAnswer(keyOf(m), frame, { label: null, seen: false, noComment: true });
+    await this.sendAnswer(keyOf(m), frame, { label: null, seen: false, noComment: true, control: 'no_comment' });
   }
 
   private async sendAnswer(
     key: string,
     frame: Frame,
-    what: { label: string | null; seen: boolean; noComment: boolean },
+    what: { label: string | null; seen: boolean; noComment: boolean; control: string; text?: string },
   ): Promise<void> {
     this.store.update((s) => {
       s.answers.set(key, { state: 'sending', ...what, resend: frame });
@@ -603,12 +613,18 @@ export class RelaySession {
     await this.resendAnswer(key, frame);
   }
 
+  /** Retry a failed answer: the same frame and op_id, so it can never apply twice. */
+  retryAnswer(key: string): void {
+    const a = this.store.state.answers.get(key);
+    if (a?.state === 'failed' && a.resend) void this.resendAnswer(key, a.resend);
+  }
+
   private async resendAnswer(key: string, frame: Frame): Promise<void> {
     const conn = this.conn;
     if (!conn || !this.ready) {
       this.store.update((s) => {
         const a = s.answers.get(key);
-        if (a) s.answers.set(key, { ...a, state: 'unconfirmed' });
+        if (a) s.answers.set(key, { ...a, state: 'failed', reason: 'connection' });
       });
       return;
     }
@@ -620,7 +636,7 @@ export class RelaySession {
     try {
       r = await this.req(conn, frame, refless);
     } catch {
-      return; // marked unconfirmed on close; resent after reconnect
+      return; // the close marks it failed, with Retry
     }
     this.store.update((s) => {
       const a = s.answers.get(key);
@@ -630,18 +646,17 @@ export class RelaySession {
         return;
       }
       const reason = String(r.reason ?? '');
-      const state =
-        reason === 'stale_revision'
-          ? 'stale'
-          : reason === 'closed'
-            ? 'closed'
-            : reason === 'retracted'
-              ? 'retracted'
-              : reason === 'inactive_account'
-                ? 'inactive'
-                : 'failed';
-      s.answers.set(key, { ...a, state, reason, resend: undefined });
-      if (reason === 'inactive_account') s.connection = 'inactive';
+      if (reason === 'stale_revision' || reason === 'closed' || reason === 'retracted') {
+        // Not something Retry fixes: the message's current state shows instead.
+        s.answers.delete(key);
+        return;
+      }
+      if (reason === 'inactive_account') {
+        s.answers.set(key, { ...a, state: 'inactive', reason, resend: undefined });
+        s.connection = 'inactive';
+        return;
+      }
+      s.answers.set(key, { ...a, state: 'failed', reason });
     });
   }
 

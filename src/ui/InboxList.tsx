@@ -17,6 +17,8 @@ export function InboxList(props: {
   unread: (key: string) => boolean;
   seen: (key: string) => boolean;
   needsAnswer: (key: string) => boolean;
+  /** A message's submission in flight or failed, shown on its row. */
+  submission: (key: string) => 'sending' | 'failed' | null;
   loaded: boolean;
   onTab: (t: Tab) => void;
   onOpen: (key: string) => void;
@@ -39,6 +41,7 @@ export function InboxList(props: {
       unread={props.unread(r.key)}
       seen={props.seen(r.key)}
       needsAnswer={props.needsAnswer(r.key)}
+      submission={props.submission(r.key)}
       onOpen={props.onOpen}
     />
   );
@@ -129,6 +132,7 @@ function MessageRow(props: {
   unread: boolean;
   seen: boolean;
   needsAnswer: boolean;
+  submission: 'sending' | 'failed' | null;
   onOpen: (key: string) => void;
 }) {
   const { row } = props;
@@ -168,6 +172,12 @@ function MessageRow(props: {
         <span class="t">{title(m)}</span>
         {props.unread && <Icon name="flag-fill" class="flag flag--unread" />}
         {props.seen && <Icon name="check" class="seen" />}
+        {props.submission === 'sending' && <span class="spinner row-spinner" role="img" aria-label="Sending" />}
+        {props.submission === 'failed' && (
+          <span class="row-failed" role="img" aria-label="Not sent">
+            <Icon name="warn" />
+          </span>
+        )}
         {props.unread && <span class="visually-hidden">Unread chat reply</span>}
         {props.seen && <span class="visually-hidden">Seen</span>}
       </span>

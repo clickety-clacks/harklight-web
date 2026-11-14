@@ -52,9 +52,11 @@ export type Row = MessageRow;
 
 const RETRACTED_VISIBLE_MS = 24 * 60 * 60 * 1000;
 
+/** Only a confirmed answer moves a message: while sending, or after a failed
+ * send, its row stays where it is and shows that state. */
 function localAnswered(s: State, key: string): boolean {
   const a = s.answers.get(key);
-  return !!a && !a.seen && (a.state === 'sending' || a.state === 'accepted' || a.state === 'unconfirmed');
+  return !!a && !a.seen && a.state === 'accepted';
 }
 
 export function inReplied(s: State, key: string): boolean {

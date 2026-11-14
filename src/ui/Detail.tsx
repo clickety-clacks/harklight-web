@@ -44,6 +44,8 @@ export interface DetailProps {
   onChat: () => void;
   onAnswer: (a: AnswerChoice) => void;
   onSeen: (value: Json) => void;
+  /** Send the failed submission again, unchanged. */
+  onRetry: () => void;
   fileHref: (uploadId: string) => string;
 }
 
@@ -57,18 +59,26 @@ export function Detail(p: DetailProps) {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // The control the person tapped carries the submission's state: a spinner
+  // while sending, its done state once the Server confirms, or Not sent with
+  // Retry. No status lines.
   const local = p.local;
   const sending = local?.state === 'sending';
-  const seenDone = (m.terminal?.outcome?.kind === 'seen' || (local?.seen && local.state !== 'failed')) ?? false;
+  const failed = local?.state === 'failed';
+  const seenDone = m.terminal?.outcome?.kind === 'seen' || (!!local?.seen && local.state === 'accepted');
   const answered =
     !seenDone &&
     (m.terminal?.state === 'answered' ||
       m.terminal?.state === 'no_comment' ||
-      (local && !local.seen && (local.state === 'accepted' || local.state === 'unconfirmed' || local.state === 'sending')));
+      (!!local && !local.seen && local.state === 'accepted'));
   const open = m.terminal === null && !answered && !seenDone;
   const canAnswer = open && p.canAct && !sending;
+  const control = sending || failed ? local!.control : null;
+  const statusOf = (id: string): Status => (control === id ? (sending ? 'sending' : 'failed') : null);
 
   const choices = form.kind === 'choices' ? form.choices : [];
+  const replyFailed = failed && choices.some((c) => c.kind === 'text' && c.id === control);
+  const formFailed = failed && control === 'form';
   const pickedChoice = choices.find((c) => c.id === picked) ?? null;
   // A custom form's checkmark stays on while the message is open; what is
   // missing is said when it is pressed, as on the phone.
@@ -142,32 +152,35 @@ export function Detail(p: DetailProps) {
         </div>
         <div class="bar-group">
           {p.chatButton && !p.phone && <ChatButton unread={p.unread} onChat={p.onChat} />}
-          {open && !isSeenForm && form.kind !== 'unsupported' && (
+          {open && !isSeenForm && form.kind !== 'unsupported' && (replyFailed || formFailed) && picked === control && (
+            <button type="button" class="tool tool--retry" onClick={p.onRetry} disabled={!p.canAct}>
+              Retry
+            </button>
+          )}
+          {open && !isSeenForm && form.kind !== 'unsupported' && !((replyFailed || formFailed) && picked === control) && (
             <button
               type="button"
-              class="tool tool--square tool--commit"
-              aria-label={form.kind === 'ui1' ? String((form.doc.submission as Record<string, unknown>).label) : 'Send answer'}
+              class={sending ? 'tool tool--square tool--commit tool--busy' : 'tool tool--square tool--commit'}
+              aria-label={sending ? 'Sending' : form.kind === 'ui1' ? String((form.doc.submission as Record<string, unknown>).label) : 'Send answer'}
               disabled={!ready || !canAnswer}
               onClick={commit}
             >
-              <Icon name="check" />
+              {sending ? <span class="spinner" aria-hidden="true" /> : <Icon name="check" />}
             </button>
           )}
           {open && form.kind === 'unsupported' && picked === 'no_comment' && (
-            <button type="button" class="tool tool--square tool--commit" aria-label="Send answer" disabled={!canAnswer} onClick={commit}>
-              <Icon name="check" />
+            <button type="button" class="tool tool--square tool--commit" aria-label={sending ? 'Sending' : 'Send answer'} disabled={!canAnswer} onClick={commit}>
+              {sending ? <span class="spinner" aria-hidden="true" /> : <Icon name="check" />}
             </button>
           )}
           {open && isSeenForm && (
-            <button
-              type="button"
-              class="tool tool--seen"
-              disabled={!canAnswer}
-              onClick={() => form.kind === 'seen' && p.onSeen(form.value)}
-            >
-              <Icon name="check" />
-              Seen
-            </button>
+            <SeenButton
+              status={statusOf('seen')}
+              bar
+              disabled={!canAnswer && !failed}
+              onSeen={() => form.kind === 'seen' && p.onSeen(form.value)}
+              onRetry={p.onRetry}
+            />
           )}
         </div>
       </div>
@@ -209,18 +222,20 @@ export function Detail(p: DetailProps) {
               text={m.terminal?.state === 'no_comment' || local?.noComment ? null : answeredText(m, local?.label ?? null)}
             />
           )}
-          {seenDone && <AnsweredCard heading="Seen" text={null} />}
+          {seenDone && (
+            <span class="tool tool--seen seen-under seen-done" data-testid="seen-done">
+              <Icon name="check" />
+              Seen
+            </span>
+          )}
 
           {open && isSeenForm && (
-            <button
-              type="button"
-              class="tool seen-under"
-              disabled={!canAnswer}
-              onClick={() => form.kind === 'seen' && p.onSeen(form.value)}
-            >
-              <Icon name="eye" />
-              Seen
-            </button>
+            <SeenButton
+              status={statusOf('seen')}
+              disabled={!canAnswer && !failed}
+              onSeen={() => form.kind === 'seen' && p.onSeen(form.value)}
+              onRetry={p.onRetry}
+            />
           )}
 
           {open && form.kind === 'choices' && (
@@ -232,6 +247,8 @@ export function Detail(p: DetailProps) {
                     choice={c}
                     on={picked === c.id}
                     text={text}
+                    status={statusOf(c.id)}
+                    dim={sending && control !== c.id}
                     disabled={!canAnswer}
                     onPick={() => setPicked(c.id)}
                     onText={setText}
@@ -243,8 +260,11 @@ export function Detail(p: DetailProps) {
                     choice={c}
                     on={picked === c.id}
                     compact={writing}
+                    status={statusOf(c.id)}
+                    dim={sending && control !== c.id}
                     disabled={!canAnswer}
                     onPick={() => setPicked(c.id)}
+                    onRetry={p.onRetry}
                   />
                 ),
               )}
@@ -252,8 +272,11 @@ export function Detail(p: DetailProps) {
                 choice={{ id: 'no_comment', label: 'No comment', kind: 'value', suggested: false }}
                 on={picked === 'no_comment'}
                 compact={writing}
+                status={statusOf('no_comment')}
+                dim={sending && control !== 'no_comment'}
                 disabled={!canAnswer}
                 onPick={() => setPicked('no_comment')}
+                onRetry={p.onRetry}
               />
             </div>
           )}
@@ -279,7 +302,10 @@ export function Detail(p: DetailProps) {
                   choice={{ id: 'no_comment', label: 'No comment', kind: 'value', suggested: false }}
                   on={picked === 'no_comment'}
                   compact={false}
+                  status={statusOf('no_comment')}
+                  dim={sending && control !== 'no_comment'}
                   disabled={!canAnswer}
+                  onRetry={p.onRetry}
                   onPick={() => {
                     setPicked('no_comment');
                     setDraft({ ...draft, selected: {} });
@@ -311,13 +337,14 @@ export function Detail(p: DetailProps) {
                   choice={{ id: 'no_comment', label: 'No comment', kind: 'value', suggested: false }}
                   on={picked === 'no_comment'}
                   compact={false}
+                  status={statusOf('no_comment')}
                   disabled={!canAnswer}
                   onPick={() => setPicked('no_comment')}
+                  onRetry={p.onRetry}
                 />
               </div>
             </>
           )}
-          <AnswerStatus local={local} />
         </div>
       </div>
       {p.phone && p.chatButton && (
@@ -350,29 +377,59 @@ export function ChatButton(p: { unread: boolean; onChat: () => void }) {
   );
 }
 
+type Status = 'sending' | 'failed' | null;
+
 function ChoiceCard(p: {
   choice: Choice;
   on: boolean;
   compact: boolean;
+  status: Status;
+  /** Another control is sending: this one steps back. */
+  dim?: boolean;
   disabled: boolean;
   onPick: () => void;
+  onRetry: () => void;
 }) {
   const c = p.choice;
+  const label = (
+    <span class="ti">
+      {c.label}
+      {c.suggested && <span class="sug">Suggested</span>}
+    </span>
+  );
+  if (p.status === 'failed') {
+    return (
+      <div class="choice choice--failed" data-testid="choice-failed">
+        <span class="fail-mark" aria-hidden="true">
+          !
+        </span>
+        <span class="choice-text">
+          {label}
+          <span class="de">Not sent</span>
+        </span>
+        <button type="button" class="tool tool--retry tool--inline" onClick={p.onRetry}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+  const cls = ['choice'];
+  if (p.on || p.status === 'sending') cls.push('choice--on');
+  if (p.status === 'sending') cls.push('choice--sending');
+  if (p.dim) cls.push('choice--dim');
   return (
     <button
       type="button"
       role="radio"
       aria-checked={p.on}
-      class={p.on ? 'choice choice--on' : 'choice'}
+      aria-busy={p.status === 'sending' || undefined}
+      class={cls.join(' ')}
       disabled={p.disabled}
       onClick={p.onPick}
     >
-      <span class="mark" aria-hidden="true" />
+      {p.status === 'sending' ? <span class="spinner mark-spinner" aria-label="Sending" role="img" /> : <span class="mark" aria-hidden="true" />}
       <span class="choice-text">
-        <span class="ti">
-          {c.label}
-          {c.suggested && <span class="sug">Suggested</span>}
-        </span>
+        {label}
         {!p.compact && c.description && <span class="de">{c.description}</span>}
       </span>
     </button>
@@ -383,13 +440,20 @@ function ReplyCard(p: {
   choice: Choice;
   on: boolean;
   text: string;
+  status: Status;
+  dim?: boolean;
   disabled: boolean;
   onPick: () => void;
   onText: (t: string) => void;
   onSubmit: () => void;
 }) {
+  const cls = ['replycard'];
+  if (p.on) cls.push('replycard--on');
+  if (p.status === 'sending') cls.push('replycard--sending');
+  if (p.status === 'failed') cls.push('replycard--failed');
+  if (p.dim) cls.push('choice--dim');
   return (
-    <div class={p.on ? 'replycard replycard--on' : 'replycard'}>
+    <div class={cls.join(' ')} data-testid={p.status === 'failed' ? 'reply-failed' : undefined}>
       <button
         type="button"
         role="radio"
@@ -398,8 +462,14 @@ function ReplyCard(p: {
         disabled={p.disabled}
         onClick={p.onPick}
       >
-        <span class="mark" aria-hidden="true" />
-        <span class="ti">{p.choice.label}</span>
+        {p.status === 'failed' ? (
+          <span class="fail-mark" aria-hidden="true">
+            !
+          </span>
+        ) : (
+          <span class="mark" aria-hidden="true" />
+        )}
+        <span class="ti">{p.status === 'failed' ? 'Not sent' : p.choice.label}</span>
       </button>
       {p.on && (
         <textarea
@@ -423,6 +493,34 @@ function ReplyCard(p: {
   );
 }
 
+/** Seen, in the bar and under the text: it spins while sending and comes back
+ * as Retry Seen if the send fails. */
+function SeenButton(p: { status: Status; bar?: boolean; disabled: boolean; onSeen: () => void; onRetry: () => void }) {
+  if (p.status === 'failed') {
+    return (
+      <button type="button" class={p.bar ? 'tool tool--retry' : 'tool tool--retry seen-under'} onClick={p.onRetry}>
+        <span class="fail-mark" aria-hidden="true">
+          !
+        </span>
+        Retry Seen
+      </button>
+    );
+  }
+  const busy = p.status === 'sending';
+  return (
+    <button
+      type="button"
+      class={p.bar ? 'tool tool--seen' : 'tool seen-under'}
+      aria-busy={busy || undefined}
+      disabled={p.disabled || busy}
+      onClick={p.onSeen}
+    >
+      {busy ? <span class="spinner" aria-hidden="true" /> : <Icon name={p.bar ? 'check' : 'eye'} />}
+      Seen
+    </button>
+  );
+}
+
 function AnsweredCard(p: { heading: string; text: string | null }) {
   return (
     <div class="answered" data-testid="answered">
@@ -435,20 +533,3 @@ function AnsweredCard(p: { heading: string; text: string | null }) {
   );
 }
 
-const STATUS: Partial<Record<LocalAnswer['state'], string>> = {
-  failed: 'Your answer was not delivered. Try again.',
-  stale: 'This message changed. Review the latest version before answering.',
-  closed: 'This message is no longer open for an answer.',
-  retracted: 'The sender retracted this message before your answer was accepted.',
-  unconfirmed: 'Your answer was sent but not confirmed yet.',
-};
-
-function AnswerStatus(p: { local: LocalAnswer | undefined }) {
-  const text = p.local && STATUS[p.local.state];
-  if (!text) return null;
-  return (
-    <p class="msg-note msg-note--bad" role="status">
-      {text}
-    </p>
-  );
-}

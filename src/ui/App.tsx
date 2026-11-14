@@ -104,7 +104,17 @@ export function App(props: { config: Config; store: Store; session: RelaySession
     (k: string) => {
       const m = s.messages.get(k);
       const a = s.answers.get(k);
-      return m?.terminal?.outcome?.kind === 'seen' || (!!a?.seen && a.state !== 'failed' && a.state !== 'stale');
+      return m?.terminal?.outcome?.kind === 'seen' || (!!a?.seen && a.state === 'accepted');
+    },
+    [s],
+  );
+  /** A row shows its message's submission while it is in flight or failed. */
+  const submission = useCallback(
+    (k: string): 'sending' | 'failed' | null => {
+      const a = s.answers.get(k);
+      const m = s.messages.get(k);
+      if (!a || (m && m.terminal)) return null;
+      return a.state === 'sending' ? 'sending' : a.state === 'failed' ? 'failed' : null;
     },
     [s],
   );
@@ -119,12 +129,13 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const onAnswer = (a: AnswerChoice) => {
     if (!message) return;
     if (a.kind === 'no_comment') void session.noComment(message);
-    else if (a.kind === 'value') void session.answer(message, a.choice.value as Json, a.choice.label);
-    else if (a.kind === 'ui1') void session.answer(message, a.answer as Json, a.summary);
-    else void session.answer(message, a.text, a.text);
+    else if (a.kind === 'value') void session.answer(message, a.choice.value as Json, a.choice.label, { control: a.choice.id });
+    else if (a.kind === 'ui1') void session.answer(message, a.answer as Json, a.summary, { control: 'form' });
+    else void session.answer(message, a.text, a.text, { control: a.choice.id, text: a.text });
   };
   // Seen sends JSON null, as the browser contract fixes (D-3).
-  const onSeen = () => message && void session.answer(message, null, null, true);
+  const onSeen = () => message && void session.answer(message, null, null, { seen: true, control: 'seen' });
+  const onRetry = () => selected && session.retryAnswer(selected);
 
   if (s.connection === 'inactive') return <AccountNotice config={config} />;
   if (page === 'settings') {
@@ -166,6 +177,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       unread={unread}
       seen={seen}
       needsAnswer={needsAnswer}
+      submission={submission}
       loaded={s.loaded}
       onTab={(t) => {
         setTab(t);
@@ -202,6 +214,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       }}
       onAnswer={onAnswer}
       onSeen={onSeen}
+      onRetry={onRetry}
       fileHref={fileHref}
     />
   );

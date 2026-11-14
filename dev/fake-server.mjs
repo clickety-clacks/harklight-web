@@ -294,6 +294,18 @@ function serveConnection(ws, w, recipient) {
     const ok = (x = {}) => send({ v: 1, type: 'ok', ...ref, ...x });
     const err = (reason, x = {}) => send({ v: 1, type: 'error', reason, ...ref, ...x });
     if (!w.sessionLive) return ws.close(4401, 'session_ended');
+    // Test controls: hold answers in flight, or refuse them.
+    if (f.type === 'answer' || f.type === 'answer_no_comment') {
+      if (w.failAnswers) return send({ v: 1, type: 'error', reason: 'storage_unavailable' });
+      if (w.holdAnswers && !w.releasing?.has(text)) {
+        w.held = w.held ?? [];
+        w.held.push(() => {
+          (w.releasing = w.releasing ?? new Set()).add(text);
+          ws.emit('message', Buffer.from(text));
+        });
+        return;
+      }
+    }
     switch (f.type) {
       case 'inbox_start': {
         const id = randomUUID().replace(/-/g, '');
@@ -629,6 +641,19 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         terminate(world, key(m.sender_id, m.message_id), { state: 'answered', answer_outcome: { kind: 'reply', text: 'Done' } });
         return json(res, 200, { ok: true });
       }
+      case 'hold-answers':
+        world.holdAnswers = body.on !== false;
+        return json(res, 200, { ok: true });
+      case 'release-answers': {
+        world.holdAnswers = false;
+        const held = world.held ?? [];
+        world.held = [];
+        held.forEach((run) => run());
+        return json(res, 200, { released: held.length });
+      }
+      case 'fail-answers':
+        world.failAnswers = body.on !== false;
+        return json(res, 200, { ok: true });
       case 'refuse-inactive':
         world.refuseInactive = true;
         return json(res, 200, { ok: true });
