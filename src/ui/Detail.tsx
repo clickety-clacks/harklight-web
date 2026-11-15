@@ -101,7 +101,8 @@ export function Detail(p: DetailProps) {
     (pickedChoice !== null && (pickedChoice.kind === 'value' || text.trim() !== ''));
 
   const commit = () => {
-    if (!ready || !canAnswer) return;
+    // A locked failed answer goes out only through Retry, or as a new send after Edit.
+    if (!ready || !canAnswer || barRetry) return;
     if (picked === 'no_comment') p.onAnswer({ kind: 'no_comment' });
     else if (form.kind === 'ui1') {
       const c = compose(form.doc, draft);

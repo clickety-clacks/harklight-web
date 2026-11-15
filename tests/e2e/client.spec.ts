@@ -356,6 +356,11 @@ test('a failed reply is held as sent: Retry resends it unchanged, Edit makes a n
   await box.press('End');
   await box.pressSequentially(' later', { delay: 0 });
   await expect(box).toHaveValue('Roll back now');
+  // The send shortcut does not send a locked answer: only Retry does.
+  await box.press('Control+Enter');
+  await box.press('Meta+Enter');
+  await expect(page.getByTestId('reply-failed')).toBeVisible();
+  expect((await control(page, 'state')).answerFrames).toHaveLength(1);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByTestId('reply-failed')).toBeVisible();
   let frames = (await control(page, 'state')).answerFrames;
