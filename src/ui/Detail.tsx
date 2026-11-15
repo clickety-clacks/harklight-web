@@ -65,7 +65,7 @@ export function Detail(p: DetailProps) {
   const [formError, setFormError] = useState<string | null>(null);
 
   // The control the person tapped carries the submission's state: a spinner
-  // while sending, its done state once the Server confirms, or Not sent with
+  // while sending, its done state once the Server confirms, or the failure mark with
   // Retry. No status lines.
   const local = p.local;
   const sending = local?.state === 'sending';
@@ -166,8 +166,20 @@ export function Detail(p: DetailProps) {
         </div>
         <div class="bar-group">
           {p.chatButton && !p.phone && <ChatButton unread={p.unread} onChat={p.onChat} />}
+          {open && formFrozen && (
+            <button type="button" class="tool" onClick={p.onEdit}>
+              Edit
+            </button>
+          )}
           {open && !isSeenForm && form.kind !== 'unsupported' && barRetry && (
-            <button type="button" class="tool tool--retry" onClick={p.onRetry} disabled={!p.canAct}>
+            <button
+              type="button"
+              class="tool tool--retry"
+              data-testid={formFrozen ? 'form-failed' : undefined}
+              onClick={p.onRetry}
+              disabled={!p.canAct}
+            >
+              {formFrozen && <FailMark />}
               Retry
             </button>
           )}
@@ -232,8 +244,11 @@ export function Detail(p: DetailProps) {
 
           {answered && (
             <AnsweredCard
-              heading={m.terminal?.state === 'no_comment' || local?.noComment ? 'No comment' : 'Answered'}
-              text={m.terminal?.state === 'no_comment' || local?.noComment ? null : answeredText(m, local?.label ?? null)}
+              text={
+                m.terminal?.state === 'no_comment' || local?.noComment
+                  ? 'No comment'
+                  : (answeredText(m, local?.label ?? null) ?? 'Answered')
+              }
             />
           )}
           {seenDone && (
@@ -328,19 +343,6 @@ export function Detail(p: DetailProps) {
                   }}
                 />
               </div>
-              {formFrozen && (
-                <div class="choice choice--failed form-failed" data-testid="form-failed">
-                  <span class="fail-mark" aria-hidden="true">
-                    !
-                  </span>
-                  <span class="choice-text">
-                    <span class="ti">Not sent</span>
-                  </span>
-                  <button type="button" class="tool tool--inline" onClick={p.onEdit}>
-                    Edit
-                  </button>
-                </div>
-              )}
               {formError && (
                 <p class="msg-note msg-note--bad" role="alert">
                   {formError}
@@ -429,13 +431,8 @@ function ChoiceCard(p: {
   if (p.status === 'failed') {
     return (
       <div class="choice choice--failed" data-testid="choice-failed">
-        <span class="fail-mark" aria-hidden="true">
-          !
-        </span>
-        <span class="choice-text">
-          {label}
-          <span class="de">Not sent</span>
-        </span>
+        <FailMark />
+        <span class="choice-text">{label}</span>
         <button type="button" class="tool tool--retry tool--inline" onClick={p.onRetry}>
           Retry
         </button>
@@ -491,17 +488,12 @@ function ReplyCard(p: {
         role="radio"
         aria-checked={p.on}
         class="rc-head"
+        aria-label={p.status === 'failed' ? p.choice.label : undefined}
         disabled={p.disabled}
         onClick={p.onPick}
       >
-        {p.status === 'failed' ? (
-          <span class="fail-mark" aria-hidden="true">
-            !
-          </span>
-        ) : (
-          <span class="mark" aria-hidden="true" />
-        )}
-        <span class="ti">{p.status === 'failed' ? 'Not sent' : p.choice.label}</span>
+        {p.status === 'failed' ? <FailMark /> : <span class="mark" aria-hidden="true" />}
+        {p.status !== 'failed' && <span class="ti">{p.choice.label}</span>}
       </button>
       {p.frozen && (
         <button type="button" class="tool tool--inline rc-edit" onClick={p.onEdit}>
@@ -537,9 +529,7 @@ function SeenButton(p: { status: Status; bar?: boolean; disabled: boolean; onSee
   if (p.status === 'failed') {
     return (
       <button type="button" class={p.bar ? 'tool tool--retry' : 'tool tool--retry seen-under'} onClick={p.onRetry}>
-        <span class="fail-mark" aria-hidden="true">
-          !
-        </span>
+        <FailMark />
         Retry Seen
       </button>
     );
@@ -559,15 +549,22 @@ function SeenButton(p: { status: Status; bar?: boolean; disabled: boolean; onSee
   );
 }
 
-function AnsweredCard(p: { heading: string; text: string | null }) {
+/** A confirmed answer: the check and what was answered, with no heading. */
+function AnsweredCard(p: { text: string }) {
   return (
     <div class="answered" data-testid="answered">
-      <div class="an-head">
-        <Icon name="check" />
-        {p.heading}
-      </div>
-      {p.text && <div class="an-text">{p.text}</div>}
+      <Icon name="check" />
+      <div class="an-text">{p.text}</div>
     </div>
+  );
+}
+
+/** The failure mark: a circled exclamation, named for screen readers. */
+function FailMark() {
+  return (
+    <span class="fail-mark" role="img" aria-label="Couldn't send">
+      <Icon name="alert" />
+    </span>
   );
 }
 

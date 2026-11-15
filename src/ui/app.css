@@ -521,8 +521,8 @@
 
 .answered {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
+  gap: 10px;
   padding: 14px 16px;
   border-radius: 12px;
   border: 1px solid var(--t-icon);
@@ -534,13 +534,19 @@
   gap: 10px;
   font-weight: 600;
 }
+.answered > svg.icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  color: var(--t-icon);
+}
 .an-head svg.icon {
   width: 18px;
   height: 18px;
   color: var(--t-icon);
 }
 .an-text {
-  padding-left: 28px;
   font-weight: 600;
   line-height: 1.45;
   white-space: pre-wrap;
@@ -1103,16 +1109,16 @@ a.grow:hover .grow-l {
 .choice--failed .choice-text {
   flex: 1;
 }
-.choice--failed .de,
-.replycard--failed .rc-head .ti {
-  color: var(--coral);
-}
 .fail-mark {
+  display: inline-flex;
   width: 20px;
   flex: none;
-  text-align: center;
-  font-weight: 700;
+  justify-content: center;
   color: var(--coral);
+}
+.fail-mark svg.icon {
+  width: 20px;
+  height: 20px;
 }
 .tool--retry {
   background: var(--coral);
@@ -1159,7 +1165,4 @@ a.grow:hover .grow-l {
 }
 .replycard--failed .rc-pane[readonly] {
   opacity: 0.85;
-}
-.form-failed .ti {
-  color: var(--coral);
 }

@@ -174,8 +174,8 @@ function MessageRow(props: {
         {props.seen && <Icon name="check" class="seen" />}
         {props.submission === 'sending' && <span class="spinner row-spinner" role="img" aria-label="Sending" />}
         {props.submission === 'failed' && (
-          <span class="row-failed" role="img" aria-label="Not sent">
-            <Icon name="warn" />
+          <span class="row-failed" role="img" aria-label="Couldn't send">
+            <Icon name="alert" />
           </span>
         )}
         {props.unread && <span class="visually-hidden">Unread chat reply</span>}

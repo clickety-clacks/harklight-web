@@ -36,8 +36,8 @@ test('answers with a choice and shows the answered card', async ({ page }) => {
   await expect(send).toBeDisabled();
   await page.getByRole('radio', { name: 'Approve' }).click();
   await send.click();
-  await expect(page.getByTestId('answered')).toContainText('Answered');
-  await expect(page.getByTestId('answered')).toContainText('Approve');
+  // Confirmed carries no 'Answered' label: the check and the answer say it.
+  await expect(page.getByTestId('answered')).toHaveText('Approve');
   expect((await control(page, 'state')).lastAnswer.answer).toBe('approve');
   // It moved to Replied.
   await page.getByRole('tab', { name: 'Replied' }).click();
@@ -295,7 +295,7 @@ test('a choice shows its own sending state, then becomes the answered card, and 
   await expect(page.getByRole('img', { name: 'Sending' })).toHaveCount(0);
 });
 
-test('a failed choice shows Not sent with Retry, and Retry sends the same answer', async ({ page }) => {
+test('a failed choice shows the failure mark with Retry, no Not sent, and Retry sends the same answer', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await control(page, 'fail-answers');
@@ -303,8 +303,10 @@ test('a failed choice shows Not sent with Retry, and Retry sends the same answer
   await page.getByRole('radio', { name: 'Approve' }).click();
   await page.getByRole('button', { name: 'Send answer' }).click();
   const failed = page.getByTestId('choice-failed');
-  await expect(failed).toContainText('Not sent');
-  await expect(page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' }).getByRole('img', { name: 'Not sent' })).toBeVisible();
+  await expect(failed.getByRole('img', { name: "Couldn't send" })).toBeVisible();
+  await expect(failed.locator('svg.icon')).toBeVisible();
+  await expect(failed).not.toContainText('Not sent');
+  await expect(page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' }).getByRole('img', { name: "Couldn't send" })).toBeVisible();
   // The other choices are tappable again.
   await expect(page.getByRole('radio', { name: 'No comment' })).toBeEnabled();
   await control(page, 'fail-answers', { on: false });
@@ -334,7 +336,8 @@ test('a failed reply keeps its text and the send control comes back as Retry', a
   await page.getByRole('radio', { name: 'Reply' }).click();
   await page.getByRole('textbox', { name: 'Reply' }).fill('Hold until I look at the logs');
   await page.getByRole('button', { name: 'Send answer' }).click();
-  await expect(page.getByTestId('reply-failed')).toContainText('Not sent');
+  await expect(page.getByTestId('reply-failed').getByRole('img', { name: "Couldn't send" })).toBeVisible();
+  await expect(page.getByTestId('reply-failed')).not.toContainText('Not sent');
   await expect(page.getByRole('textbox', { name: 'Reply' })).toHaveValue('Hold until I look at the logs');
   await control(page, 'fail-answers', { on: false });
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -350,7 +353,8 @@ test('a failed reply is held as sent: Retry resends it unchanged, Edit makes a n
   const box = page.getByRole('textbox', { name: 'Reply' });
   await box.fill('Roll back now');
   await page.getByRole('button', { name: 'Send answer' }).click();
-  await expect(page.getByTestId('reply-failed')).toContainText('Not sent');
+  await expect(page.getByTestId('reply-failed').getByRole('img', { name: "Couldn't send" })).toBeVisible();
+  await expect(page.getByTestId('reply-failed')).not.toContainText('Not sent');
   // What is shown is what Retry sends: the text cannot change under it.
   await expect(box).toHaveAttribute('readonly', '');
   await box.press('End');
@@ -390,7 +394,8 @@ test('a failed reply keeps its text and Retry after leaving the message and comi
   await expect(page.getByTestId('reply-failed')).toBeVisible();
   await openRow(page, 'Quarterly report is ready');
   await openRow(page, 'Production deploy failed');
-  await expect(page.getByTestId('reply-failed')).toContainText('Not sent');
+  await expect(page.getByTestId('reply-failed').getByRole('img', { name: "Couldn't send" })).toBeVisible();
+  await expect(page.getByTestId('reply-failed')).not.toContainText('Not sent');
   await expect(page.getByRole('textbox', { name: 'Reply' })).toHaveValue('Page the database owner');
   await control(page, 'fail-answers', { on: false });
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
@@ -399,23 +404,26 @@ test('a failed reply keeps its text and Retry after leaving the message and comi
   expect(frames[1]).toEqual(frames[0]);
 });
 
-test('a failed custom form shows Not sent with Retry, keeps its answer when reopened, and Retry sends the same answer', async ({ page }) => {
+test('a failed custom form shows Retry with the failure mark, keeps its answer when reopened, and Retry sends the same answer', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await openInbox(page);
   await control(page, 'fail-answers');
   await openRow(page, 'Which cover for the November issue?');
   await page.getByRole('radio', { name: /Use cover B/ }).click();
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByTestId('form-failed')).toContainText('Not sent');
-  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
-  await expect(page.getByTestId('row').filter({ hasText: 'Which cover for the November issue?' }).getByRole('img', { name: 'Not sent' })).toBeVisible();
+  await expect(page.getByTestId('form-failed')).toHaveText('Retry');
+  await expect(page.getByTestId('form-failed').getByRole('img', { name: "Couldn't send" })).toBeVisible();
+  await expect(page.getByText('Not sent')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: "Couldn't send Retry", exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+  await expect(page.getByTestId('row').filter({ hasText: 'Which cover for the November issue?' }).getByRole('img', { name: "Couldn't send" })).toBeVisible();
   // Leave and come back: the answer as sent, and its Retry, are still there.
   await openRow(page, 'Quarterly report is ready');
   await openRow(page, 'Which cover for the November issue?');
   await expect(page.getByTestId('form-failed')).toBeVisible();
   await expect(page.getByRole('radio', { name: /Use cover B/ })).toHaveAttribute('aria-checked', 'true');
   await control(page, 'fail-answers', { on: false });
-  await page.getByRole('button', { name: 'Retry', exact: true }).click();
+  await page.getByTestId('form-failed').click();
   await expect(page.getByTestId('answered')).toContainText('Use cover B');
   const frames = (await control(page, 'state')).answerFrames;
   expect(frames).toHaveLength(2);
