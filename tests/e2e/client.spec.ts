@@ -173,6 +173,17 @@ test('the chat switches between side panel and modal as the window resizes, keep
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
 });
 
+test('widening while the chat modal is open moves focus into the side panel, not the page body', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('.chat-col'))).toBe(true);
+});
+
 test('a narrower laptop window with room for it keeps the side panel', async ({ page }) => {
   await page.setViewportSize({ width: 1100, height: 760 });
   await openInbox(page);

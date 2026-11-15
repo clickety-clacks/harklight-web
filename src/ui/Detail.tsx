@@ -232,7 +232,7 @@ export function Detail(p: DetailProps) {
               {createdAt(m) !== null && ` · ${friendlyLong(createdAt(m)!)}`}
             </span>
           </div>
-          <h2 class="msg-title">
+          <h2 class="msg-title" tabIndex={-1}>
             <Icon name={TYPE_ICON[type]} />
             <span>{title(m)}</span>
           </h2>

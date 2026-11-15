@@ -347,7 +347,23 @@ function ChatModal(p: { label: string; phone: boolean; onClose: () => void; chil
     return () => {
       closing.current = true;
       if (d?.open) d.close();
+      // Back to whatever opened it. Focus it now, so focus never rests on the
+      // page body, then check once the update has finished: if the opener has
+      // gone (a widening window turned the modal into the side panel and the
+      // Chat button is no longer shown), move focus into the chat panel, or
+      // else to the message.
       if (opener && opener.isConnected) opener.focus();
+      queueMicrotask(() => {
+        if (opener && opener.isConnected && opener.offsetParent !== null) {
+          if (document.activeElement !== opener) opener.focus();
+          return;
+        }
+        // The message now, then the chat panel once it has been drawn.
+        document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
+        requestAnimationFrame(() =>
+          document.querySelector<HTMLElement>('.chat-col .compose-field:not(:disabled), .chat-col .chat-head button')?.focus(),
+        );
+      });
     };
   }, []);
   return (
