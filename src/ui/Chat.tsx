@@ -14,10 +14,8 @@ export interface ChatProps {
   attachments: boolean;
   uploadCap: number | null;
   canSend: boolean;
-  /** Back (phone) or close (wide and medium). */
+  /** Close the chat modal and return to the message. */
   onClose: () => void;
-  closeLabel: string;
-  phone: boolean;
   onSend: (text: string, files: PickedFile[]) => void;
   onRetry: (opId: string) => void;
   onReplyVisible: (seq: number) => void;
@@ -92,17 +90,10 @@ export function Chat(p: ChatProps) {
   return (
     <section class="chat" aria-label="Chat">
       <header class="chat-head">
-        {p.phone && (
-          <button type="button" class="icon-btn" aria-label={p.closeLabel} onClick={p.onClose}>
-            <Icon name="back" />
-          </button>
-        )}
         <h2 class="chat-title">Chat</h2>
-        {!p.phone && (
-          <button type="button" class="icon-btn" aria-label={p.closeLabel} onClick={p.onClose}>
-            <Icon name="chev" />
-          </button>
-        )}
+        <button type="button" class="icon-btn" aria-label="Close chat" onClick={p.onClose}>
+          <Icon name="xmark" />
+        </button>
       </header>
       <div class="turns" ref={list}>
         {!p.available && <p class="chat-empty">Chat is not available yet.</p>}

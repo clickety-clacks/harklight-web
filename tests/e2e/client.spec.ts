@@ -9,6 +9,11 @@ test.beforeEach(async ({ page }) => {
 
 /** Open a message from its own row (not a chat reply row about it). */
 const openRow = (page: Page, title: string) => page.getByTestId('row').filter({ hasText: title }).first().click();
+/** Chat opens as a modal over the message, from the message's Chat button. */
+async function openChat(page: Page) {
+  await page.locator('.detail, .fab').getByRole('button', { name: /^Chat/ }).first().click();
+  await expect(page.getByRole('dialog', { name: /^Chat with/ })).toBeVisible();
+}
 
 async function openInbox(page: Page) {
   await page.goto('/inbox');
@@ -24,8 +29,9 @@ test('lists the inbox and opens a message, reporting the open', async ({ page })
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await expect.poll(async () => (await control(page, 'state')).opens).toBe(1);
-  // Three columns at wide width: the chat is beside the message.
-  await expect(page.getByText('I can hold either room until 6 PM today.')).toBeVisible();
+  // The chat opens as a modal over the message.
+  await openChat(page);
+  await expect(page.getByRole('dialog').getByText('I can hold either room until 6 PM today.')).toBeVisible();
 });
 
 test('answers with a choice and shows the answered card', async ({ page }) => {
@@ -70,6 +76,7 @@ test('chats with the agent and sees the reply live', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
   await page.getByRole('textbox', { name: 'Write a message' }).fill('Is breakfast included?');
   await page.keyboard.press('Enter');
   await expect(page.locator('.turn--me', { hasText: 'Is breakfast included?' })).toBeVisible();
@@ -83,6 +90,7 @@ test('sends files with a chat message: small inline, large uploaded', async ({ p
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
   const small = { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.alloc(20_000, 'a') };
   const big = { name: 'plan.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(600_000, 'b') };
   await page.locator('input[type=file]').setInputFiles([small, big]);
@@ -102,6 +110,7 @@ test('refuses a file over the Server limit and sends nothing', async ({ page }) 
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
   // Learn the limit, as the client does before it shows one.
   await page.getByRole('textbox', { name: 'Write a message' }).fill('first');
   await page.keyboard.press('Enter');
@@ -118,8 +127,48 @@ test('closes the chat once the message is answered, keeping it readable', async 
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await page.getByRole('radio', { name: 'Lisboa Plaza' }).click();
   await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('answered')).toBeVisible();
+  await openChat(page);
   await expect(page.getByText('This chat is closed. You can still read it and download its files.')).toBeVisible();
   await expect(page.getByText('I can hold either room until 6 PM today.')).toBeVisible();
+});
+
+for (const [w, h, size] of [
+  [1280, 800, 'wide'],
+  [900, 800, 'medium'],
+  [390, 844, 'phone'],
+] as const) {
+  test(`at ${size} width the chat is a modal over the message: Escape and close return to it, with focus back`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await openInbox(page);
+    await openRow(page, 'Which hotel should I book for Lisbon?');
+    const heading = page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' });
+    await expect(heading).toBeVisible();
+    await openChat(page);
+    const dialog = page.getByRole('dialog', { name: 'Chat with Research agent' });
+    // A layer on top: the message stays rendered underneath, and focus is in the dialog.
+    await expect(heading).toBeAttached();
+    expect(await dialog.evaluate((d) => (d as HTMLDialogElement).open && d.matches(':modal'))).toBe(true);
+    expect(await page.evaluate(() => !!document.activeElement?.closest('dialog'))).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(heading).toBeVisible();
+    expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? '')).toMatch(/^Chat/);
+    await openChat(page);
+    await page.getByRole('button', { name: 'Close chat' }).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(heading).toBeVisible();
+  });
+}
+
+test('a chat reply row opens the chat over its message, and closing it returns to that message', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openInbox(page);
+  await page.getByTestId('reply-row').filter({ hasText: 'Which hotel should I book for Lisbon?' }).click();
+  await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close chat' }).click();
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
+  await expect(page.getByTestId('row')).toHaveCount(0);
 });
 
 test('shows a new message live', async ({ page }) => {
@@ -134,9 +183,11 @@ test('phone width shows one column at a time', async ({ page }) => {
   await expect(page.getByRole('tab', { name: 'Inbox' })).toBeVisible();
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByTestId('row')).toHaveCount(0);
-  await page.getByRole('button', { name: /^Chat/ }).click();
+  await openChat(page);
   await expect(page.getByText('Yes. Every room has a desk and wired internet.')).toBeVisible();
-  await page.getByRole('button', { name: 'Back to message' }).click();
+  await page.getByRole('button', { name: 'Close chat' }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to inbox' }).click();
   await expect(page.getByTestId('row').first()).toBeVisible();
 });
@@ -258,6 +309,7 @@ test('a chat refused because the account cannot use messaging shows the account 
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
   await control(page, 'refuse-inactive');
   await page.getByRole('textbox', { name: 'Write a message' }).fill('Hello?');
   await page.keyboard.press('Enter');
@@ -269,10 +321,12 @@ test('#preview turns chat files on in this browser even when the deployment has 
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
   await expect(page.getByRole('button', { name: 'Attach a file' })).toHaveCount(0);
   await page.goto('/inbox#preview');
   await expect(page.getByTestId('row').first()).toBeVisible();
   await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
   await expect(page.getByRole('button', { name: 'Attach a file' })).toBeVisible();
   await page.goto('/inbox#preview-off');
 });

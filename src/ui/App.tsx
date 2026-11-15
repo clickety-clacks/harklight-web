@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Config } from '../config';
 import type { RelaySession } from '../relay/session';
 import { fileUrl } from '../relay/files';
@@ -59,9 +60,8 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const [page, setPage] = useState<Page>(() => pageFromPath(location.pathname));
   const [tab, setTab] = useState<Tab>('inbox');
   const [selected, setSelected] = useState<string | null>(null);
-  /** Wide: chat column shown unless closed. Medium and phone: chat shown when opened. */
+  /** Chat opens as a modal over its message, at every width. */
   const [chatShown, setChatShown] = useState(false);
-  const [chatHiddenWide, setChatHiddenWide] = useState(false);
   /** Opened from a chat reply row: the open is not reported, as on the phone. */
   const [viaReply, setViaReply] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -152,7 +152,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   }
 
   const phone = layout === 'phone';
-  const chatVisible = message ? (layout === 'wide' ? !chatHiddenWide || chatShown : chatShown) : false;
+  const chatVisible = !!message && chatShown;
   const sender = message ? senderLabel(message) : '';
   const fileHref = (id: string) => fileUrl(config.filesPath, id);
   const imageUrl = (f: WireFile) => imageUrlFor(f, config);
@@ -171,7 +171,9 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       }}
       replyText={(key, seq) => s.threads.get(key)?.turns.find((t) => t.seq === seq)?.text ?? null}
       onOpenReply={(r: ReplyRow) => {
-        setChatHiddenWide(false);
+        // The message first, then its chat over it, so closing the chat
+        // returns to the message.
+        go('inbox', r.key, false, true);
         go('inbox', r.key, true, true);
       }}
       morePages={s.morePages}
@@ -200,7 +202,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       position={index >= 0 ? { index: index + 1, total: rows.length } : null}
       local={s.answers.get(selected!)}
       unread={unread(selected!)}
-      chatButton={!chatVisible}
+      chatButton
       phone={phone}
       attachments={config.flags.attachments}
       answerForms={config.flags.answerForms}
@@ -209,10 +211,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       onPrev={index > 0 ? () => open(rows[index - 1].key) : null}
       onNext={index >= 0 && index < rows.length - 1 ? () => open(rows[index + 1].key) : null}
       onBack={phone ? () => history.back() : null}
-      onChat={() => {
-        setChatHiddenWide(false);
-        go('inbox', selected, true);
-      }}
+      onChat={() => go('inbox', selected, true, viaReply)}
       onAnswer={onAnswer}
       onSeen={onSeen}
       onRetry={onRetry}
@@ -233,12 +232,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       attachments={config.flags.attachments}
       uploadCap={s.fileLimits?.cap ?? null}
       canSend={s.connection === 'connected' && chatOpen(thread, message)}
-      phone={phone}
-      closeLabel={phone ? 'Back to message' : 'Close chat'}
-      onClose={() => {
-        if (layout === 'wide') setChatHiddenWide(true);
-        if (chatShown) history.back();
-      }}
+      onClose={() => history.back()}
       onSend={(text, files) => void session.chat(message, text, files)}
       onRetry={(op) => session.retryChat(op)}
       onReplyVisible={(seq) => session.markRead(selected!, seq)}
@@ -248,19 +242,25 @@ export function App(props: { config: Config; store: Store; session: RelaySession
 
   const banner = <ConnectionBanner state={s} />;
 
+  const modal = chatVisible && (
+    <ChatModal label={`Chat with ${sender}`} phone={phone} onClose={() => history.back()}>
+      {chat}
+    </ChatModal>
+  );
+
   if (phone) {
     return (
       <div class="app app--phone">
         {banner}
         {!message && list}
-        {message && !chatShown && detail}
-        {message && chatShown && chat}
+        {message && detail}
+        {modal}
       </div>
     );
   }
 
   return (
-    <div class={`app app--${layout}${chatVisible ? ' app--chat' : ''}`}>
+    <div class={`app app--${layout}`}>
       {list}
       <div class="main-col">
         {banner}
@@ -271,8 +271,50 @@ export function App(props: { config: Config; store: Store; session: RelaySession
           </div>
         )}
       </div>
-      {chatVisible && <div class={layout === 'medium' ? 'chat-col chat-col--over' : 'chat-col'}>{chat}</div>}
+      {modal}
     </div>
+  );
+}
+
+/**
+ * Chat as a modal layer over its message (Mike, 2026-11-15): a native modal
+ * dialog, so the page under it is inert, focus moves into it, Escape closes
+ * it, and screen readers announce a dialog. Focus returns to whatever opened
+ * it when it closes.
+ */
+function ChatModal(p: { label: string; phone: boolean; onClose: () => void; children: ComponentChildren }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  // A layout effect, so focus is back on the opener in the same step the
+  // dialog closes, never left on the page body in between.
+  useLayoutEffect(() => {
+    const d = ref.current;
+    const opener = document.activeElement as HTMLElement | null;
+    if (d && !d.open) {
+      if (typeof d.showModal === 'function') d.showModal();
+      else d.setAttribute('open', '');
+    }
+    return () => {
+      if (d?.open) d.close();
+      if (opener && opener.isConnected) opener.focus();
+    };
+  }, []);
+  return (
+    <dialog
+      ref={ref}
+      class={p.phone ? 'chat-modal chat-modal--phone' : 'chat-modal'}
+      aria-label={p.label}
+      onCancel={(e) => {
+        // Escape: close through the app, so history and state follow.
+        e.preventDefault();
+        p.onClose();
+      }}
+      onClick={(e) => {
+        // A click on the backdrop (outside the panel) closes it.
+        if (e.target === e.currentTarget) p.onClose();
+      }}
+    >
+      {p.children}
+    </dialog>
   );
 }
 
