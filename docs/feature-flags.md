@@ -8,8 +8,8 @@ that removes the flag.
 Flags live in `src/config.ts`. The deployment overrides them with
 `/app/config.json` (`docs/deploy.md`).
 
-The owner of every flag below is the web client delivery owner (Tightbeam
-session `s_1bb37e08`), accountable to the Web product owner.
+The owner of every flag below is the web client delivery owner, accountable to
+the Web product owner.
 
 | Flag | Purpose | Owner | Work item | Default | In production | Remove when |
 | --- | --- | --- | --- | --- | --- | --- |
