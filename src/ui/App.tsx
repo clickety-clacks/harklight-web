@@ -16,8 +16,17 @@ import { Settings } from './Settings';
 
 export type Layout = 'wide' | 'medium' | 'phone';
 
-/** Wide starts at about 1,100 (design); one column below 720. */
-export const WIDE_MIN = 1100;
+/**
+ * Chat is a side panel whenever there is room for it beside the message
+ * without squeezing either, and a modal over the message when there isn't.
+ * Room means the list, a message column that still reads comfortably (its
+ * choice cards and form scenes) and the chat panel, at the accepted design's
+ * sizes. 'wide' is that layout.
+ */
+export const LIST_WIDTH = 340;
+export const MESSAGE_MIN = 420;
+export const CHAT_PANEL_WIDTH = 340;
+export const WIDE_MIN = LIST_WIDTH + MESSAGE_MIN + CHAT_PANEL_WIDTH;
 export const MEDIUM_MIN = 720;
 
 export function layoutFor(width: number): Layout {
@@ -60,12 +69,21 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const [page, setPage] = useState<Page>(() => pageFromPath(location.pathname));
   const [tab, setTab] = useState<Tab>('inbox');
   const [selected, setSelected] = useState<string | null>(null);
-  /** Wide: the chat column shows beside the message unless closed. Medium and
-   * phone: the chat opens as a modal over the message. */
-  const [chatShown, setChatShown] = useState(false);
-  const [chatHiddenWide, setChatHiddenWide] = useState(false);
+  /** Whether the chat is open. Where there's room it shows as a side panel,
+   * otherwise as a modal over the message; a resize switches between them and
+   * keeps it open. */
+  const [chatWanted, setChatWanted] = useState(false);
+  /** The person closed the side panel: it stays closed until they open chat. */
+  const [panelClosed, setPanelClosed] = useState(false);
+  const panel = layout === 'wide';
   /** Unsent chat text and files per message, kept while its chat is closed. */
   const drafts = useRef(new Map<string, ChatDraft>());
+  /** Close the chat. If opening it was a history step, step back, so the
+   * browser's Back and the close control agree; otherwise just close it. */
+  const closeChat = () => {
+    if ((history.state as { chat?: boolean } | null)?.chat) history.back();
+    else setChatWanted(false);
+  };
   /** Opened from a chat reply row: the open is not reported, as on the phone. */
   const [viaReply, setViaReply] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -75,7 +93,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       setPage(pageFromPath(location.pathname));
       const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean } | null;
       setSelected(st?.selected ?? null);
-      setChatShown(!!st?.chat);
+      setChatWanted(!!st?.chat);
       setViaReply(!!st?.viaReply);
     };
     window.addEventListener('popstate', on);
@@ -87,9 +105,15 @@ export function App(props: { config: Config; store: Store; session: RelaySession
     history.pushState({ selected: sel, chat, viaReply: fromReply }, '', `${base}/${p}`);
     setPage(p);
     setSelected(sel);
-    setChatShown(chat);
+    setChatWanted(chat);
     setViaReply(fromReply);
   };
+
+  // Where there's room the panel is open by default, unless the person
+  // closed it. This also opens it when a resize makes room.
+  useEffect(() => {
+    if (panel && selected && !panelClosed && !chatWanted) setChatWanted(true);
+  }, [panel, selected, panelClosed, chatWanted]);
 
   const listEntries = useMemo(() => entriesFor(s, tab), [s, tab]);
   const rows = useMemo(() => rowsFor(s, tab), [s, tab]);
@@ -156,7 +180,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   }
 
   const phone = layout === 'phone';
-  const chatVisible = message ? (layout === 'wide' ? !chatHiddenWide || chatShown : chatShown) : false;
+  const chatVisible = !!message && chatWanted;
   const sender = message ? senderLabel(message) : '';
   const fileHref = (id: string) => fileUrl(config.filesPath, id);
   const imageUrl = (f: WireFile) => imageUrlFor(f, config);
@@ -177,7 +201,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       onOpenReply={(r: ReplyRow) => {
         // The message first, then its chat over it, so closing the chat
         // returns to the message.
-        setChatHiddenWide(false);
+        setPanelClosed(false);
         go('inbox', r.key, false, true);
         go('inbox', r.key, true, true);
       }}
@@ -207,7 +231,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       position={index >= 0 ? { index: index + 1, total: rows.length } : null}
       local={s.answers.get(selected!)}
       unread={unread(selected!)}
-      chatButton={layout !== 'wide' || !chatVisible}
+      chatButton={!panel || !chatVisible}
       phone={phone}
       attachments={config.flags.attachments}
       answerForms={config.flags.answerForms}
@@ -217,7 +241,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       onNext={index >= 0 && index < rows.length - 1 ? () => open(rows[index + 1].key) : null}
       onBack={phone ? () => history.back() : null}
       onChat={() => {
-        setChatHiddenWide(false);
+        setPanelClosed(false);
         go('inbox', selected, true, viaReply);
       }}
       onAnswer={onAnswer}
@@ -240,15 +264,15 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       attachments={config.flags.attachments}
       uploadCap={s.fileLimits?.cap ?? null}
       canSend={s.connection === 'connected' && chatOpen(thread, message)}
-      column={layout === 'wide'}
+      column={panel}
       draft={drafts.current.get(selected!) ?? { text: '', files: [] }}
       onDraft={(d) => {
         if (d.text === '' && d.files.length === 0) drafts.current.delete(selected!);
         else drafts.current.set(selected!, d);
       }}
       onClose={() => {
-        if (layout === 'wide') setChatHiddenWide(true);
-        if (chatShown) history.back();
+        if (panel) setPanelClosed(true);
+        closeChat();
       }}
       onSend={(text, files) => void session.chat(message, text, files)}
       onRetry={(op) => session.retryChat(op)}
@@ -259,8 +283,8 @@ export function App(props: { config: Config; store: Store; session: RelaySession
 
   const banner = <ConnectionBanner state={s} />;
 
-  const modal = chatVisible && layout !== 'wide' && (
-    <ChatModal label={`Chat with ${sender}`} phone={phone} onClose={() => history.back()}>
+  const modal = chatVisible && !panel && (
+    <ChatModal label={`Chat with ${sender}`} phone={phone} onClose={closeChat}>
       {chat}
     </ChatModal>
   );
@@ -277,7 +301,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   }
 
   return (
-    <div class={`app app--${layout}${chatVisible && layout === 'wide' ? ' app--chat' : ''}`}>
+    <div class={`app app--${layout}${chatVisible && panel ? ' app--chat' : ''}`}>
       {list}
       <div class="main-col">
         {banner}
@@ -288,15 +312,15 @@ export function App(props: { config: Config; store: Store; session: RelaySession
           </div>
         )}
       </div>
-      {chatVisible && layout === 'wide' && <div class="chat-col">{chat}</div>}
+      {chatVisible && panel && <div class="chat-col">{chat}</div>}
       {modal}
     </div>
   );
 }
 
 /**
- * Chat as a modal layer over its message, where it used to replace the
- * message (medium and phone widths): a native modal dialog, so the page under
+ * Chat as a modal layer over its message, when there's no room for the side
+ * panel: a native modal dialog, so the page under
  * it is inert, focus moves into it, Escape closes it, and screen readers
  * announce a dialog. Focus returns to whatever opened it when it closes.
  */
