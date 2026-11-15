@@ -10,6 +10,9 @@
 .app--wide {
   grid-template-columns: 340px minmax(0, 1fr);
 }
+.app--wide.app--chat {
+  grid-template-columns: 340px minmax(0, 1fr) 340px;
+}
 .app--medium {
   grid-template-columns: 340px minmax(0, 1fr);
   position: relative;
@@ -24,9 +27,16 @@
   min-width: 0;
   min-height: 0;
 }
-/* Chat: a modal layer over its message (Mike, 2026-11-15). The accepted
-   design's overlay panel: a sheet from the right on wide and medium, and on a
-   phone a sheet filling most of the screen, over a dimmed message. */
+.chat-col {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  border-left: 1px solid var(--line);
+}
+
+/* Chat at medium and phone widths: a modal layer over its message, in the
+   accepted design's overlay panel look. A sheet from the right at medium, and
+   on a phone a sheet filling most of the screen, over a dimmed message. */
 .chat-modal {
   padding: 0;
   border: 0;

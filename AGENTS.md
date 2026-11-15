@@ -34,8 +34,8 @@ tests run alongside the work, not in front of it.
 
 ### Continuous delivery
 
-Fixes and finished work go onto the live site right away, without waiting for
-anyone's permission. Before shipping, run the tests and whatever smoke test or
+Fixes and finished work go onto the live site once reviewed clean, without
+waiting for anyone's permission. Before shipping, run the tests and whatever smoke test or
 validation you judge necessary for the change. If a bug turns up after that, it
 comes back as a bug report and gets fixed the same way.
 
