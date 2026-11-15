@@ -41,8 +41,11 @@ Releases go through CI and need no human approval.
   For a `main` commit or a tag it also packages the site as
   `harklight-web-<commit>.tar.gz` with its `.sha256` (`docs/deploy.md`).
 - A release is a tag `vMAJOR.MINOR.PATCH` on a reviewed `main` commit. The
-  deployment installs that commit's archive after checking its SHA-256. Don't
-  ask for approval before tagging or deploying.
+  deployment installs a commit's archive after checking its SHA-256. Don't ask
+  for approval before tagging or deploying.
+- Any green, reviewed `main` commit may be deployed to the live site, tagged
+  or not; that is how tested fixes go live right away. Tags mark releases. They
+  don't gate deploys.
 - Escalate only for a real problem: a failing check you can't fix, or a release
   that would break something people rely on.
 - If a release is bad, ship a fix or revert it from `main` as the next release.
