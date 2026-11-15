@@ -8,8 +8,12 @@ out. It talks to Harklight Server only through the browser messaging contract.
 
 ## How this project ships
 
-`main` is the only long-lived branch. Every change lands on it through a
-reviewed pull request, and every release is a tag on it.
+`main` is the only long-lived branch. Every change lands on it through a pull
+request, and every release is a tag on it.
+
+Keep work moving. Don't hold work back for a review, a test or a proof unless
+the next step would be hard to undo or would reach real users. Reviews and
+tests run alongside the work, not in front of it.
 
 ### Main-based development
 
@@ -17,9 +21,11 @@ reviewed pull request, and every release is a tag on it.
   day or two through a pull request. If a change can't land that quickly, make
   it smaller, or land it behind a feature flag (below). Never keep work on a
   long-running branch.
-- Keep `main` releasable at every commit. A pull request merges only when CI
-  passes (`npm run build`, `npm test`, `npm run test:e2e`) and an independent
-  reviewer who didn't write it has reviewed it clean.
+- Keep `main` releasable at every commit. A pull request merges to `main` when
+  its checks (`npm run build`, `npm test`, `npm run test:e2e`) show no failure
+  that `main` doesn't already have. Don't hold it for review: independent
+  review by someone who didn't write it runs alongside the work, and any
+  finding gets fixed in a follow-up pull request.
 - Rebase or merge `main` into your branch often, so it never drifts far.
 - Delete the branch when it merges.
 - Don't create release branches, candidate branches or notes branches.
@@ -33,6 +39,12 @@ anyone's permission. Before shipping, run the tests and whatever smoke test or
 validation you judge necessary for the change. If a bug turns up after that, it
 comes back as a bug report and gets fixed the same way.
 
+Going live to customers reaches real users, so it counts as the release: a
+`main` commit goes live to customers once its checks pass and every change in
+it has had a clean independent review. That still needs no one's permission.
+Anything that doesn't reach customers doesn't wait for review: a build whose
+new behavior stays behind a default-off flag, test and preview deployments.
+
 ### Releases
 
 Releases go through CI and need no human approval.
@@ -40,12 +52,13 @@ Releases go through CI and need no human approval.
 - CI builds and tests every pull request, every push to `main` and every tag.
   For a `main` commit or a tag it also packages the site as
   `harklight-web-<commit>.tar.gz` with its `.sha256` (`docs/deploy.md`).
-- A release is a tag `vMAJOR.MINOR.PATCH` on a reviewed `main` commit. The
+- Every change in a release must have had a clean independent review before
+  the release is tagged. Tag that `main` commit as `vMAJOR.MINOR.PATCH`. The
   deployment installs a commit's archive after checking its SHA-256. Don't ask
   for approval before tagging or deploying.
-- Any green, reviewed `main` commit may be deployed to the live site, tagged
-  or not; that is how tested fixes go live right away. Tags mark releases. They
-  don't gate deploys.
+- Any green `main` commit whose changes have all been reviewed clean may go
+  live to customers, tagged or not; that is how tested fixes go live right
+  away. Tags mark releases. They don't gate deploys.
 - Escalate only for a real problem: a failing check you can't fix, or a release
   that would break something people rely on.
 - If a release is bad, ship a fix or revert it from `main` as the next release.
@@ -53,8 +66,8 @@ Releases go through CI and need no human approval.
 
 ### Large features behind a feature flag
 
-A feature too big for one short-lived branch lands on `main` in small, reviewed
-slices, hidden behind a flag until it is ready.
+A feature too big for one short-lived branch lands on `main` in small slices,
+hidden behind a flag until it is ready.
 
 - **Off by default.** A new flag ships off, so `main` and every release behave
   exactly as before until the flag is turned on. Off must stop the behavior
@@ -71,8 +84,9 @@ slices, hidden behind a flag until it is ready.
 - **Turning it on.** Flags are plain configuration in `src/config.ts`, which
   the deployment overrides with `/app/config.json`. Turning a flag on for
   customers is a recorded change to the deployment's `config.json`; changing a
-  flag's default in `src/config.ts` to on is its own small reviewed pull
-  request. Update the register either way.
+  flag's default in `src/config.ts` to on is its own small pull request.
+  Either way the flag reaches customers, so every change behind it must have
+  had a clean independent review first. Update the register either way.
 - **Removal is part of the feature.** Once a flag has been on in production and
   the feature is accepted, delete the flag, the off path and its tests in a
   follow-up pull request, and remove its entry. The feature isn't done until
