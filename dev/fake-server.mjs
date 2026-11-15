@@ -298,6 +298,7 @@ function serveConnection(ws, w, recipient) {
     if (f.type === 'answer' || f.type === 'answer_no_comment') {
       (w.answerFrames = w.answerFrames ?? []).push({ op_id: f.op_id ?? null, answer: f.answer ?? null });
       if (w.failAnswers) return send({ v: 1, type: 'error', reason: 'storage_unavailable' });
+      if (w.refuseAnswers) return send({ v: 1, type: 'error', reason: w.refuseAnswers });
       if (w.holdAnswers && !w.releasing?.has(text)) {
         w.held = w.held ?? [];
         w.held.push(() => {
@@ -652,6 +653,10 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         held.forEach((run) => run());
         return json(res, 200, { released: held.length });
       }
+      case 'refuse-answers':
+        // Refuse answers as if the message had closed or been retracted first.
+        world.refuseAnswers = body.reason ?? null;
+        return json(res, 200, { ok: true });
       case 'fail-answers':
         world.failAnswers = body.on !== false;
         return json(res, 200, { ok: true });

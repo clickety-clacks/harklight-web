@@ -20,10 +20,11 @@ import type { ServerView } from './view';
 /**
  * A submission's state, carried by the control the person tapped: sending
  * (a spinner), accepted (it becomes the answered card or the Seen check) or
- * failed (Not sent, with Retry). A refusal because the message changed,
- * closed or was retracted clears it: the message's own state shows instead.
+ * failed (the failure mark, with Retry). Refused means the message closed or
+ * was retracted first: no Retry, a short reason line instead. A refusal
+ * because the message changed clears it, and the current message shows.
  */
-export type AnswerSendState = 'sending' | 'accepted' | 'failed' | 'inactive';
+export type AnswerSendState = 'sending' | 'accepted' | 'failed' | 'refused' | 'inactive';
 
 export interface LocalAnswer {
   state: AnswerSendState;

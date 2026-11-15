@@ -76,7 +76,13 @@ export function Detail(p: DetailProps) {
     (m.terminal?.state === 'answered' ||
       m.terminal?.state === 'no_comment' ||
       (!!local && !local.seen && local.state === 'accepted'));
-  const open = m.terminal === null && !answered && !seenDone;
+  // Refused because the message closed or was retracted first: no Retry,
+  // and a short reason line, the same wording as the app.
+  const refused = local?.state === 'refused' ? (local.reason ?? 'closed') : null;
+  const open = m.terminal === null && !answered && !seenDone && !refused;
+  // The message's own note (retracted, expired, cleared) already says why.
+  const ownNote = !!m.terminal?.retracted || ((m.terminal?.state === 'expired' || m.terminal?.state === 'cleared') && !answered && !seenDone);
+  const refusalLine = refused && !ownNote ? REFUSAL_TEXT[refused] ?? REFUSAL_TEXT.closed : null;
   const canAnswer = open && p.canAct && !sending;
   const control = sending || failed ? local!.control : null;
   const statusOf = (id: string): Status => (control === id ? (sending ? 'sending' : 'failed') : null);
@@ -256,6 +262,12 @@ export function Detail(p: DetailProps) {
               <Icon name="check" />
               Seen
             </span>
+          )}
+
+          {refusalLine && (
+            <p class="msg-note" data-testid="refused-reason">
+              {refusalLine}
+            </p>
           )}
 
           {open && isSeenForm && (
@@ -548,6 +560,12 @@ function SeenButton(p: { status: Status; bar?: boolean; disabled: boolean; onSee
     </button>
   );
 }
+
+/** Why a refused answer was not taken; agreed with the app so both read the same. */
+const REFUSAL_TEXT: Record<string, string> = {
+  closed: 'This message was already closed.',
+  retracted: 'The sender retracted this message.',
+};
 
 /** A confirmed answer: the check and what was answered, with no heading. */
 function AnsweredCard(p: { text: string }) {

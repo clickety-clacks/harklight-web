@@ -658,8 +658,13 @@ export class RelaySession {
         return;
       }
       const reason = String(r.reason ?? '');
-      if (reason === 'stale_revision' || reason === 'closed' || reason === 'retracted') {
-        // Not something Retry fixes: the message's current state shows instead.
+      if (reason === 'closed' || reason === 'retracted') {
+        // Not something Retry fixes: the message says why, with no Retry.
+        s.answers.set(key, { ...a, state: 'refused', reason, resend: undefined });
+        return;
+      }
+      if (reason === 'stale_revision') {
+        // The current message shows, to be answered again.
         s.answers.delete(key);
         return;
       }

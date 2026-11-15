@@ -430,6 +430,27 @@ test('a failed custom form shows Retry with the failure mark, keeps its answer w
   expect(frames[1]).toEqual(frames[0]);
 });
 
+for (const [reason, line] of [
+  ['closed', 'This message was already closed.'],
+  ['retracted', 'The sender retracted this message.'],
+] as const) {
+  test(`an answer refused because the message was ${reason} shows a reason line and no Retry`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openInbox(page);
+    await control(page, 'refuse-answers', { reason });
+    await openRow(page, 'Approve the survey questions?');
+    await page.getByRole('radio', { name: 'Approve' }).click();
+    await page.getByRole('button', { name: 'Send answer' }).click();
+    await expect(page.getByTestId('refused-reason')).toHaveText(line);
+    await expect(page.getByRole('button', { name: /Retry/ })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: 'Approve' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send answer' })).toHaveCount(0);
+    await expect(page.getByText('Not sent')).toHaveCount(0);
+    await expect(page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' }).getByRole('img', { name: "Couldn't send" })).toHaveCount(0);
+    expect((await control(page, 'state')).answerFrames).toHaveLength(1);
+  });
+}
+
 test('Seen spins while sending, comes back as Retry Seen on failure, and confirms with its check', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
