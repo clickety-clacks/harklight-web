@@ -10,9 +10,6 @@
 .app--wide {
   grid-template-columns: 340px minmax(0, 1fr);
 }
-.app--wide.app--chat {
-  grid-template-columns: 340px minmax(0, 1fr) 340px;
-}
 .app--medium {
   grid-template-columns: 340px minmax(0, 1fr);
   position: relative;
@@ -27,24 +24,37 @@
   min-width: 0;
   min-height: 0;
 }
-.chat-col {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  border-left: 1px solid var(--line);
-}
-.chat-col--over {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 340px;
-  z-index: 3;
+/* Chat: a modal layer over its message (Mike, 2026-11-15). The accepted
+   design's overlay panel: a sheet from the right on wide and medium, and on a
+   phone a sheet filling most of the screen, over a dimmed message. */
+.chat-modal {
+  padding: 0;
+  border: 0;
+  margin: 0 0 0 auto;
+  width: min(380px, 100vw);
+  max-width: 100vw;
+  height: 100%;
+  max-height: 100%;
   background: var(--panel);
+  color: var(--fg);
   box-shadow: var(--chat-over-shadow);
+  overflow: hidden;
 }
-.chat-col--over .chat {
+.chat-modal[open] {
+  display: flex;
+}
+.chat-modal::backdrop {
+  background: rgba(7, 11, 20, 0.45);
+}
+.chat-modal .chat {
   background: var(--panel);
+}
+.chat-modal--phone {
+  margin: auto 0 0;
+  width: 100vw;
+  height: calc(100% - 28px);
+  max-height: calc(100% - 28px);
+  border-radius: 16px 16px 0 0;
 }
 
 .nothing {
@@ -584,10 +594,6 @@
   gap: 8px;
   padding: 6px 8px 6px 16px;
   border-bottom: 1px solid var(--line);
-}
-.app--phone .chat-head {
-  justify-content: flex-start;
-  padding-left: 8px;
 }
 .chat-title {
   margin: 0;
