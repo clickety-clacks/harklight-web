@@ -435,10 +435,10 @@ test('a failed custom form shows Retry with the failure mark, keeps its answer w
 });
 
 for (const [reason, line] of [
-  ['closed', 'This message was already closed.'],
-  ['retracted', 'The sender retracted this message.'],
+  ['closed', 'This message was closed.'],
+  ['retracted', 'This message was retracted.'],
 ] as const) {
-  test(`an answer refused because the message was ${reason} shows a reason line and no Retry`, async ({ page }) => {
+  test(`an answer refused because the message was ${reason}, before that shows, gets a reason line and no Retry`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await openInbox(page);
     await control(page, 'refuse-answers', { reason });
@@ -455,17 +455,18 @@ for (const [reason, line] of [
   });
 }
 
-test('No comment refused because the phone answered first shows the phone answer and the reason, never No comment', async ({ page }) => {
+test('No comment refused because the phone answered first shows the phone answer, never No comment', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await control(page, 'refuse-answers', { reason: 'closed' });
   await openRow(page, 'Approve the survey questions?');
   await page.getByRole('radio', { name: 'No comment' }).click();
   await page.getByRole('button', { name: 'Send answer' }).click();
-  await expect(page.getByTestId('refused-reason')).toHaveText('This message was already closed.');
+  await expect(page.getByTestId('refused-reason')).toHaveText('This message was closed.');
   await control(page, 'answer-elsewhere', { title: 'Approve the survey questions?', text: 'Done' });
   await expect(page.getByTestId('answered')).toHaveText('Done');
-  await expect(page.getByTestId('refused-reason')).toHaveText('This message was already closed.');
+  // The message now shows its own closed state, so the line goes.
+  await expect(page.getByTestId('refused-reason')).toHaveCount(0);
   await expect(page.getByText('No comment')).toHaveCount(0);
 });
 
@@ -480,6 +481,24 @@ test('a refused choice never shows its own label as the answer, even when the ot
   await control(page, 'answer-elsewhere', { title: 'Approve the survey questions?', text: null });
   await expect(page.getByTestId('answered')).toHaveText('Answered');
   await expect(page.getByTestId('answered')).not.toContainText('Approve');
+});
+
+test('an answer refused because the message changed shows the controls again with one line, and can be answered again', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'refuse-answers', { reason: 'stale_revision' });
+  await openRow(page, 'Approve the survey questions?');
+  await page.getByRole('radio', { name: 'Approve' }).click();
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('refused-reason')).toHaveText('This message changed. Answer again.');
+  await expect(page.getByRole('radio', { name: 'Approve' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: /Retry/ })).toHaveCount(0);
+  await expect(page.getByRole('img', { name: "Couldn't send" })).toHaveCount(0);
+  await control(page, 'refuse-answers', { reason: null });
+  await page.getByRole('radio', { name: 'Ask for changes' }).click();
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('answered')).toHaveText('Ask for changes');
+  await expect(page.getByTestId('refused-reason')).toHaveCount(0);
 });
 
 test('Seen spins while sending, comes back as Retry Seen on failure, and confirms with its check', async ({ page }) => {
