@@ -12,7 +12,10 @@ const openRow = (page: Page, title: string) => page.getByTestId('row').filter({ 
 /** The chat: a column beside the message on wide screens (open unless
  * closed), a modal over the message at medium and phone widths. */
 async function openChat(page: Page) {
-  if (await page.locator('.chat-col').count()) return;
+  if ((page.viewportSize()?.width ?? 0) >= 1100) {
+    await expect(page.locator('.chat-col')).toBeVisible();
+    return;
+  }
   await page.locator('.detail, .fab').getByRole('button', { name: /^Chat/ }).first().click();
   await expect(page.getByRole('dialog', { name: /^Chat with/ })).toBeVisible();
 }
@@ -145,6 +148,40 @@ test('at wide width the chat stays a column beside the message: close hides it, 
   await page.locator('.detail').getByRole('button', { name: /^Chat/ }).click();
   await expect(page.locator('.chat-col')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('the chat switches between side panel and modal as the window resizes, keeping the chat open and its draft', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('Still writing');
+  // No room beside the message: the open chat becomes a modal over it.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('Still writing');
+  // Room again: back to the side panel, still open, draft intact.
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('Still writing');
+  // A modal reached by resizing closes back to the message.
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
+});
+
+test('a narrower laptop window with room for it keeps the side panel', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 760 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: /Back/ }).first().click();
+  await expect(page.locator('.chat-col')).toBeVisible();
 });
 
 test('closing the chat modal keeps the unsent text and files, and reopening brings them back', async ({ page }) => {
