@@ -2,7 +2,8 @@
 
 ## What is deployed
 
-Every green push to `main` produces a CI artifact named
+Every green push to `main`, and every release tag `vMAJOR.MINOR.PATCH`,
+produces a CI artifact named
 `harklight-web-<commit>`: `harklight-web-<commit>.tar.gz` (the contents of
 `dist/`) and its `.sha256`. The site is static. The tarball holds:
 

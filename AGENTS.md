@@ -8,33 +8,80 @@ out. It talks to Harklight Server only through the browser messaging contract.
 
 ## How this project ships
 
-This is the intended way the project works.
+`main` is the only long-lived branch. Every change lands on it through a
+reviewed pull request, and every release is a tag on it.
 
-1. **Continuous delivery.** Fixes and finished work go onto the live site right
-   away, without waiting for anyone's permission. Before shipping, run the tests
-   and whatever smoke test or validation you judge necessary for the change. If
-   a bug turns up after that, it comes back as a bug report and gets fixed the
-   same way.
-2. **Trunk-based development.** Work goes straight to `main`. Do not make
-   feature branches. Keep each change small, integrated and releasable, and keep
-   `main` green: if `main` breaks, fix it or revert the change before stacking
-   more work on it.
-3. **Feature flags for large work.** A large feature that takes many iterations
-   still lands on `main` in small steps and ships behind a feature flag until it
-   is ready for release. Deploy passing builds independently of whether a
-   feature is turned on.
+### Main-based development
 
-## Feature flag practice
+- Work on a short-lived branch cut from current `main`. Merge it back within a
+  day or two through a pull request. If a change can't land that quickly, make
+  it smaller, or land it behind a feature flag (below). Never keep work on a
+  long-running branch.
+- Keep `main` releasable at every commit. A pull request merges only when CI
+  passes (`npm run build`, `npm test`, `npm run test:e2e`) and an independent
+  reviewer who didn't write it has reviewed it clean.
+- Rebase or merge `main` into your branch often, so it never drifts far.
+- Delete the branch when it merges.
+- Don't create release branches, candidate branches or notes branches.
+- If `main` breaks, fixing it comes before any other work. Revert first when
+  that's the fastest way back to green.
 
-- An unfinished feature's flag defaults to off. Off must stop the behavior
+### Continuous delivery
+
+Fixes and finished work go onto the live site right away, without waiting for
+anyone's permission. Before shipping, run the tests and whatever smoke test or
+validation you judge necessary for the change. If a bug turns up after that, it
+comes back as a bug report and gets fixed the same way.
+
+### Releases
+
+Releases go through CI and need no human approval.
+
+- CI builds and tests every pull request, every push to `main` and every tag.
+  For a `main` commit or a tag it also packages the site as
+  `harklight-web-<commit>.tar.gz` with its `.sha256` (`docs/deploy.md`).
+- A release is a tag `vMAJOR.MINOR.PATCH` on a reviewed `main` commit. The
+  deployment installs that commit's archive after checking its SHA-256. Don't
+  ask for approval before tagging or deploying.
+- Escalate only for a real problem: a failing check you can't fix, or a release
+  that would break something people rely on.
+- If a release is bad, ship a fix or revert it from `main` as the next release.
+  Don't patch a deployment by hand.
+
+### Large features behind a feature flag
+
+A feature too big for one short-lived branch lands on `main` in small, reviewed
+slices, hidden behind a flag until it is ready.
+
+- **Off by default.** A new flag ships off, so `main` and every release behave
+  exactly as before until the flag is turned on. Off must stop the behavior
   itself, not only hide its controls.
-- Test both states: the live settings with the flag off, and the intended next
-  settings with it on.
+- **Prefer one flag per feature.** A feature that seems to need many flags is
+  usually better split into smaller features.
+- **The old path keeps working.** While the flag is off, existing behavior must
+  be unchanged and still covered by the checks. Test both the on and off states
+  of anything the flag touches.
+- **Recorded.** Every flag has an entry in
+  [docs/feature-flags.md](docs/feature-flags.md): name, purpose, owner, the
+  work item it belongs to, its default, its state in production, and the
+  condition for removing it.
+- **Turning it on.** Flags are plain configuration in `src/config.ts`, which
+  the deployment overrides with `/app/config.json`. Turning a flag on for
+  customers is a recorded change to the deployment's `config.json`; changing a
+  flag's default in `src/config.ts` to on is its own small reviewed pull
+  request. Update the register either way.
+- **Removal is part of the feature.** Once a flag has been on in production and
+  the feature is accepted, delete the flag, the off path and its tests in a
+  follow-up pull request, and remove its entry. The feature isn't done until
+  its flag is gone.
+- **Branch by abstraction** is the alternative when you're replacing an
+  existing mechanism rather than adding a new one. Put the old implementation
+  behind an interface, build the new one alongside it, switch over, then delete
+  the old one.
 - A flag never hides a build failure, a startup failure or a broken shared
   dependency. Fix those before treating a build as releasable.
-- Flags are temporary. Once a feature is released, remove its flag and the
-  conditional code it guarded.
-- Do not build a flag service. A flag is plain configuration.
+- Flags are for unfinished features. Don't use them for per-user settings or
+  permanent configuration, and don't build a flag service.
 
 Background reading: [trunk-based development](https://trunkbaseddevelopment.com/)
 and [feature toggles](https://martinfowler.com/articles/feature-toggles.html).
@@ -51,15 +98,14 @@ deployment configuration.
 - Stack: Preact and TypeScript, built with Vite into static files. Keep it
   small; add a dependency only when the job needs it.
 - `npm run build`, `npm test` and `npm run test:e2e` are the checks CI runs on
-  every push to `main`. Run them before you push.
+  every pull request, push to `main` and tag. Run them before you push.
 - `dev/fake-server.mjs` stands in for Harklight Server's browser door during
   development and tests. When the real door behaves differently, the real door
   and the browser messaging contract win; fix the fake to match.
 - Configuration and feature flags live in `src/config.ts`. The deployment
-  overrides them with `/app/config.json` (`docs/deploy.md`). Flags:
-  `webClient` stays off for customers until the full iPhone set is reviewed
-  and released; `attachments` (chat files) stays off until the Server's
-  browser file routes are live.
+  overrides them with `/app/config.json` (`docs/deploy.md`). The flags, their
+  owners and their removal conditions are in
+  [docs/feature-flags.md](docs/feature-flags.md).
 - The look follows the accepted Harklight design: dark is the harklight.net
   look, light is derived from it. Shared pieces (the reply card, the answered
   card, label colours) must match the iPhone app.
