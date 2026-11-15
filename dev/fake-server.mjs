@@ -643,6 +643,15 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         terminate(world, key(m.sender_id, m.message_id), { state: 'answered', answer_outcome: { kind: 'reply', text: 'Done' } });
         return json(res, 200, { ok: true });
       }
+      case 'answer-elsewhere': {
+        // Another device answers a message first (by title), with a written reply.
+        const m = [...world.messages.values()].find((x) => (x.payload?.title ?? x.title) === body.title && !x.terminal);
+        if (!m) return json(res, 404, { error: 'no open message with that title' });
+        // text: null answers it with no outcome text.
+        const outcome = body.text === null ? {} : { answer_outcome: { kind: 'reply', text: body.text ?? 'Done' } };
+        terminate(world, key(m.sender_id, m.message_id), { state: 'answered', ...outcome });
+        return json(res, 200, { ok: true });
+      }
       case 'hold-answers':
         world.holdAnswers = body.on !== false;
         return json(res, 200, { ok: true });

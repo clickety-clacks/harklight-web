@@ -455,6 +455,33 @@ for (const [reason, line] of [
   });
 }
 
+test('No comment refused because the phone answered first shows the phone answer and the reason, never No comment', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'refuse-answers', { reason: 'closed' });
+  await openRow(page, 'Approve the survey questions?');
+  await page.getByRole('radio', { name: 'No comment' }).click();
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('refused-reason')).toHaveText('This message was already closed.');
+  await control(page, 'answer-elsewhere', { title: 'Approve the survey questions?', text: 'Done' });
+  await expect(page.getByTestId('answered')).toHaveText('Done');
+  await expect(page.getByTestId('refused-reason')).toHaveText('This message was already closed.');
+  await expect(page.getByText('No comment')).toHaveCount(0);
+});
+
+test('a refused choice never shows its own label as the answer, even when the other answer has no text', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'refuse-answers', { reason: 'closed' });
+  await openRow(page, 'Approve the survey questions?');
+  await page.getByRole('radio', { name: 'Approve' }).click();
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('refused-reason')).toBeVisible();
+  await control(page, 'answer-elsewhere', { title: 'Approve the survey questions?', text: null });
+  await expect(page.getByTestId('answered')).toHaveText('Answered');
+  await expect(page.getByTestId('answered')).not.toContainText('Approve');
+});
+
 test('Seen spins while sending, comes back as Retry Seen on failure, and confirms with its check', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);

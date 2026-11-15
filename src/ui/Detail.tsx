@@ -79,6 +79,9 @@ export function Detail(p: DetailProps) {
   // Refused because the message closed or was retracted first: no Retry,
   // and a short reason line, the same wording as the app.
   const refused = local?.state === 'refused' ? (local.reason ?? 'closed') : null;
+  // Only an answer the Server took may speak for the message; a refused one
+  // (say, the phone answered first) never shows as the answer.
+  const kept = local?.state === 'accepted' ? local : undefined;
   const open = m.terminal === null && !answered && !seenDone && !refused;
   // The message's own note (retracted, expired, cleared) already says why.
   const ownNote = !!m.terminal?.retracted || ((m.terminal?.state === 'expired' || m.terminal?.state === 'cleared') && !answered && !seenDone);
@@ -251,9 +254,9 @@ export function Detail(p: DetailProps) {
           {answered && (
             <AnsweredCard
               text={
-                m.terminal?.state === 'no_comment' || local?.noComment
+                m.terminal?.state === 'no_comment' || kept?.noComment
                   ? 'No comment'
-                  : (answeredText(m, local?.label ?? null) ?? 'Answered')
+                  : (answeredText(m, kept?.label ?? null) ?? 'Answered')
               }
             />
           )}
@@ -367,7 +370,7 @@ export function Detail(p: DetailProps) {
           {form.kind === 'ui1' && (m.terminal || answered) && !seenDone && !m.terminal?.retracted && (
             <div class="u-form">
               <Scene
-                node={terminalScene(form.doc, m.terminal?.state ?? (local?.noComment ? 'no_comment' : 'answered'))}
+                node={terminalScene(form.doc, m.terminal?.state ?? (kept?.noComment ? 'no_comment' : 'answered'))}
                 ctx={{ doc: form.doc, draft: emptyDraft(), onDraft: null, files: m.firstFiles, imageUrl: p.imageUrl }}
               />
             </div>
