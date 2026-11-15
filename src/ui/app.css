@@ -534,11 +534,14 @@
   gap: 10px;
   font-weight: 600;
 }
-.answered > svg.icon {
+.an-check {
+  display: inline-flex;
   flex: none;
+  margin-top: 2px;
+}
+.an-check svg.icon {
   width: 18px;
   height: 18px;
-  margin-top: 2px;
   color: var(--t-icon);
 }
 .an-head svg.icon {

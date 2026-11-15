@@ -500,7 +500,7 @@ function ReplyCard(p: {
         role="radio"
         aria-checked={p.on}
         class="rc-head"
-        aria-label={p.status === 'failed' ? p.choice.label : undefined}
+        aria-label={p.status === 'failed' ? `${p.choice.label}, couldn't send` : undefined}
         disabled={p.disabled}
         onClick={p.onPick}
       >
@@ -571,7 +571,9 @@ const REFUSAL_TEXT: Record<string, string> = {
 function AnsweredCard(p: { text: string }) {
   return (
     <div class="answered" data-testid="answered">
-      <Icon name="check" />
+      <span class="an-check" role="img" aria-label="Answered">
+        <Icon name="check" />
+      </span>
       <div class="an-text">{p.text}</div>
     </div>
   );

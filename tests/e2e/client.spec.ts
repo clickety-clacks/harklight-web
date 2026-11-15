@@ -38,6 +38,8 @@ test('answers with a choice and shows the answered card', async ({ page }) => {
   await send.click();
   // Confirmed carries no 'Answered' label: the check and the answer say it.
   await expect(page.getByTestId('answered')).toHaveText('Approve');
+  // Screen readers hear that it was answered, not just the answer text.
+  await expect(page.getByTestId('answered').getByRole('img', { name: 'Answered' })).toBeVisible();
   expect((await control(page, 'state')).lastAnswer.answer).toBe('approve');
   // It moved to Replied.
   await page.getByRole('tab', { name: 'Replied' }).click();
@@ -357,6 +359,8 @@ test('a failed reply is held as sent: Retry resends it unchanged, Edit makes a n
   await expect(page.getByTestId('reply-failed')).not.toContainText('Not sent');
   // What is shown is what Retry sends: the text cannot change under it.
   await expect(box).toHaveAttribute('readonly', '');
+  // The failed card's own control carries the failure for screen readers.
+  await expect(page.getByRole('radio', { name: "Reply, couldn't send" })).toBeVisible();
   await box.press('End');
   await box.pressSequentially(' later', { delay: 0 });
   await expect(box).toHaveValue('Roll back now');
