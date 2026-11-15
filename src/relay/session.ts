@@ -576,7 +576,7 @@ export class RelaySession {
     m: HeldMessage,
     value: Json,
     label: string | null,
-    opts: { seen?: boolean; control: string; text?: string } = { control: 'choice' },
+    opts: { seen?: boolean; control: string; text?: string; draft?: unknown } = { control: 'choice' },
   ): Promise<void> {
     const frame: Frame = {
       v: 1,
@@ -593,6 +593,7 @@ export class RelaySession {
       noComment: false,
       control: opts.control,
       text: opts.text,
+      draft: opts.draft,
     });
   }
 
@@ -605,12 +606,23 @@ export class RelaySession {
   private async sendAnswer(
     key: string,
     frame: Frame,
-    what: { label: string | null; seen: boolean; noComment: boolean; control: string; text?: string },
+    what: { label: string | null; seen: boolean; noComment: boolean; control: string; text?: string; draft?: unknown },
   ): Promise<void> {
     this.store.update((s) => {
       s.answers.set(key, { state: 'sending', ...what, resend: frame });
     });
     await this.resendAnswer(key, frame);
+  }
+
+  /**
+   * Edit a failed answer: its saved operation is dropped, and what the person
+   * sends next is a new answer with a new op_id.
+   */
+  editFailedAnswer(key: string): void {
+    if (this.store.state.answers.get(key)?.state !== 'failed') return;
+    this.store.update((s) => {
+      s.answers.delete(key);
+    });
   }
 
   /** Retry a failed answer: the same frame and op_id, so it can never apply twice. */

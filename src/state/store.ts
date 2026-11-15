@@ -35,6 +35,8 @@ export interface LocalAnswer {
   control: string;
   /** Typed text, kept so a failed reply can be retried as written. */
   text?: string;
+  /** A custom form's draft, kept so a failed form shows what Retry sends. */
+  draft?: unknown;
   reason?: string;
   /** The exact frame, sent again unchanged (same op_id) by Retry. */
   resend?: { type: string; [key: string]: unknown };

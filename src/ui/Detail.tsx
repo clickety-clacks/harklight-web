@@ -23,7 +23,7 @@ export type AnswerChoice =
   | { kind: 'value'; choice: Choice }
   | { kind: 'text'; choice: Choice; text: string }
   | { kind: 'no_comment' }
-  | { kind: 'ui1'; answer: unknown; summary: string };
+  | { kind: 'ui1'; answer: unknown; summary: string; draft: Draft };
 
 export interface DetailProps {
   message: HeldMessage;
@@ -46,6 +46,8 @@ export interface DetailProps {
   onSeen: (value: Json) => void;
   /** Send the failed submission again, unchanged. */
   onRetry: () => void;
+  /** Turn a failed written answer back into a draft; the next send is new. */
+  onEdit: () => void;
   fileHref: (uploadId: string) => string;
 }
 
@@ -54,9 +56,12 @@ export function Detail(p: DetailProps) {
   const type = messageType(m.payload);
   const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name) });
   const sender = senderLabel(m);
-  const [picked, setPicked] = useState<string | null>(null);
-  const [text, setText] = useState('');
-  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  // A failed or sending written answer reopens as it was sent, so its text
+  // and its Retry survive leaving the message and coming back.
+  const held = p.local && (p.local.state === 'failed' || p.local.state === 'sending') ? p.local : null;
+  const [picked, setPicked] = useState<string | null>(() => (held && held.text !== undefined ? held.control : null));
+  const [text, setText] = useState(() => held?.text ?? '');
+  const [draft, setDraft] = useState<Draft>(() => (held?.control === 'form' && held.draft ? (held.draft as Draft) : emptyDraft()));
   const [formError, setFormError] = useState<string | null>(null);
 
   // The control the person tapped carries the submission's state: a spinner
@@ -79,6 +84,11 @@ export function Detail(p: DetailProps) {
   const choices = form.kind === 'choices' ? form.choices : [];
   const replyFailed = failed && choices.some((c) => c.kind === 'text' && c.id === control);
   const formFailed = failed && control === 'form';
+  // A failed written answer is held exactly as sent: Retry resends it, and
+  // Edit turns it back into a draft whose send is a new answer.
+  const replyFrozen = replyFailed && picked === control;
+  const formFrozen = formFailed && picked !== 'no_comment';
+  const barRetry = replyFrozen || formFrozen;
   // A picked choice carries its own spinner and the checkmark is only disabled;
   // a written reply or a form has no control of its own, so the checkmark spins.
   const barSpins = sending && (control === 'form' || choices.some((c) => c.kind === 'text' && c.id === control));
@@ -104,7 +114,7 @@ export function Detail(p: DetailProps) {
         return;
       }
       setFormError(null);
-      p.onAnswer({ kind: 'ui1', answer: c.answer, summary: summarize(form.doc, draft) });
+      p.onAnswer({ kind: 'ui1', answer: c.answer, summary: summarize(form.doc, draft), draft });
     } else if (pickedChoice?.kind === 'value') p.onAnswer({ kind: 'value', choice: pickedChoice });
     else if (pickedChoice) {
       // Read the field itself: a fast send can arrive before the re-render.
@@ -155,12 +165,12 @@ export function Detail(p: DetailProps) {
         </div>
         <div class="bar-group">
           {p.chatButton && !p.phone && <ChatButton unread={p.unread} onChat={p.onChat} />}
-          {open && !isSeenForm && form.kind !== 'unsupported' && (replyFailed || formFailed) && picked === control && (
+          {open && !isSeenForm && form.kind !== 'unsupported' && barRetry && (
             <button type="button" class="tool tool--retry" onClick={p.onRetry} disabled={!p.canAct}>
               Retry
             </button>
           )}
-          {open && !isSeenForm && form.kind !== 'unsupported' && !((replyFailed || formFailed) && picked === control) && (
+          {open && !isSeenForm && form.kind !== 'unsupported' && !barRetry && (
             <button
               type="button"
               class={barSpins ? 'tool tool--square tool--commit tool--busy' : 'tool tool--square tool--commit'}
@@ -253,9 +263,11 @@ export function Detail(p: DetailProps) {
                     status={statusOf(c.id)}
                     dim={sending && control !== c.id}
                     disabled={!canAnswer}
+                    frozen={replyFrozen && control === c.id}
                     onPick={() => setPicked(c.id)}
                     onText={setText}
                     onSubmit={commit}
+                    onEdit={p.onEdit}
                   />
                 ) : (
                   <ChoiceCard
@@ -290,7 +302,7 @@ export function Detail(p: DetailProps) {
                 ctx={{
                   doc: form.doc,
                   draft,
-                  onDraft: canAnswer
+                  onDraft: canAnswer && !formFrozen
                     ? (d) => {
                         setDraft(d);
                         if (picked === 'no_comment') setPicked(null);
@@ -315,6 +327,19 @@ export function Detail(p: DetailProps) {
                   }}
                 />
               </div>
+              {formFrozen && (
+                <div class="choice choice--failed form-failed" data-testid="form-failed">
+                  <span class="fail-mark" aria-hidden="true">
+                    !
+                  </span>
+                  <span class="choice-text">
+                    <span class="ti">Not sent</span>
+                  </span>
+                  <button type="button" class="tool tool--inline" onClick={p.onEdit}>
+                    Edit
+                  </button>
+                </div>
+              )}
               {formError && (
                 <p class="msg-note msg-note--bad" role="alert">
                   {formError}
@@ -446,9 +471,12 @@ function ReplyCard(p: {
   status: Status;
   dim?: boolean;
   disabled: boolean;
+  /** Failed and held as sent: the text is read-only until Edit. */
+  frozen: boolean;
   onPick: () => void;
   onText: (t: string) => void;
   onSubmit: () => void;
+  onEdit: () => void;
 }) {
   const cls = ['replycard'];
   if (p.on) cls.push('replycard--on');
@@ -474,12 +502,18 @@ function ReplyCard(p: {
         )}
         <span class="ti">{p.status === 'failed' ? 'Not sent' : p.choice.label}</span>
       </button>
+      {p.frozen && (
+        <button type="button" class="tool tool--inline rc-edit" onClick={p.onEdit}>
+          Edit
+        </button>
+      )}
       {p.on && (
         <textarea
           class="rc-pane"
           aria-label={p.choice.label}
           value={p.text}
           disabled={p.disabled}
+          readOnly={p.frozen}
           ref={(el) => {
             if (el && document.activeElement !== el && !p.text) el.focus();
           }}

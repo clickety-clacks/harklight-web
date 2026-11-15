@@ -296,6 +296,7 @@ function serveConnection(ws, w, recipient) {
     if (!w.sessionLive) return ws.close(4401, 'session_ended');
     // Test controls: hold answers in flight, or refuse them.
     if (f.type === 'answer' || f.type === 'answer_no_comment') {
+      (w.answerFrames = w.answerFrames ?? []).push({ op_id: f.op_id ?? null, answer: f.answer ?? null });
       if (w.failAnswers) return send({ v: 1, type: 'error', reason: 'storage_unavailable' });
       if (w.holdAnswers && !w.releasing?.has(text)) {
         w.held = w.held ?? [];
@@ -619,7 +620,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         relay.dropAll();
         return json(res, 200, { ok: true });
       case 'state':
-        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, connections: relay.count() });
+        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], connections: relay.count() });
       case 'send': {
         const m = addMessage(world, { created_at: Date.now(), ...body.message }, { chat: body.chat });
         return json(res, 200, { ok: true, seq: m.acceptedSeq });
