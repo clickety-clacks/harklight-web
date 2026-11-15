@@ -75,6 +75,11 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const [chatWanted, setChatWanted] = useState(false);
   /** The person closed the side panel: it stays closed until they open chat. */
   const [panelClosed, setPanelClosed] = useState(false);
+  /** The person opened the chat themselves (Chat button, reply row), as opposed
+   * to the side panel being open by default. */
+  const [chatExplicit, setChatExplicit] = useState(false);
+  /** Messages whose chat the person has typed or sent in. */
+  const typedIn = useRef(new Set<string>());
   const panel = layout === 'wide';
   /** Unsent chat text and files per message, kept while its chat is closed. */
   const drafts = useRef(new Map<string, ChatDraft>());
@@ -94,6 +99,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean } | null;
       setSelected(st?.selected ?? null);
       setChatWanted(!!st?.chat);
+      setChatExplicit(!!st?.chat);
       setViaReply(!!st?.viaReply);
     };
     window.addEventListener('popstate', on);
@@ -106,6 +112,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
     setPage(p);
     setSelected(sel);
     setChatWanted(chat);
+    setChatExplicit(chat);
     setViaReply(fromReply);
   };
 
@@ -114,6 +121,18 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   useEffect(() => {
     if (panel && selected && !panelClosed && !chatWanted) setChatWanted(true);
   }, [panel, selected, panelClosed, chatWanted]);
+
+  // Narrowing below the room for the panel: the chat carries over as a modal
+  // only if the person was using it (opened it themselves, or typed or sent
+  // in it). An untouched default panel just closes, leaving the message and
+  // its Chat button. A half-written message is never lost: typing counts.
+  const wasPanel = useRef(panel);
+  useEffect(() => {
+    if (wasPanel.current && !panel && chatWanted && !chatExplicit && !(selected && typedIn.current.has(selected))) {
+      setChatWanted(false);
+    }
+    wasPanel.current = panel;
+  }, [panel]);
 
   const listEntries = useMemo(() => entriesFor(s, tab), [s, tab]);
   const rows = useMemo(() => rowsFor(s, tab), [s, tab]);
@@ -268,13 +287,19 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       draft={drafts.current.get(selected!) ?? { text: '', files: [] }}
       onDraft={(d) => {
         if (d.text === '' && d.files.length === 0) drafts.current.delete(selected!);
-        else drafts.current.set(selected!, d);
+        else {
+          drafts.current.set(selected!, d);
+          typedIn.current.add(selected!);
+        }
       }}
       onClose={() => {
         if (panel) setPanelClosed(true);
         closeChat();
       }}
-      onSend={(text, files) => void session.chat(message, text, files)}
+      onSend={(text, files) => {
+        typedIn.current.add(selected!);
+        void session.chat(message, text, files);
+      }}
       onRetry={(op) => session.retryChat(op)}
       onReplyVisible={(seq) => session.markRead(selected!, seq)}
       fileHref={fileHref}
