@@ -28,7 +28,6 @@ import {
 } from './connection';
 import { uploadFile, fetchFileLimits, discardUploads, type FileRoutes } from './files';
 
-const RECIPIENT_KEY = 'harklight.recipient';
 
 export interface SessionDeps {
   config: Config;
@@ -36,7 +35,6 @@ export interface SessionDeps {
   socketFactory: SocketFactory;
   /** Called when the sign-in ended; the tab must leave for sign-in (A-3). */
   onSessionEnded: () => void;
-  storage?: Pick<Storage, 'getItem' | 'setItem'>;
   location?: { protocol: string; host: string };
   setTimer?: (fn: () => void, ms: number) => unknown;
   files?: FileRoutes;
@@ -72,25 +70,20 @@ export class RelaySession {
   private readsInFlight = new Set<string>();
 
   constructor(private deps: SessionDeps) {
-    this.recipientId = this.loadRecipient();
+    // A tab's recipient id is made when the client starts and kept in memory
+    // only (C-1): a reload or a duplicated tab starts with a new one. The
+    // Server keeps a recipient's session between connections, and a session
+    // that has started refuses a fresh inbox_start.
+    this.recipientId = uuid();
   }
 
   private get store(): Store {
     return this.deps.store;
   }
 
-  private loadRecipient(): string {
-    const st = this.deps.storage;
-    const held = st?.getItem(RECIPIENT_KEY);
-    if (held && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(held)) return held;
-    const id = uuid();
-    st?.setItem(RECIPIENT_KEY, id);
-    return id;
-  }
-
+  /** Start over on a new recipient: the old one's session cannot start again. */
   private newRecipient(): void {
     this.recipientId = uuid();
-    this.deps.storage?.setItem(RECIPIENT_KEY, this.recipientId);
     this.snapshotId = null;
     this.convAcked = 0;
   }
@@ -156,8 +149,9 @@ export class RelaySession {
         this.setInactive(conn);
         return;
       }
-      // A protocol failure: drop the connection and try again from scratch.
-      this.snapshotId = null;
+      // A protocol failure: drop the connection and start over, on a new
+      // recipient, since this one's session may already have started.
+      this.newRecipient();
       conn.close(4000, 'client restart');
     }
   }
@@ -174,8 +168,8 @@ export class RelaySession {
         await this.getView(conn);
         return;
       }
-      this.snapshotId = null;
-      // The connection is now bound to a dead replay; start on a fresh one.
+      // The connection is now bound to a dead replay; start over on a fresh
+      // connection (the catch takes a new recipient).
       throw new Error('resume failed');
     }
     this.store.resetInbox();

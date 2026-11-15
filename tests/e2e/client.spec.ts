@@ -501,6 +501,17 @@ test('an answer refused because the message changed shows the controls again wit
   await expect(page.getByTestId('refused-reason')).toHaveCount(0);
 });
 
+test('a reload connects again on a new recipient instead of being refused', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await page.reload();
+  await expect(page.getByTestId('row').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByText('Connected')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('Connected')).toBeVisible();
+});
+
 test('Seen spins while sending, comes back as Retry Seen on failure, and confirms with its check', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);

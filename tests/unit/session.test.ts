@@ -24,12 +24,10 @@ function until(fn: () => boolean, ms = 3000): Promise<void> {
 }
 
 function session(store: Store, onEnd: () => void = () => undefined, setTimer: (fn: () => void, ms: number) => unknown = (fn) => setTimeout(fn, 0)) {
-  const mem = new Map<string, string>();
   return new RelaySession({
     config: DEFAULT_CONFIG,
     store,
     socketFactory: (url) => new WebSocket(url, { origin: base() }) as unknown as SocketLike,
-    storage: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => void mem.set(k, v) },
     location: { protocol: 'http:', host: `127.0.0.1:${server.port}` },
     setTimer,
     onSessionEnded: onEnd,
@@ -124,6 +122,25 @@ describe('relay session', () => {
     await until(() => store.state.messages.has(keyOf({ sender_id: 'agent:new', message_id: 'gap' })));
     expect(store.state.threads.get(LISBON)?.turns.length).toBe(3);
     s.stop();
+  });
+
+  it('starts over on a new recipient when a resume is refused, since the old one cannot start again', async () => {
+    const store = new Store();
+    const s = session(store);
+    s.start();
+    await until(() => store.state.connection === 'connected');
+    const first = s.recipient;
+    await post('forget-snapshots');
+    await post('drop');
+    await until(() => store.state.connection === 'connected' && s.recipient !== first, 5000);
+    expect(store.state.messages.has(LISBON)).toBe(true);
+    s.stop();
+  });
+
+  it('gives each client start its own recipient', async () => {
+    const a = session(new Store());
+    const b = session(new Store());
+    expect(a.recipient).not.toBe(b.recipient);
   });
 
   it('leaves for sign-in on 4401 and stops on 4403', async () => {

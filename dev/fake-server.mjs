@@ -37,6 +37,10 @@ export function createWorld(now = Date.now(), forms = false) {
     messages: new Map(), // key -> {sender_id, message_id, revision, payload, session_handle, terminal, files}
     readPositions: new Map(),
     receipts: new Map(), // recipient|op_id -> reply
+    // Recipients whose session finished a replay attach. Like the Server, a
+    // recipient's session outlives its connection, and a ready one refuses
+    // a fresh inbox_start with sync_mode_conflict.
+    readyRecipients: new Set(),
     uploads: new Map(),
     viewRev: 1,
     arrival: new Map(), // conversation_seq -> arrival tick
@@ -310,6 +314,7 @@ function serveConnection(ws, w, recipient) {
     }
     switch (f.type) {
       case 'inbox_start': {
+        if (w.readyRecipients.has(recipient)) return err('sync_mode_conflict');
         const id = randomUUID().replace(/-/g, '');
         const list = items(w, w.seq);
         snapshots.set(id, { recipient, high: w.seq, list, accepted: false });
@@ -355,6 +360,7 @@ function serveConnection(ws, w, recipient) {
         for (const e of w.events) if (e.seq > f.since && e.seq <= barrier) send(e);
         send({ v: 1, type: 'resynced', seq: barrier });
         st.ready = true;
+        w.readyRecipients.add(recipient);
         st.stream = barrier;
         break;
       }
@@ -681,6 +687,10 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       case 'inactive':
         world.inactive = true;
         relay.closeAll(4403, 'inactive_account');
+        return json(res, 200, { ok: true });
+      case 'forget-snapshots':
+        // The next resume finds no snapshot (invalid_snapshot).
+        snapshots.clear();
         return json(res, 200, { ok: true });
       case 'drop':
         relay.dropAll();
