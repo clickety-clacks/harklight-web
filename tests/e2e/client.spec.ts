@@ -178,10 +178,18 @@ test('narrowing past the untouched default panel shows just the message, with th
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.locator('.chat-col')).toBeVisible();
+  // The modal never mounts, not even for a frame.
+  await page.evaluate(() => {
+    (window as unknown as { dialogsAdded: number }).dialogsAdded = 0;
+    new MutationObserver((ms) => {
+      for (const m of ms) for (const n of m.addedNodes) if ((n as Element).tagName === 'DIALOG') (window as unknown as { dialogsAdded: number }).dialogsAdded++;
+    }).observe(document.documentElement, { childList: true, subtree: true });
+  });
   await page.setViewportSize({ width: 900, height: 800 });
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.chat-col')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { dialogsAdded: number }).dialogsAdded)).toBe(0);
   await expect(page.locator('.detail').getByRole('button', { name: /^Chat/ })).toBeVisible();
   // Room again: the always-open panel comes back.
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -208,6 +216,31 @@ test('narrowing carries the default panel over as a modal once the person has se
   await expect(page.locator('.turn--me', { hasText: 'Is parking included?' })).toBeVisible();
   await page.setViewportSize({ width: 900, height: 800 });
   await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+});
+
+test('use counts only for this visit: a cleared draft or an earlier send does not carry the chat over', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  // Typed, then cleared, then left and came back.
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('x');
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('');
+  await openRow(page, 'Production deploy failed');
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // Sent in an earlier visit: not in use now.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('Is there a gym?');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.turn--me', { hasText: 'Is there a gym?' })).toBeVisible();
+  await openRow(page, 'Production deploy failed');
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
 test('widening while the chat modal is open moves focus into the side panel, not the page body', async ({ page }) => {

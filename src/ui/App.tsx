@@ -78,8 +78,9 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   /** The person opened the chat themselves (Chat button, reply row), as opposed
    * to the side panel being open by default. */
   const [chatExplicit, setChatExplicit] = useState(false);
-  /** Messages whose chat the person has typed or sent in. */
-  const typedIn = useRef(new Set<string>());
+  /** The message whose chat the person has sent in during this visit to it.
+   * A visit ends when another message is opened. */
+  const sentThisVisit = useRef<string | null>(null);
   const panel = layout === 'wide';
   /** Unsent chat text and files per message, kept while its chat is closed. */
   const drafts = useRef(new Map<string, ChatDraft>());
@@ -122,14 +123,26 @@ export function App(props: { config: Config; store: Store; session: RelaySession
     if (panel && selected && !panelClosed && !chatWanted) setChatWanted(true);
   }, [panel, selected, panelClosed, chatWanted]);
 
-  // Narrowing below the room for the panel: the chat carries over as a modal
-  // only if the person was using it (opened it themselves, or typed or sent
-  // in it). An untouched default panel just closes, leaving the message and
-  // its Chat button. A half-written message is never lost: typing counts.
-  const wasPanel = useRef(panel);
+  // A visit to a message starts when it is opened.
   useEffect(() => {
-    if (wasPanel.current && !panel && chatWanted && !chatExplicit && !(selected && typedIn.current.has(selected))) {
+    if (sentThisVisit.current !== selected) sentThisVisit.current = null;
+  }, [selected]);
+
+  // Narrowing below the room for the panel: the chat carries over as a modal
+  // only if the person is using it in this visit (opened it themselves, has
+  // an unsent draft, or sent in it). An untouched default panel just closes,
+  // leaving the message and its Chat button. A half-written message is never
+  // lost, since a draft counts. Decided during render, so the modal never
+  // mounts for a frame; focus stays on the message.
+  const wasPanel = useRef(panel);
+  const inUse = !!selected && (chatExplicit || drafts.current.has(selected) || sentThisVisit.current === selected);
+  const dropOnNarrow = wasPanel.current && !panel && chatWanted && !inUse;
+  useLayoutEffect(() => {
+    if (dropOnNarrow) {
       setChatWanted(false);
+      if (document.activeElement === document.body || !document.activeElement) {
+        document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
+      }
     }
     wasPanel.current = panel;
   }, [panel]);
@@ -199,7 +212,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   }
 
   const phone = layout === 'phone';
-  const chatVisible = !!message && chatWanted;
+  const chatVisible = !!message && chatWanted && !dropOnNarrow;
   const sender = message ? senderLabel(message) : '';
   const fileHref = (id: string) => fileUrl(config.filesPath, id);
   const imageUrl = (f: WireFile) => imageUrlFor(f, config);
@@ -287,17 +300,14 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       draft={drafts.current.get(selected!) ?? { text: '', files: [] }}
       onDraft={(d) => {
         if (d.text === '' && d.files.length === 0) drafts.current.delete(selected!);
-        else {
-          drafts.current.set(selected!, d);
-          typedIn.current.add(selected!);
-        }
+        else drafts.current.set(selected!, d);
       }}
       onClose={() => {
         if (panel) setPanelClosed(true);
         closeChat();
       }}
       onSend={(text, files) => {
-        typedIn.current.add(selected!);
+        sentThisVisit.current = selected;
         void session.chat(message, text, files);
       }}
       onRetry={(op) => session.retryChat(op)}
