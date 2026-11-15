@@ -9,8 +9,10 @@ test.beforeEach(async ({ page }) => {
 
 /** Open a message from its own row (not a chat reply row about it). */
 const openRow = (page: Page, title: string) => page.getByTestId('row').filter({ hasText: title }).first().click();
-/** Chat opens as a modal over the message, from the message's Chat button. */
+/** The chat: a column beside the message on wide screens (open unless
+ * closed), a modal over the message at medium and phone widths. */
 async function openChat(page: Page) {
+  if (await page.locator('.chat-col').count()) return;
   await page.locator('.detail, .fab').getByRole('button', { name: /^Chat/ }).first().click();
   await expect(page.getByRole('dialog', { name: /^Chat with/ })).toBeVisible();
 }
@@ -29,9 +31,9 @@ test('lists the inbox and opens a message, reporting the open', async ({ page })
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await expect.poll(async () => (await control(page, 'state')).opens).toBe(1);
-  // The chat opens as a modal over the message.
-  await openChat(page);
-  await expect(page.getByRole('dialog').getByText('I can hold either room until 6 PM today.')).toBeVisible();
+  // Three columns at wide width: the chat is beside the message, not a modal.
+  await expect(page.locator('.chat-col').getByText('I can hold either room until 6 PM today.')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
 test('answers with a choice and shows the answered card', async ({ page }) => {
@@ -133,8 +135,44 @@ test('closes the chat once the message is answered, keeping it readable', async 
   await expect(page.getByText('I can hold either room until 6 PM today.')).toBeVisible();
 });
 
+test('at wide width the chat stays a column beside the message: close hides it, Chat brings it back', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await page.getByRole('button', { name: 'Close chat' }).click();
+  await expect(page.locator('.chat-col')).toHaveCount(0);
+  await page.locator('.detail').getByRole('button', { name: /^Chat/ }).click();
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('closing the chat modal keeps the unsent text and files, and reopening brings them back', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('Half-written question');
+  await page.locator('input[type=file]').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('plan') });
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await openChat(page);
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('Half-written question');
+  await expect(page.locator('.pending-files .file')).toHaveCount(1);
+  // A click outside the panel closes it too, and the draft still comes back.
+  await page.mouse.click(40, 400);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await openChat(page);
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('Half-written question');
+  // Sending clears it.
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect(page.locator('.turn--me', { hasText: 'Half-written question' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await openChat(page);
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('');
+});
+
 for (const [w, h, size] of [
-  [1280, 800, 'wide'],
   [900, 800, 'medium'],
   [390, 844, 'phone'],
 ] as const) {

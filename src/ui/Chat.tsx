@@ -14,17 +14,44 @@ export interface ChatProps {
   attachments: boolean;
   uploadCap: number | null;
   canSend: boolean;
-  /** Close the chat modal and return to the message. */
+  /** Close the chat (the wide column, or the modal) and return to the message. */
   onClose: () => void;
+  /** The wide layout's chat column rather than a modal. */
+  column: boolean;
+  /** The unsent text and files for this message, kept while the chat is closed. */
+  draft: ChatDraft;
+  onDraft: (d: ChatDraft) => void;
   onSend: (text: string, files: PickedFile[]) => void;
   onRetry: (opId: string) => void;
   onReplyVisible: (seq: number) => void;
   fileHref: (uploadId: string) => string;
 }
 
+export interface ChatDraft {
+  text: string;
+  files: PickedFile[];
+}
+
 export function Chat(p: ChatProps) {
-  const [text, setText] = useState('');
-  const [files, setFiles] = useState<PickedFile[]>([]);
+  // The draft lives above the chat, per message, so closing the chat (Escape,
+  // a click outside) and opening it again brings back what was being written.
+  const [text, setTextState] = useState(p.draft.text);
+  const [files, setFilesState] = useState<PickedFile[]>(p.draft.files);
+  // Saved at once on every change, not in an effect: an effect can be skipped
+  // when the chat closes right after a change.
+  const draft = useRef<ChatDraft>(p.draft);
+  const save = (d: ChatDraft) => {
+    draft.current = d;
+    p.onDraft(d);
+  };
+  const setText = (t: string) => {
+    setTextState(t);
+    save({ ...draft.current, text: t });
+  };
+  const setFiles = (f: PickedFile[]) => {
+    setFilesState(f);
+    save({ ...draft.current, files: f });
+  };
   const [error, setError] = useState<string | null>(null);
   const picker = useRef<HTMLInputElement>(null);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -92,7 +119,7 @@ export function Chat(p: ChatProps) {
       <header class="chat-head">
         <h2 class="chat-title">Chat</h2>
         <button type="button" class="icon-btn" aria-label="Close chat" onClick={p.onClose}>
-          <Icon name="xmark" />
+          <Icon name={p.column ? 'chev' : 'xmark'} />
         </button>
       </header>
       <div class="turns" ref={list}>
