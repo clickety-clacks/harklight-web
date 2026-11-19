@@ -32,6 +32,19 @@ export interface ChatDraft {
   files: PickedFile[];
 }
 
+/** The name a picked file goes under: "photo (2).png" when "photo.png" is already in the draft. */
+function uniqueName(name: string, taken: PickedFile[]): string {
+  const used = new Set(taken.map((x) => x.name));
+  if (!used.has(name)) return name;
+  const dot = name.lastIndexOf('.');
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  for (let n = 2; ; n++) {
+    const candidate = `${stem} (${n})${ext}`;
+    if (!used.has(candidate)) return candidate;
+  }
+}
+
 export function Chat(p: ChatProps) {
   // The draft lives above the chat, per message, so closing the chat (Escape,
   // a click outside) and opening it again brings back what was being written.
@@ -108,8 +121,7 @@ export function Chat(p: ChatProps) {
         setError(`${f.name} is larger than the ${formatSize(p.uploadCap)} limit. Nothing was sent.`);
         continue;
       }
-      if (next.some((x) => x.name === f.name)) continue;
-      next.push({ id: crypto.randomUUID(), name: f.name, size: f.size, file: f });
+      next.push({ id: crypto.randomUUID(), name: uniqueName(f.name, next), size: f.size, file: f });
     }
     setFiles(next);
   };
@@ -146,8 +158,8 @@ export function Chat(p: ChatProps) {
             >
               <span class="who">{mine ? 'You' : p.sender}</span>
               <span class="turn-text">{t.text}</span>
-              {t.files.map((f) => (
-                <FileRow key={f.name} file={f} download={p.attachments} fileHref={p.fileHref} />
+              {t.files.map((f, i) => (
+                <FileRow key={`${i}\u0000${f.name}`} file={f} download={p.attachments} fileHref={p.fileHref} />
               ))}
               {mine && (
                 <span class="turn-st">
@@ -224,7 +236,6 @@ export function Chat(p: ChatProps) {
                   type="button"
                   class="square"
                   aria-label="Attach a file"
-                  disabled={!p.canSend}
                   onClick={() => picker.current?.click()}
                 >
                   <Icon name="plus" />
@@ -248,7 +259,6 @@ export function Chat(p: ChatProps) {
               placeholder="Write a message…"
               aria-label="Write a message"
               value={text}
-              disabled={!p.canSend}
               onInput={(e) => {
                 const el = e.currentTarget as HTMLTextAreaElement;
                 setText(el.value);

@@ -3,7 +3,6 @@
 // point, at least one field must carry content, and the answer must fit in
 // 64 KiB.
 
-import { stringify, utf8Length } from '../relay/json';
 
 type Obj = Record<string, unknown>;
 
@@ -85,7 +84,7 @@ function evaluate(c: Obj, values: Map<string, unknown>): unknown {
 /** Content is any character that is not Unicode White_Space, as the app tests. */
 const hasContent = (s: string) => /\P{White_Space}/u.test(s);
 
-export type Composed = { ok: true; answer: unknown } | { ok: false; reason: 'incomplete' | 'too_large' };
+export type Composed = { ok: true; answer: unknown } | { ok: false; reason: 'incomplete' };
 
 export function compose(doc: Obj, draft: Draft): Composed {
   const inputs = inputsOf(doc);
@@ -104,7 +103,6 @@ export function compose(doc: Obj, draft: Draft): Composed {
   }
   if (!content) return { ok: false, reason: 'incomplete' };
   const answer = evaluate((doc.submission as Obj).result as Obj, values);
-  if (utf8Length(stringify(answer)) > 65_536) return { ok: false, reason: 'too_large' };
   return { ok: true, answer };
 }
 
