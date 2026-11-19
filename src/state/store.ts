@@ -276,6 +276,9 @@ export function threadFor(s: State, key: string): Thread {
  * person can keep writing and the agent can keep replying. Only a second
  * answer is refused, and that is the answer controls' business, not chat's. */
 export function chatOpen(_t: Thread | undefined, m: HeldMessage | undefined): boolean {
+  // Client API v2: chat availability is only informational, so the person can
+  // always write; a reply to an agent that is not listening is delivered later.
+  if (m?.v2) return true;
   return !!m && !!m.chat;
 }
 

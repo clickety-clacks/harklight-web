@@ -15,12 +15,14 @@ the Web product owner.
 | --- | --- | --- | --- | --- | --- | --- |
 | `webClient` | Customers can use web messaging. Off shows the "coming soon" page, and no connection to the Server opens. | Web client delivery owner | `wi_cf6ed278` | off | off | Customers are switched on and the full live message checks pass on hosted. Delete the flag and the "coming soon" page. |
 | `answerForms` | Draws custom answer forms. Off offers No comment and points to the iPhone app. | Web client delivery owner | `wi_cf6ed278` | off | off | Custom forms pass their live check on hosted with customers on. Delete the flag and the off path. |
+| `clientApiV2` | The web client talks to the Server through client API v2 (fetch reads, one change feed, idempotent writes) instead of the browser relay WebSocket. Off keeps the relay path unchanged. It is the Server's protocol, so `#preview` leaves it as the deployment set it, and it must only be on where the Server serves `/v2`. | Web client delivery owner | `wi_e2e0466a` | off | off | The 0.2.x cut-over: the change that turns it on also deletes the relay path (`src/relay`) and its config keys, and with them this flag. |
 | `attachments` | Chat files: attaching and uploading, and downloading files. Off sends text only and lists files without a download link. | Web client delivery owner | `wi_cf6ed278` | off | off | A live upload above 256 KB passes on hosted and files are on for customers. Delete the flag and the off path. |
 
 ## The `#preview` tester switch
 
 A testing tool, not a release flag. Opening the site with `#preview` turns
-every flag on in that one browser, for testing a deployment before its flags
+every feature flag on in that one browser (all but `clientApiV2`, which must
+match the Server), for testing a deployment before its flags
 are on for customers; `#preview-off` turns that back off. It changes nothing
 for anyone else.
 
