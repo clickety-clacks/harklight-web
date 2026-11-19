@@ -16,6 +16,7 @@ import type {
 } from './types';
 import { keyOf } from './types';
 import type { ServerView } from './view';
+import { v2Unread } from '../v2/model';
 
 /**
  * A submission's state, carried by the control the person tapped: sending
@@ -289,6 +290,8 @@ export function latestAgentReply(t: Thread | undefined): Turn | null {
 }
 
 export function hasUnread(s: State, key: string): boolean {
+  const held = s.messages.get(key);
+  if (held?.v2) return v2Unread(held, s.threads.get(key));
   const reply = latestAgentReply(s.threads.get(key));
   if (!reply) return false;
   if (!s.readSupport || reply.seq === null) return true;

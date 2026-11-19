@@ -1,0 +1,585 @@
+// Client API v2 for the fake Server, written from the accepted field contract
+// (docs/client-api-v2.md in the Server repository). It serves the same world
+// as the relay door: items and entries are derived from the world's messages
+// and events, and every difference since the last look becomes one change in
+// the person's change log, numbered by rev. So every test control works for
+// both protocols. It is not a server implementation.
+
+import { createHash, randomUUID } from 'node:crypto';
+
+const UUID4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Inbox page size when the client asks for none. Smaller than the contract's 50, so paging gets exercised. */
+const INBOX_PAGE = 20;
+const ENTRY_PAGE = 50;
+const HEARTBEAT_MS = 5000;
+
+const key = (s, m) => `${s}\u0000${m}`;
+const sha = (buf) => createHash('sha256').update(buf).digest('hex');
+const pad = (n, w = 10) => String(Math.max(0, Math.floor(n))).padStart(w, '0');
+
+/** An opaque item id: never parsed by the client. */
+export function itemIdOf(m) {
+  return `it_${Buffer.from(key(m.sender_id, m.message_id)).toString('base64url')}`;
+}
+
+function v2State(w) {
+  if (!w.v2) {
+    w.v2 = {
+      rev: 0,
+      floor: 0, // changes with rev <= floor are no longer retained
+      changes: [],
+      last: new Map(), // resource id -> JSON of its last emitted state (without rev)
+      revs: new Map(), // resource id -> rev
+      positions: new Map(), // entry id -> position
+      nextPosition: new Map(), // item id -> next position
+      entryIds: new Map(), // world event -> entry id
+      answerText: new Map(), // lifecycle seq -> answer text
+      idem: new Map(), // Idempotency-Key -> {digest, status, body}
+      inlineFiles: new Map(), // file id -> {bytes, name}
+      feeds: new Set(),
+      removed: new Set(),
+      failFeeds: 0,
+    };
+  }
+  return w.v2;
+}
+
+// ---------- deriving resources from the world ----------
+
+function fileRef(w, f) {
+  const v = v2State(w);
+  if (f.data_base64 !== undefined) {
+    const bytes = Buffer.from(f.data_base64, 'base64');
+    const id = `f_${sha(bytes).slice(0, 32)}`;
+    if (!v.inlineFiles.has(id)) v.inlineFiles.set(id, { bytes, name: f.name });
+    return { file_id: id, name: f.name, size: bytes.length, sha256: sha(bytes) };
+  }
+  if (f.file_id) return { file_id: f.file_id, name: f.name, size: f.size, sha256: f.sha256 };
+  return { file_id: f.upload_id, name: f.name, size: f.size, sha256: f.sha256 };
+}
+
+function score(m) {
+  return m.payload.urgency === 'now' ? 0.95 : m.payload.urgency === 'high' ? 0.75 : 0.4;
+}
+
+function rankOf(m) {
+  // Waiting first, most urgent first, newest first; then finished, newest first.
+  const k = m.terminal
+    ? `1${pad(1e9 - m.acceptedSeq)}`
+    : `0${pad(1000 - score(m) * 1000, 4)}${pad(1e9 - m.acceptedSeq)}`;
+  return { key: k, score: score(m) };
+}
+
+/** When each terminal state was first seen, so it reads the same every time. */
+const terminalAt = new WeakMap();
+
+function terminalOf(w, m) {
+  const t = m.terminal;
+  if (!t) return null;
+  if (!terminalAt.has(t)) terminalAt.set(t, t.at ?? Date.now());
+  const at_ms = terminalAt.get(t);
+  if (t.terminal_reason === 'retracted') return { state: 'retracted', at_ms };
+  const state = ['answered', 'cleared', 'expired', 'superseded'].includes(t.state) ? t.state : 'answered';
+  return { state, at_ms, no_comment: t.terminal_kind === 'no_comment', by_this_person: t.by === 'answer' || t.by === 'answer_no_comment' };
+}
+
+function convOf(w, m) {
+  return w.conv.filter((e) => e.sender_id === m.sender_id && e.message_id === m.message_id);
+}
+
+function entryIdFor(w, ev) {
+  const v = v2State(w);
+  let id = v.entryIds.get(ev);
+  if (!id) {
+    id = ev.type === 'lifecycle' ? `en_l${ev.seq}` : `en_${ev.event_id ?? ev.conversation_seq}`;
+    v.entryIds.set(ev, id);
+  }
+  return id;
+}
+
+function positionFor(w, itemId, entryId) {
+  const v = v2State(w);
+  if (!v.positions.has(entryId)) {
+    const next = v.nextPosition.get(itemId) ?? 1;
+    v.positions.set(entryId, next);
+    v.nextPosition.set(itemId, next + 1);
+  }
+  return v.positions.get(entryId);
+}
+
+/** The item's entries, without rev, in creation order. */
+function entriesOf(w, m) {
+  const itemId = itemIdOf(m);
+  const conv = convOf(w, m);
+  const out = [];
+  const delivered = new Set(conv.filter((e) => e.kind === 'receipt' && e.delivered !== false).map((e) => e.event_id));
+  for (const e of conv) {
+    if (e.kind !== 'discussion' && e.kind !== 'reply' && e.kind !== 'availability') continue;
+    const entry_id = entryIdFor(w, e);
+    const base = {
+      entry_id,
+      item_id: itemId,
+      position: positionFor(w, itemId, entry_id),
+      at_ms: e.at_ms ?? 0,
+      request_revision: e.request_revision ?? m.revision,
+    };
+    if (e.kind === 'availability') {
+      out.push({ ...base, kind: 'availability', author: 'server', availability: { state: e.availability } });
+      continue;
+    }
+    const files = (e.files ?? []).map((f) => fileRef(w, f));
+    const person = e.author === 'person';
+    out.push({
+      ...base,
+      kind: 'reply',
+      author: person ? 'person' : 'origin',
+      text: e.text ?? '',
+      ...(files.length ? { files } : {}),
+      ...(!person && e.in_reply_to ? { in_reply_to: `en_${e.in_reply_to}` } : {}),
+      state: 'active',
+      ...(person ? { delivery: { delivered: delivered.has(e.event_id), acted: false } } : {}),
+    });
+  }
+  const v = v2State(w);
+  for (const ev of w.events) {
+    if (ev.type !== 'lifecycle' || ev.sender_id !== m.sender_id || ev.message_id !== m.message_id) continue;
+    const entry_id = entryIdFor(w, ev);
+    const person = ev.state === 'answered';
+    const text = v.answerText.get(ev.seq) ?? (ev.answer_outcome?.kind === 'reply' ? ev.answer_outcome.text : undefined);
+    out.push({
+      entry_id,
+      item_id: itemId,
+      position: positionFor(w, itemId, entry_id),
+      at_ms: ev.at ?? 0,
+      request_revision: m.revision,
+      kind: ev.state === 'answered' ? 'answer' : 'lifecycle',
+      author: person ? 'person' : 'origin',
+      ...(text !== undefined ? { text } : {}),
+      terminal: terminalOf(w, { terminal: ev }),
+    });
+  }
+  return out.sort((a, b) => a.position - b.position);
+}
+
+function itemOf(w, m) {
+  const conv = convOf(w, m);
+  const entries = entriesOf(w, m);
+  const replies = entries.filter((e) => e.kind === 'reply' && e.author === 'origin');
+  const readSeq = w.readPositions.get(key(m.sender_id, m.message_id));
+  const readEv = readSeq === undefined ? null : conv.find((e) => e.conversation_seq === readSeq);
+  return {
+    item_id: itemIdOf(m),
+    sender: m.sender_id,
+    request_revision: m.revision,
+    message: m.payload,
+    files: (m.files ?? []).map((f) => fileRef(w, f)),
+    seen: m.seenRevision === m.revision,
+    as: 'knock',
+    chat: {
+      available: !!m.session_handle,
+      started: conv.some((e) => e.kind === 'discussion' || e.kind === 'reply'),
+      read_position: readEv ? entryIdFor(w, readEv) : null,
+      last_origin_reply: replies.length ? replies[replies.length - 1].entry_id : null,
+    },
+    ...(m.session_handle ? { availability: { state: m.availability ?? 'listening' } } : {}),
+    terminal: terminalOf(w, m),
+    rank: rankOf(m),
+  };
+}
+
+function append(w, kind, id, data) {
+  const v = v2State(w);
+  v.rev += 1;
+  v.revs.set(id, v.rev);
+  const change = { rev: v.rev, kind, data: kind === 'item_removed' || kind === 'counts' ? data : { ...data, rev: v.rev } };
+  v.changes.push(change);
+  return change;
+}
+
+/** Turn every difference since the last look into changes, then feed them out. */
+export function syncV2(w) {
+  const v = v2State(w);
+  for (const m of w.messages.values()) {
+    const item = itemOf(w, m);
+    const s = JSON.stringify(item);
+    if (v.last.get(item.item_id) !== s) {
+      v.last.set(item.item_id, s);
+      append(w, 'item', item.item_id, item);
+    }
+    for (const e of entriesOf(w, m)) {
+      const es = JSON.stringify(e);
+      if (v.last.get(e.entry_id) !== es) {
+        v.last.set(e.entry_id, es);
+        append(w, 'entry', e.entry_id, e);
+      }
+    }
+  }
+  for (const id of v.last.keys()) {
+    if (!id.startsWith('it_') || v.removed.has(id)) continue;
+    if (![...w.messages.values()].some((m) => itemIdOf(m) === id)) {
+      v.removed.add(id);
+      append(w, 'item_removed', id, { item_id: id });
+    }
+  }
+  for (const f of v.feeds) f.pump();
+}
+
+function withRev(w, id, data) {
+  return { ...data, rev: v2State(w).revs.get(id) };
+}
+
+// ---------- HTTP ----------
+
+function send(res, status, body, headers = {}) {
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', 'request-id': res.requestId, ...headers });
+  res.end(JSON.stringify(body));
+}
+
+function fail(res, status, error, { retryAfter = 0, ...extra } = {}) {
+  const retryable = status === 503;
+  send(res, status, { error, retryable, request_id: res.requestId, ...extra }, retryable ? { 'retry-after': String(retryAfter) } : {});
+}
+
+async function readBody(req) {
+  const chunks = [];
+  for await (const c of req) chunks.push(c);
+  return Buffer.concat(chunks);
+}
+
+function findItem(w, id) {
+  return [...w.messages.values()].find((m) => itemIdOf(m) === id);
+}
+
+/** Serve one /v2 request. `ctx` carries the world's mutators from the relay fake. */
+export async function serveV2(req, res, url, w, ctx) {
+  res.requestId = `rq_${randomUUID()}`;
+  const v = v2State(w);
+  const p = url.pathname.slice('/v2'.length);
+  const method = req.method;
+  // A signed-out browser gets 401 JSON on every /v2 path, never a redirect.
+  if (!w.sessionLive) return fail(res, 401, 'unauthorized');
+  // How /v2 answers an account that cannot use messaging is not in the contract yet; 403 is assumed.
+  if (w.inactive) return fail(res, 403, 'forbidden');
+  if (p.startsWith('/devices/me')) return fail(res, 403, 'forbidden');
+  if (method !== 'GET') {
+    const origin = req.headers.origin;
+    if (origin && origin !== `http://${req.headers.host}`) return fail(res, 403, 'forbidden');
+  }
+  syncV2(w);
+
+  if (method === 'GET' && p === '/changes') return changes(req, res, url, w);
+  if (method === 'GET' && p === '/inbox') {
+    const items = [...w.messages.values()].map((m) => withRev(w, itemIdOf(m), itemOf(w, m)));
+    items.sort((a, b) => (a.rank.key < b.rank.key ? -1 : a.rank.key > b.rank.key ? 1 : 0));
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? INBOX_PAGE) || INBOX_PAGE, 200);
+    const at = Number(url.searchParams.get('page') ?? 0);
+    const page = items.slice(at, at + limit);
+    return send(res, 200, {
+      rev: v.rev,
+      items: page,
+      counts: { unresolved: items.filter((i) => !i.terminal).length },
+      ...(items.length > at + limit ? { next_page: String(at + limit) } : {}),
+    });
+  }
+  if (method === 'GET' && p.startsWith('/files/')) {
+    const id = decodeURIComponent(p.slice('/files/'.length));
+    const up = w.uploads.get(id);
+    const inline = v.inlineFiles.get(id);
+    const bytes = up?.referenced ? up.bytes : inline?.bytes;
+    if (!bytes) return fail(res, 404, 'not_found');
+    res.writeHead(200, {
+      'content-type': 'application/octet-stream',
+      'content-length': String(bytes.length),
+      etag: `"${sha(bytes)}"`,
+      'content-disposition': 'attachment',
+      'x-content-type-options': 'nosniff',
+      'request-id': res.requestId,
+    });
+    return res.end(bytes);
+  }
+  if (method === 'POST' && p === '/files') {
+    if (!UUID4.test(String(req.headers['idempotency-key'] ?? ''))) return fail(res, 400, 'invalid_field', { field: 'Idempotency-Key' });
+    return upload(req, res, w);
+  }
+
+  const m = /^\/items\/([^/]+)(\/[a-z-]+)?$/.exec(p);
+  if (!m) return fail(res, 404, 'not_found');
+  const item = findItem(w, decodeURIComponent(m[1]));
+  if (!item) return fail(res, 404, 'not_found');
+  const k = key(item.sender_id, item.message_id);
+  const sub = m[2] ?? '';
+  if (method === 'GET' && sub === '') return send(res, 200, { rev: v.rev, item: withRev(w, itemIdOf(item), itemOf(w, item)) });
+  if (method === 'GET' && sub === '/entries') {
+    const all = entriesOf(w, item).map((e) => withRev(w, e.entry_id, e));
+    const before = url.searchParams.get('before');
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? ENTRY_PAGE) || ENTRY_PAGE, 200);
+    const cut = before ? all.filter((e) => e.position < (all.find((x) => x.entry_id === before)?.position ?? 0)) : all;
+    const page = cut.slice(Math.max(0, cut.length - limit));
+    return send(res, 200, { rev: v.rev, entries: page, older: cut.length > page.length });
+  }
+
+  const raw = await readBody(req);
+  let body;
+  try {
+    body = raw.length ? JSON.parse(raw.toString()) : {};
+  } catch {
+    return fail(res, 400, 'invalid_field');
+  }
+  const done = (entryOf) => {
+    syncV2(w);
+    const out = { rev: v.rev, item: withRev(w, itemIdOf(item), itemOf(w, item)) };
+    const entry = entryOf?.();
+    if (entry) out.entry = withRev(w, entry.entry_id, entry);
+    return out;
+  };
+
+  if (method === 'POST' && sub === '/seen') {
+    return idempotent(req, res, w, raw, () => {
+      if (Object.keys(body).length) return [400, { error: 'invalid_field', retryable: false }];
+      item.seenRevision = item.revision;
+      w.opens = (w.opens ?? 0) + 1;
+      return [200, done()];
+    });
+  }
+  if (method === 'PUT' && sub === '/read-position') {
+    const keys = Object.keys(body);
+    if (keys.length !== 1 || typeof body.entry_id !== 'string') return fail(res, 400, 'invalid_field', { field: 'entry_id' });
+    const ev = convOf(w, item).find((e) => e.kind === 'reply' && entryIdFor(w, e) === body.entry_id);
+    if (!ev) return fail(res, 400, 'invalid_field', { field: 'entry_id' });
+    const cur = w.readPositions.get(k) ?? 0;
+    if (ev.conversation_seq > cur) ctx.readTo(k, ev.conversation_seq);
+    return send(res, 200, done());
+  }
+  if (method === 'POST' && sub === '/replies') {
+    return idempotent(req, res, w, raw, () => {
+      if (w.refuseInactive) return [403, { error: 'forbidden', retryable: false }];
+      const extra = Object.keys(body).filter((x) => x !== 'text' && x !== 'file_ids');
+      if (extra.length || typeof body.text !== 'string') return [400, { error: 'invalid_field', field: 'text', retryable: false }];
+      const ids = body.file_ids ?? [];
+      if (!Array.isArray(ids)) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
+      if (body.text === '' && ids.length === 0) return [400, { error: 'invalid_field', field: 'text', retryable: false }];
+      const files = [];
+      for (const id of ids) {
+        const up = w.uploads.get(id);
+        if (!up || !up.v2) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
+        up.referenced = true;
+        files.push({ name: up.name, file_id: id, size: up.size, sha256: up.sha256 });
+      }
+      // Replies are taken in every item state (answered, finished, retracted,
+      // agent not listening): they are stored and delivered when the agent is back.
+      const ev = ctx.personTurn(k, body.text, files);
+      w.lastDiscussion = { key: k, text: body.text, files };
+      return [200, done(() => entriesOf(w, item).find((e) => e.entry_id === entryIdFor(w, ev)))];
+    });
+  }
+  if (method === 'POST' && sub === '/answer') return answer(req, res, w, raw, body, item, k, ctx, done);
+  return fail(res, 404, 'not_found');
+}
+
+/** Answer validation and effect, as the contract's section 5 states it. */
+function answer(req, res, w, raw, body, item, k, ctx, done) {
+  const record = () => (w.answerFrames = w.answerFrames ?? []).push({ op_id: req.headers['idempotency-key'] ?? null, body });
+  const run = () => {
+    const extra = Object.keys(body).filter((x) => !['request_revision', 'choice', 'comment', 'result'].includes(x));
+    const given = ['choice', 'comment', 'result'].filter((x) => body[x] !== undefined);
+    if (extra.length || !Number.isInteger(body.request_revision) || given.length > 1) return [400, { error: 'invalid_field', retryable: false }];
+    if (w.refuseAnswers) {
+      const token = { closed: 'already_answered', retracted: 'already_retracted', stale_revision: 'stale_request' }[w.refuseAnswers] ?? w.refuseAnswers;
+      return [409, { error: token, retryable: false }];
+    }
+    if (item.terminal?.terminal_reason === 'retracted') return [409, { error: 'already_retracted', retryable: false }];
+    if (item.terminal) return [409, { error: 'already_answered', retryable: false }];
+    if (body.request_revision !== item.revision) return [409, { error: 'stale_request', retryable: false }];
+    const ui = item.payload.answer_ui;
+    const actions = ui && ui.schema === 'attention-client.actions/1' && Array.isArray(ui.actions) ? ui.actions : [];
+    let value;
+    let text;
+    if (body.choice !== undefined) {
+      const a = actions.find((x) => x.id === body.choice && x.kind === 'value');
+      if (!a) return [400, { error: 'invalid_field', field: 'choice', retryable: false }];
+      value = a.id === 'seen' && actions.length === 1 ? null : a.value;
+    } else if (body.comment !== undefined) {
+      // A message with no answer_ui takes a written reply (assumed: the contract does not yet say).
+      if (typeof body.comment !== 'string' || (ui && !actions.some((x) => x.kind === 'text')))
+        return [400, { error: 'invalid_field', field: 'comment', retryable: false }];
+      value = body.comment;
+      text = body.comment;
+    } else if (body.result !== undefined) {
+      if (!ui || ui.schema !== 'attention-client.ui/1' || typeof body.result !== 'object' || body.result === null)
+        return [400, { error: 'invalid_field', field: 'result', retryable: false }];
+      value = body.result;
+    } else {
+      ctx.terminate(k, { state: 'answered', terminal_kind: 'no_comment', by: 'answer_no_comment', answer_outcome: { kind: 'no_comment' } });
+      w.lastAnswer = { key: k, answer: null, noComment: true };
+      return [200, done()];
+    }
+    const outcome = value === null ? { kind: 'seen' } : typeof value === 'string' ? { kind: 'reply', text: value } : undefined;
+    const ev = ctx.terminate(k, { state: 'answered', by: 'answer', ...(outcome ? { answer_outcome: outcome } : {}) });
+    if (text !== undefined) v2State(w).answerText.set(ev.seq, text);
+    w.lastAnswer = { key: k, answer: value };
+    return [200, done()];
+  };
+  record();
+  if (w.failAnswers) return fail(res, 503, 'storage_unavailable', { retryAfter: 0 });
+  if (w.holdAnswers) {
+    w.held = w.held ?? [];
+    (w.heldSockets = w.heldSockets ?? []).push(req.socket);
+    let alive = true;
+    req.socket.once('close', () => (alive = false));
+    w.held.push(() => {
+      if (alive) idempotent(req, res, w, raw, run);
+    });
+    return;
+  }
+  return idempotent(req, res, w, raw, run);
+}
+
+/** Every POST needs an Idempotency-Key; a repeat replays the stored response. */
+function idempotent(req, res, w, raw, run) {
+  const k = req.headers['idempotency-key'];
+  if (req.method === 'POST' && (typeof k !== 'string' || !UUID4.test(k))) return fail(res, 400, 'invalid_field', { field: 'Idempotency-Key' });
+  if (typeof k !== 'string') {
+    const [status, body] = run();
+    return send(res, status, status >= 400 ? { ...body, request_id: res.requestId } : body);
+  }
+  const v = v2State(w);
+  const digest = sha(Buffer.concat([Buffer.from(`${req.method} ${req.url}\n`), raw]));
+  const held = v.idem.get(k);
+  if (held) {
+    if (held.digest !== digest) return fail(res, 409, 'idempotency_conflict');
+    return send(res, held.status, held.body, { 'idempotent-replayed': 'true' });
+  }
+  const out = run();
+  if (!out) return; // the handler answered itself
+  const [status, body] = out;
+  const full = status >= 400 ? { ...body, request_id: res.requestId } : body;
+  v.idem.set(k, { digest, status, body: full });
+  return send(res, status, full);
+}
+
+async function upload(req, res, w) {
+  const len = Number(req.headers['content-length'] ?? -1);
+  if (len > w.uploadCap) return fail(res, 413, 'payload_too_large');
+  const bytes = await readBody(req);
+  const k = req.headers['idempotency-key'];
+  const v = v2State(w);
+  const digest = sha(Buffer.concat([Buffer.from(`${req.method} ${req.url}\n`), bytes]));
+  const held = v.idem.get(k);
+  if (held) {
+    if (held.digest !== digest) return fail(res, 409, 'idempotency_conflict');
+    return send(res, held.status, held.body, { 'idempotent-replayed': 'true' });
+  }
+  const id = `f_${randomUUID()}`;
+  // POST /v2/files carries no file name in the contract yet, so uploads are unnamed here.
+  const up = { id, name: 'file', size: bytes.length, sha256: sha(bytes), bytes, referenced: false, v2: true, contentType: req.headers['content-type'] };
+  w.uploads.set(id, up);
+  const body = { file_id: id, sha256: up.sha256, size: up.size };
+  v.idem.set(k, { digest, status: 201, body });
+  (w.v2Uploads = w.v2Uploads ?? []).push({ size: up.size, contentType: up.contentType });
+  return send(res, 201, body);
+}
+
+// ---------- the change feed ----------
+
+function changes(req, res, url, w) {
+  const v = v2State(w);
+  const lastId = req.headers['last-event-id'];
+  // Last-Event-ID takes precedence over ?after.
+  const afterText = typeof lastId === 'string' && lastId !== '' ? lastId : (url.searchParams.get('after') ?? '0');
+  const after = Number(afterText);
+  if (!Number.isInteger(after) || after < 0) return fail(res, 400, 'invalid_field', { field: 'after' });
+  if (after < v.floor) return fail(res, 410, 'cursor_expired');
+  const sse = String(req.headers.accept ?? '').includes('text/event-stream');
+  if (!sse) {
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? 500) || 500, 500);
+    const list = v.changes.filter((c) => c.rev > after).slice(0, limit);
+    return send(res, 200, { changes: list, rev: list.length ? list[list.length - 1].rev : after, more: v.changes.some((c) => c.rev > (list.at(-1)?.rev ?? after)) });
+  }
+  if (v.failFeeds > 0) {
+    v.failFeeds -= 1;
+    return fail(res, 503, 'retry_later', { retryAfter: 0 });
+  }
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', 'request-id': res.requestId, 'x-accel-buffering': 'no' });
+  res.flushHeaders();
+  (w.feedOpens = w.feedOpens ?? []).push({ after, lastEventId: typeof lastId === 'string' ? lastId : null });
+  const feed = {
+    sent: after,
+    res,
+    pump() {
+      for (const c of v.changes) {
+        if (c.rev <= this.sent) continue;
+        res.write(`id: ${c.rev}\nevent: ${c.kind}\ndata: ${JSON.stringify(c.data)}\n\n`);
+        this.sent = c.rev;
+      }
+    },
+    close(reason) {
+      // The closing event carries no id: it is not a change and must not move Last-Event-ID.
+      if (reason) res.write(`event: closing\ndata: ${JSON.stringify({ reason })}\n\n`);
+      res.end();
+      v.feeds.delete(feed);
+    },
+    drop() {
+      res.socket?.destroy();
+      v.feeds.delete(feed);
+    },
+  };
+  v.feeds.add(feed);
+  const beat = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
+  res.on('close', () => {
+    clearInterval(beat);
+    v.feeds.delete(feed);
+  });
+  feed.pump();
+}
+
+/** Test controls on the v2 side of the world. */
+export function v2Control(w, what, body) {
+  const v = v2State(w);
+  switch (what) {
+    case 'expire-cursor': {
+      // Cursors from before now are past retention: the next resume gets 410.
+      // With `remove`, that message is removed first, so no tab sees the
+      // removal as a change.
+      for (const f of [...v.feeds]) f.drop();
+      const m = body.remove ? [...w.messages.values()].find((x) => x.payload?.title === body.remove) : null;
+      if (m) w.messages.delete(key(m.sender_id, m.message_id));
+      syncV2(w);
+      // One more change the tab never sees, then prune everything before now:
+      // a cursor from before is expired, a snapshot read now is not.
+      append(w, 'counts', 'counts', { unresolved: [...w.messages.values()].filter((x) => !x.terminal).length });
+      v.floor = v.rev;
+      return true;
+    }
+    case 'revoke':
+      for (const f of [...v.feeds]) f.close('revoked');
+      return true;
+    case 'server-shutdown':
+      for (const f of [...v.feeds]) f.close('server_shutdown');
+      return true;
+    case 'fail-feeds':
+      v.failFeeds = body.count ?? 1;
+      return true;
+    case 'drop-feeds':
+      for (const f of [...v.feeds]) f.drop();
+      return true;
+    default:
+      return false;
+  }
+}
+
+/** End feeds whose sign-in ended, as the relay door does. */
+export function v2Tick(w) {
+  const v = v2State(w);
+  if (!w.sessionLive) for (const f of [...v.feeds]) f.close('revoked');
+  else if (w.inactive) for (const f of [...v.feeds]) f.drop();
+  else syncV2(w);
+}
+
+export function v2Feeds(w) {
+  return v2State(w).feeds.size;
+}
+
+export function v2DropAll(w) {
+  const v = v2State(w);
+  for (const f of [...v.feeds]) f.drop();
+}
