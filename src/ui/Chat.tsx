@@ -14,6 +14,8 @@ export interface ChatProps {
   attachments: boolean;
   uploadCap: number | null;
   canSend: boolean;
+  /** The account is paused: nothing can be sent or retried until it is back. */
+  paused: boolean;
   /** Close the chat (the wide column, or the modal) and return to the message. */
   onClose: () => void;
   /** The wide layout's chat column rather than a modal. */
@@ -191,7 +193,7 @@ export function Chat(p: ChatProps) {
                 <>
                   <Icon name="warn" />
                   {s.reason?.startsWith('upload_cap_exceeded') ? 'Not sent. A file is over the size limit.' : 'Not sent.'}
-                  {s.reason === 'inactive_account' ? (
+                  {p.paused || s.reason === 'inactive_account' ? (
                     ' Messages are paused for this account.'
                   ) : (
                     <button type="button" class="link-btn" onClick={() => p.onRetry(s.op_id)}>
