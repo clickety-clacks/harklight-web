@@ -67,6 +67,8 @@ export class RelaySession {
   private viewFetchPending = false;
   private resyncingConversation = false;
   private sentOpens = new Set<string>();
+  /** Answers already resent once after a dropped connection (by op_id). */
+  private autoResent = new Set<string>();
   private readsInFlight = new Set<string>();
 
   constructor(private deps: SessionDeps) {
@@ -112,6 +114,16 @@ export class RelaySession {
   /** Reconnect now, for example when the network comes back. */
   nudge(): void {
     if (this.stopped || this.ready || !this.conn?.isClosed) return;
+    this.attempt = 0;
+    void this.connect();
+  }
+
+  /**
+   * After a policy close ("Try again"): start a new attempt on the same
+   * recipient. Held drafts and in-flight state stay, unlike a page reload.
+   */
+  tryAgain(): void {
+    if (this.stopped || this.ready || this.store.state.connection !== 'failed') return;
     this.attempt = 0;
     void this.connect();
   }
@@ -310,8 +322,17 @@ export class RelaySession {
     }
     const sends = this.store.state.chatSends.filter((c) => c.state === 'sending');
     for (const c of sends) void this.sendDiscussion(c);
-    // Answers are not resent on their own: a dropped send shows Not sent with
-    // Retry, and the replay above already settled any that went through.
+    // An answer that failed only because the connection dropped is resent
+    // once, with its original op_id; the replay above already settled any that
+    // went through. If that resend fails too, or the Server refuses it, it
+    // waits for Retry like any other failed answer.
+    for (const [key, a] of this.store.state.answers) {
+      if (a.state !== 'failed' || a.reason !== 'connection' || !a.resend) continue;
+      const opId = String((a.resend as Frame).op_id ?? key);
+      if (this.autoResent.has(opId)) continue;
+      this.autoResent.add(opId);
+      void this.resendAnswer(key, a.resend as Frame);
+    }
     void conn;
   }
 

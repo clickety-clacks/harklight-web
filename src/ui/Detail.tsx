@@ -98,7 +98,8 @@ export function Detail(p: DetailProps) {
   const replyFailed = failed && choices.some((c) => c.kind === 'text' && c.id === control);
   const formFailed = failed && control === 'form';
   // A failed written answer is held exactly as sent: Retry resends it, and
-  // Edit turns it back into a draft whose send is a new answer.
+  // Edit, or typing into it, turns it back into a draft whose send is a new
+  // answer.
   const replyFrozen = replyFailed && picked === control;
   const formFrozen = formFailed && picked !== 'no_comment';
   const barRetry = replyFrozen || formFrozen;
@@ -333,8 +334,11 @@ export function Detail(p: DetailProps) {
                 ctx={{
                   doc: form.doc,
                   draft,
-                  onDraft: editable && !formFrozen
+                  onDraft: editable
                     ? (d) => {
+                        // Changing a failed answer is an edit: its saved
+                        // operation is dropped and the next send is new.
+                        if (formFrozen) p.onEdit();
                         setDraft(d);
                         if (picked === 'no_comment') setPicked(null);
                       }
@@ -484,7 +488,7 @@ function ReplyCard(p: {
   status: Status;
   dim?: boolean;
   disabled: boolean;
-  /** Failed and held as sent: the text is read-only until Edit. */
+  /** Failed and held as sent: typing into it acts as Edit. */
   frozen: boolean;
   onPick: () => void;
   onText: (t: string) => void;
@@ -521,11 +525,13 @@ function ReplyCard(p: {
           aria-label={p.choice.label}
           value={p.text}
           disabled={p.disabled}
-          readOnly={p.frozen}
           ref={(el) => {
             if (el && document.activeElement !== el && !p.text) el.focus();
           }}
-          onInput={(e) => p.onText((e.currentTarget as HTMLTextAreaElement).value)}
+          onInput={(e) => {
+            if (p.frozen) p.onEdit();
+            p.onText((e.currentTarget as HTMLTextAreaElement).value);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();

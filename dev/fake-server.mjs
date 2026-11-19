@@ -696,6 +696,10 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         // The next resume finds no snapshot (invalid_snapshot).
         snapshots.clear();
         return json(res, 200, { ok: true });
+      case 'policy-close':
+        // Close every connection with a policy close (1008), as for a request the Server always refuses.
+        relay.closeAll(1008, 'policy');
+        return json(res, 200, { ok: true });
       case 'drop':
         relay.dropAll();
         return json(res, 200, { ok: true });
