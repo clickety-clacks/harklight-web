@@ -372,6 +372,10 @@ test('an account that cannot use messaging says so and links to the account page
   await openInbox(page);
   await control(page, 'inactive');
   await expect(page.getByRole('link', { name: 'Open your account' })).toHaveAttribute('href', '/account/');
+  await expect(page.getByText('Messages are paused for this account')).toBeVisible();
+  // What the tab already holds stays readable; only sending stops.
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
 });
 
 test('a dropped connection shows reconnecting and recovers', async ({ page }) => {

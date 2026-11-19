@@ -198,7 +198,9 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const onRetry = () => selected && session.retryAnswer(selected);
   const onEdit = () => selected && session.editFailedAnswer(selected);
 
-  if (s.connection === 'inactive') return <AccountNotice config={config} />;
+  // A paused account keeps whatever the tab already holds readable; only when
+  // nothing was ever loaded is there nothing to show but the notice.
+  if (s.connection === 'inactive' && !s.loaded) return <AccountNotice config={config} />;
   if (page === 'settings') {
     return (
       <Settings
@@ -316,7 +318,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
     />
   );
 
-  const banner = <ConnectionBanner state={s} />;
+  const banner = <ConnectionBanner state={s} config={config} />;
 
   const modal = chatVisible && !panel && (
     <ChatModal label={`Chat with ${sender}`} phone={phone} onClose={closeChat}>
@@ -422,7 +424,18 @@ function ChatModal(p: { label: string; phone: boolean; onClose: () => void; chil
   );
 }
 
-function ConnectionBanner({ state }: { state: State }) {
+function ConnectionBanner({ state, config }: { state: State; config: Config }) {
+  if (state.connection === 'inactive')
+    return (
+      <div class="banner banner--bad" role="status">
+        Messages are paused for this account.{' '}
+        {config.accountUrl ? (
+          <a href={config.accountUrl}>Open your account</a>
+        ) : (
+          'Ask the person who runs this Harklight Server.'
+        )}
+      </div>
+    );
   if (state.connection === 'reconnecting')
     return (
       <div class="banner" role="status">

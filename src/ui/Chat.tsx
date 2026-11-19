@@ -179,9 +179,13 @@ export function Chat(p: ChatProps) {
                 <>
                   <Icon name="warn" />
                   {s.reason?.startsWith('upload_cap_exceeded') ? 'Not sent. A file is over the size limit.' : 'Not sent.'}
-                  <button type="button" class="link-btn" onClick={() => p.onRetry(s.op_id)}>
-                    Retry
-                  </button>
+                  {s.reason === 'inactive_account' ? (
+                    ' Messages are paused for this account.'
+                  ) : (
+                    <button type="button" class="link-btn" onClick={() => p.onRetry(s.op_id)}>
+                      Retry
+                    </button>
+                  )}
                 </>
               )}
             </span>
