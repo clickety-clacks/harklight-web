@@ -319,7 +319,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
     />
   );
 
-  const banner = <ConnectionBanner state={s} config={config} />;
+  const banner = <ConnectionBanner state={s} config={config} onTryAgain={() => session.tryAgain()} />;
 
   const modal = chatVisible && !panel && (
     <ChatModal label={`Chat with ${sender}`} phone={phone} onClose={closeChat}>
@@ -425,7 +425,7 @@ function ChatModal(p: { label: string; phone: boolean; onClose: () => void; chil
   );
 }
 
-function ConnectionBanner({ state, config }: { state: State; config: Config }) {
+function ConnectionBanner({ state, config, onTryAgain }: { state: State; config: Config; onTryAgain: () => void }) {
   if (state.connection === 'inactive')
     return (
       <div class="banner banner--bad" role="status">
@@ -446,7 +446,10 @@ function ConnectionBanner({ state, config }: { state: State; config: Config }) {
   if (state.connection === 'failed')
     return (
       <div class="banner banner--bad" role="alert">
-        Harklight could not connect. Reload the page to try again.
+        Harklight could not connect.{' '}
+        <button type="button" class="tool tool--inline" onClick={onTryAgain}>
+          Try again
+        </button>
       </div>
     );
   return null;

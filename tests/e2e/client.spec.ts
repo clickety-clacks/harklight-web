@@ -585,14 +585,9 @@ test('a failed reply is held as sent: Retry resends it unchanged, Edit makes a n
   await page.getByRole('button', { name: 'Send answer' }).click();
   await expect(page.getByTestId('reply-failed').getByRole('img', { name: "Couldn't send" })).toBeVisible();
   await expect(page.getByTestId('reply-failed')).not.toContainText('Not sent');
-  // What is shown is what Retry sends: the text cannot change under it.
-  await expect(box).toHaveAttribute('readonly', '');
   // The failed card's own control carries the failure for screen readers.
   await expect(page.getByRole('radio', { name: "Reply, couldn't send" })).toBeVisible();
-  await box.press('End');
-  await box.pressSequentially(' later', { delay: 0 });
-  await expect(box).toHaveValue('Roll back now');
-  // The send shortcut does not send a locked answer: only Retry does.
+  // The send shortcut does not resend an untouched failed answer: only Retry does.
   await box.press('Control+Enter');
   await box.press('Meta+Enter');
   await expect(page.getByTestId('reply-failed')).toBeVisible();
@@ -604,7 +599,6 @@ test('a failed reply is held as sent: Retry resends it unchanged, Edit makes a n
   expect(frames[1]).toEqual(frames[0]);
   // Edit turns it back into a draft; its send is a new answer.
   await page.getByRole('button', { name: 'Edit' }).click();
-  await expect(box).not.toHaveAttribute('readonly', '');
   await box.fill('Hold the deploy');
   await control(page, 'fail-answers', { on: false });
   await page.getByRole('button', { name: 'Send answer' }).click();
@@ -613,6 +607,48 @@ test('a failed reply is held as sent: Retry resends it unchanged, Edit makes a n
   expect(frames).toHaveLength(3);
   expect(frames[2].op_id).not.toEqual(frames[0].op_id);
   expect(frames[2].answer).toEqual('Hold the deploy');
+});
+
+test('typing into a failed reply acts as Edit: the failure clears and the send is a new answer', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'fail-answers');
+  await openRow(page, 'Production deploy failed');
+  await page.getByRole('radio', { name: 'Reply' }).click();
+  const box = page.getByRole('textbox', { name: 'Reply' });
+  await box.fill('Roll back now');
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('reply-failed')).toBeVisible();
+  await expect(box).not.toHaveAttribute('readonly', '');
+  await box.press('End');
+  await box.pressSequentially(' please', { delay: 0 });
+  await expect(box).toHaveValue('Roll back now please');
+  await expect(page.getByTestId('reply-failed')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+  await control(page, 'fail-answers', { on: false });
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('answered')).toContainText('Roll back now please');
+  const frames = (await control(page, 'state')).answerFrames;
+  expect(frames).toHaveLength(2);
+  expect(frames[1].op_id).not.toEqual(frames[0].op_id);
+});
+
+test('changing a failed custom form acts as Edit', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openInbox(page);
+  await control(page, 'fail-answers');
+  await openRow(page, 'Which cover for the November issue?');
+  await page.getByRole('radio', { name: /Use cover B/ }).click();
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByTestId('form-failed')).toBeVisible();
+  await page.getByRole('radio', { name: /Use cover A/ }).click();
+  await expect(page.getByTestId('form-failed')).toHaveCount(0);
+  await control(page, 'fail-answers', { on: false });
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.getByTestId('answered')).toContainText('Use cover A');
+  const frames = (await control(page, 'state')).answerFrames;
+  expect(frames).toHaveLength(2);
+  expect(frames[1].op_id).not.toEqual(frames[0].op_id);
 });
 
 test('a failed reply keeps its text and Retry after leaving the message and coming back', async ({ page }) => {
@@ -753,4 +789,18 @@ test('Seen spins while sending, comes back as Retry Seen on failure, and confirm
   await expect(page.locator('.seen-under[aria-busy="true"]')).toBeVisible();
   await control(page, 'release-answers');
   await expect(page.getByTestId('seen-done')).toBeVisible();
+});
+
+test('a policy close offers Try again, which reconnects without a reload and keeps the draft', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Production deploy failed');
+  await page.getByRole('radio', { name: 'Reply' }).click();
+  await page.getByRole('textbox', { name: 'Reply' }).fill('Still drafting');
+  await control(page, 'policy-close');
+  await expect(page.getByText('Harklight could not connect.')).toBeVisible();
+  await expect(page.getByText(/Reload the page/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByText('Harklight could not connect.')).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: 'Reply' })).toHaveValue('Still drafting');
 });
