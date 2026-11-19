@@ -3,7 +3,8 @@
 This repository is the Harklight web client: the browser app where a signed-in
 Harklight customer reads and answers their Harklight messages. It covers: inbox,
 open a message, answer or reply (including choices and Seen), chat with files,
-live updates, settings and sign out. It talks to Harklight Server only through the browser messaging contract.
+live updates, settings and sign out. It talks to Harklight Server only through
+the browser messaging contract.
 
 ## How this project ships
 
