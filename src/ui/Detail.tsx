@@ -88,7 +88,9 @@ export function Detail(p: DetailProps) {
   // A line only when the reason is not already visible where they tapped:
   // once the message shows its own closed or retracted state, it says why.
   const refusalLine = refused && m.terminal === null ? (REFUSAL_TEXT[refused] ?? REFUSAL_TEXT.closed) : null;
-  const canAnswer = open && p.canAct && !sending;
+  // Picking and typing stay open while the connection is down; only sending waits.
+  const editable = open && !sending;
+  const canAnswer = editable && p.canAct;
   const control = sending || failed ? local!.control : null;
   const statusOf = (id: string): Status => (control === id ? (sending ? 'sending' : 'failed') : null);
 
@@ -118,11 +120,7 @@ export function Detail(p: DetailProps) {
     else if (form.kind === 'ui1') {
       const c = compose(form.doc, draft);
       if (!c.ok) {
-        setFormError(
-          c.reason === 'incomplete'
-            ? 'Complete the response before sending your answer.'
-            : 'This answer is too large to send.',
-        );
+        setFormError('Complete the response before sending your answer.');
         return;
       }
       setFormError(null);
@@ -239,8 +237,8 @@ export function Detail(p: DetailProps) {
           {body(m) && <p class="msg-body">{body(m)}</p>}
           {m.files.length > 0 && (
             <div class="files">
-              {m.files.map((f) => (
-                <FileRow key={f.name} file={f} download={p.attachments} fileHref={p.fileHref} />
+              {m.files.map((f, i) => (
+                <FileRow key={`${i}\u0000${f.name}`} file={f} download={p.attachments} fileHref={p.fileHref} />
               ))}
             </div>
           )}
@@ -295,7 +293,7 @@ export function Detail(p: DetailProps) {
                     text={text}
                     status={statusOf(c.id)}
                     dim={sending && control !== c.id}
-                    disabled={!canAnswer}
+                    disabled={!editable}
                     frozen={replyFrozen && control === c.id}
                     onPick={() => setPicked(c.id)}
                     onText={setText}
@@ -310,7 +308,7 @@ export function Detail(p: DetailProps) {
                     compact={writing}
                     status={statusOf(c.id)}
                     dim={sending && control !== c.id}
-                    disabled={!canAnswer}
+                    disabled={!editable}
                     onPick={() => setPicked(c.id)}
                     onRetry={p.onRetry}
                   />
@@ -322,7 +320,7 @@ export function Detail(p: DetailProps) {
                 compact={writing}
                 status={statusOf('no_comment')}
                 dim={sending && control !== 'no_comment'}
-                disabled={!canAnswer}
+                disabled={!editable}
                 onPick={() => setPicked('no_comment')}
                 onRetry={p.onRetry}
               />
@@ -335,7 +333,7 @@ export function Detail(p: DetailProps) {
                 ctx={{
                   doc: form.doc,
                   draft,
-                  onDraft: canAnswer && !formFrozen
+                  onDraft: editable && !formFrozen
                     ? (d) => {
                         setDraft(d);
                         if (picked === 'no_comment') setPicked(null);
@@ -352,7 +350,7 @@ export function Detail(p: DetailProps) {
                   compact={false}
                   status={statusOf('no_comment')}
                   dim={sending && control !== 'no_comment'}
-                  disabled={!canAnswer}
+                  disabled={!editable}
                   onRetry={p.onRetry}
                   onPick={() => {
                     setPicked('no_comment');
@@ -386,7 +384,7 @@ export function Detail(p: DetailProps) {
                   on={picked === 'no_comment'}
                   compact={false}
                   status={statusOf('no_comment')}
-                  disabled={!canAnswer}
+                  disabled={!editable}
                   onPick={() => setPicked('no_comment')}
                   onRetry={p.onRetry}
                 />
