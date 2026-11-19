@@ -4,7 +4,7 @@
 // and tested before the real door exists. It is not a server implementation.
 // The same world is also served as client API v2 under /v2 (dev/fake-v2.mjs).
 //
-//   node dev/fake-server.mjs [--vite] [--dist] [--port 5173] [--flags attachments]
+//   node dev/fake-server.mjs [--vite] [--dist] [--port 5173] [--flags attachments,client-api-v2]
 //
 // Test controls (POST, JSON body) live under /__fake/.
 
@@ -553,6 +553,8 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
   const v2Timer = setInterval(() => v2Tick(world), 50);
   let webClient = !flags.includes('customer-off');
   let attachments = flags.includes('attachments');
+  // The client speaks client API v2 (--flags client-api-v2) instead of the relay.
+  let clientApiV2 = flags.includes('client-api-v2');
   let viteServer = null;
   if (vite) {
     const { createServer: createVite } = await import('vite');
@@ -568,7 +570,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       if (p === '/app/config.json')
         return json(res, 200, {
           accountInfoPath: '/__fake/me',
-          flags: { webClient, attachments, answerForms: flags.includes('answer-forms') },
+          flags: { webClient, attachments, answerForms: flags.includes('answer-forms'), clientApiV2 },
         });
       if (p === '/sign-out' && req.method === 'POST') {
         const body = (await readBody(req)).toString();
@@ -656,9 +658,13 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       case 'attachments':
         attachments = body.on !== false;
         return json(res, 200, { ok: true });
+      case 'client-api-v2':
+        clientApiV2 = body.on !== false;
+        return json(res, 200, { ok: true });
       case 'reset':
         webClient = !flags.includes('customer-off');
         attachments = flags.includes('attachments');
+        clientApiV2 = flags.includes('client-api-v2');
         v2DropAll(world);
         world = createWorld(body.now ?? Date.now(), forms);
         world.uploadCap = UPLOAD_CAP;

@@ -26,7 +26,8 @@ import {
   type Frame,
   type SocketFactory,
 } from './connection';
-import { uploadFile, fetchFileLimits, discardUploads, type FileRoutes } from './files';
+import { uploadFile, fetchFileLimits, discardUploads, fileUrl, type FileRoutes } from './files';
+import type { State } from '../state/store';
 
 
 export interface SessionDeps {
@@ -92,6 +93,15 @@ export class RelaySession {
 
   get recipient(): string {
     return this.recipientId;
+  }
+
+  /** Sends need the connection: they go over it. */
+  canWrite(s: State): boolean {
+    return s.connection === 'connected';
+  }
+
+  fileHref(uploadId: string): string {
+    return fileUrl(this.deps.config.filesPath, uploadId);
   }
 
   private relayUrl(): string {

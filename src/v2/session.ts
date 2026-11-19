@@ -118,6 +118,15 @@ export class V2Session {
     (this.deps.setTimer ?? setTimeout)(fn, ms);
   }
 
+  /**
+   * Writes never wait for the feed: the person can answer and chat while it
+   * reconnects. Only a sign-in that ended, a paused account or a failure that
+   * a retry will not fix stops them.
+   */
+  canWrite(s: { connection: string; loaded: boolean }): boolean {
+    return s.loaded && (s.connection === 'connected' || s.connection === 'reconnecting' || s.connection === 'connecting');
+  }
+
   /** Where a file is read from. */
   fileHref(fileId: string): string {
     return `${this.deps.config.apiPath}/files/${seg(fileId)}`;

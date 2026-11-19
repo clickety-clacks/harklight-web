@@ -1,8 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Config } from '../config';
-import type { RelaySession } from '../relay/session';
-import { fileUrl } from '../relay/files';
+import type { ClientSession } from '../client';
 import { entries as entriesFor, rows as rowsFor, type ReplyRow, type Tab } from '../state/inbox';
 import { answerForm, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
@@ -62,7 +61,7 @@ function pageFromPath(path: string): Page {
   return /\/settings\/?$/.test(path) ? 'settings' : 'inbox';
 }
 
-export function App(props: { config: Config; store: Store; session: RelaySession }) {
+export function App(props: { config: Config; store: Store; session: ClientSession }) {
   const { config, store, session } = props;
   const s = useStore(store);
   const layout = useLayout();
@@ -216,8 +215,9 @@ export function App(props: { config: Config; store: Store; session: RelaySession
   const phone = layout === 'phone';
   const chatVisible = !!message && chatWanted && !dropOnNarrow;
   const sender = message ? senderLabel(message) : '';
-  const fileHref = (id: string) => fileUrl(config.filesPath, id);
-  const imageUrl = (f: WireFile) => imageUrlFor(f, config);
+  const fileHref = (id: string) => session.fileHref(id);
+  const imageUrl = (f: WireFile) => imageUrlFor(f, config, fileHref);
+  const canWrite = session.canWrite(s);
 
   const list = (
     <InboxList
@@ -270,7 +270,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       attachments={config.flags.attachments}
       answerForms={config.flags.answerForms}
       imageUrl={imageUrl}
-      canAct={s.connection === 'connected'}
+      canAct={canWrite}
       onPrev={index > 0 ? () => open(rows[index - 1].key) : null}
       onNext={index >= 0 && index < rows.length - 1 ? () => open(rows[index + 1].key) : null}
       onBack={phone ? () => history.back() : null}
@@ -297,7 +297,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       available={s.chatAvailable}
       attachments={config.flags.attachments}
       uploadCap={s.fileLimits?.cap ?? null}
-      canSend={s.connection === 'connected' && chatOpen(thread, message)}
+      canSend={canWrite && chatOpen(thread, message)}
       paused={s.connection === 'inactive'}
       column={panel}
       draft={drafts.current.get(selected!) ?? { text: '', files: [] }}

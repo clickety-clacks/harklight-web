@@ -15,6 +15,10 @@ export interface Flags {
   /** Custom answer forms (attention-client.ui/1). Off shows "answer it on
    * your iPhone" and No comment. */
   answerForms: boolean;
+  /** Talk to the Server through client API v2 (fetch reads, one change feed,
+   * idempotent writes) instead of the browser relay WebSocket. A protocol
+   * choice that must match the Server, so `#preview` leaves it as configured. */
+  clientApiV2: boolean;
 }
 
 export interface Config {
@@ -53,7 +57,7 @@ export const DEFAULT_CONFIG: Config = {
   componentsPath: '/components',
   devicesPath: '/devices',
   accountInfoPath: '/api/profile',
-  flags: { webClient: false, attachments: false, answerForms: false },
+  flags: { webClient: false, attachments: false, answerForms: false, clientApiV2: false },
 };
 
 export function mergeConfig(base: Config, override: unknown): Config {
@@ -100,5 +104,6 @@ export function applyPreview(config: Config, hash: string, storage: Pick<Storage
   if (hash === '#preview') storage.setItem(PREVIEW_KEY, '1');
   if (hash === '#preview-off') storage.removeItem(PREVIEW_KEY);
   if (storage.getItem(PREVIEW_KEY) !== '1') return config;
-  return { ...config, flags: { webClient: true, answerForms: true, attachments: true } };
+  // clientApiV2 is the Server's protocol, not a feature: it keeps the deployment's value.
+  return { ...config, flags: { ...config.flags, webClient: true, answerForms: true, attachments: true } };
 }
