@@ -111,6 +111,20 @@ test('sends files with a chat message: small inline, large uploaded', async ({ p
   ]);
 });
 
+test('sends a chat turn with a file and no text', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await openChat(page);
+  const send = page.getByRole('button', { name: 'Send message' });
+  await expect(send).toBeDisabled();
+  await page.locator('input[type=file]').setInputFiles({ name: 'plan.txt', mimeType: 'text/plain', buffer: Buffer.from('plan') });
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect.poll(async () => (await control(page, 'state')).lastDiscussion?.files?.length).toBe(1);
+  await expect(page.locator('.turn--me .file', { hasText: 'plan.txt' })).toBeVisible();
+});
+
 test('refuses a file over the Server limit and sends nothing', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
