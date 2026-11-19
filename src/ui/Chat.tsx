@@ -108,7 +108,7 @@ export function Chat(p: ChatProps) {
   const submit = () => {
     // Read the field itself: a fast Enter can arrive before the re-render.
     const body = field.current?.value ?? text;
-    if (!p.canSend || body.trim() === '') return;
+    if (!p.canSend || (body.trim() === '' && files.length === 0)) return;
     p.onSend(body, files);
     setText('');
     setFiles([]);
@@ -278,7 +278,7 @@ export function Chat(p: ChatProps) {
                 }
               }}
             />
-            <button type="submit" class="square square--send" aria-label="Send message" disabled={!p.canSend || text.trim() === ''}>
+            <button type="submit" class="square square--send" aria-label="Send message" disabled={!p.canSend || (text.trim() === '' && files.length === 0)}>
               <Icon name="send" />
             </button>
           </form>

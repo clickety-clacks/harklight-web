@@ -67,4 +67,18 @@ describe('chat composer', () => {
     expect(retry(false)).toBe(true);
     expect(retry(true)).toBe(false);
   });
+
+  it('lets a turn with files and no text be sent, but not an empty one', async () => {
+    const sent: string[] = [];
+    const { el } = mount({ onSend: (t, f) => sent.push(`${t}|${f.length}`) });
+    const send = () => el.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!;
+    expect(send().disabled).toBe(true);
+    const input = el.querySelector<HTMLInputElement>('input[type=file]')!;
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'a.txt')] });
+    input.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(send().disabled).toBe(false);
+    el.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(sent).toEqual(['|1']);
+  });
 });

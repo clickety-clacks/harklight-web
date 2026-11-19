@@ -440,7 +440,11 @@ function serveConnection(ws, w, recipient) {
         const k = key(f.sender_id, f.message_id);
         const m = w.messages.get(k);
         if (!m) return err('not_found');
-        if (typeof f.text !== 'string' || f.text === '') return err('invalid_field', { field: 'text' });
+        // A turn that carries files may have empty or absent text; one with neither is refused.
+        const hasFiles = Array.isArray(f.files) && f.files.length > 0;
+        if (f.text !== undefined && typeof f.text !== 'string') return err('invalid_field', { field: 'text' });
+        if ((f.text ?? '') === '' && !hasFiles) return err('invalid_field', { field: 'text' });
+        const text = f.text ?? '';
         if (!m.session_handle) return err(m.terminal ? 'closed' : 'not_found');
         if (m.terminal) return err('closed');
         const files = [];
@@ -465,14 +469,14 @@ function serveConnection(ws, w, recipient) {
           delivery_acks: true,
           session_handle: m.session_handle,
           op_id: f.op_id,
-          text: f.text,
+          text,
           channel: 'chat',
           event_id: `e${w.convSeq + 1}`,
           ...(files.length ? { files } : {}),
         });
         const reply = { v: 1, type: 'ok', seq: ev.conversation_seq, event_id: ev.event_id };
         w.receipts.set(rk, reply);
-        w.lastDiscussion = { key: k, text: f.text, files };
+        w.lastDiscussion = { key: k, text, files };
         send({ ...reply, ...ref });
         break;
       }
