@@ -1,8 +1,6 @@
 // A custom answer form's draft and the answer it composes, following the
 // iPhone app: every choice input needs a selection, every point input needs a
-// point, at least one field must carry content, and the answer must fit in
-// 64 KiB.
-
+// point, and at least one field must carry content.
 
 type Obj = Record<string, unknown>;
 

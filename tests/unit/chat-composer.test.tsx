@@ -29,6 +29,7 @@ function mount(over: Partial<ChatProps> = {}) {
     attachments: true,
     uploadCap: null,
     canSend: true,
+    paused: false,
     onClose: () => {},
     column: false,
     draft,
@@ -58,5 +59,12 @@ describe('chat composer', () => {
     expect(el.querySelector<HTMLTextAreaElement>('textarea')!.disabled).toBe(false);
     expect(el.querySelector<HTMLButtonElement>('button[aria-label="Attach a file"]')!.disabled).toBe(false);
     expect(el.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')!.disabled).toBe(true);
+  });
+
+  it('offers no Retry on a failed turn while the account is paused', () => {
+    const failed = { op_id: 'o1', key: `${message.sender_id}\u0000${message.message_id}`, revision: 1, text: 'hi', files: [], state: 'failed' as const, reason: 'connection' };
+    const retry = (paused: boolean) => mount({ sends: [failed], paused }).el.textContent?.includes('Retry');
+    expect(retry(false)).toBe(true);
+    expect(retry(true)).toBe(false);
   });
 });

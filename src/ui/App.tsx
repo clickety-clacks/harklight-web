@@ -298,6 +298,7 @@ export function App(props: { config: Config; store: Store; session: RelaySession
       attachments={config.flags.attachments}
       uploadCap={s.fileLimits?.cap ?? null}
       canSend={s.connection === 'connected' && chatOpen(thread, message)}
+      paused={s.connection === 'inactive'}
       column={panel}
       draft={drafts.current.get(selected!) ?? { text: '', files: [] }}
       onDraft={(d) => {
