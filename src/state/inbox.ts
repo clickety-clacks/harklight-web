@@ -50,8 +50,6 @@ export type Entry = MessageRow | ReplyRow | Heading | ThreadGroup;
 /** Kept for code that only needs message rows. */
 export type Row = MessageRow;
 
-const RETRACTED_VISIBLE_MS = 24 * 60 * 60 * 1000;
-
 /** Only a confirmed answer moves a message: while sending, or after a failed
  * send, its row stays where it is and shows that state. */
 function localAnswered(s: State, key: string): boolean {
@@ -65,13 +63,9 @@ export function inReplied(s: State, key: string): boolean {
   return belongsToReplied(m, localAnswered(s, key));
 }
 
-function visible(m: HeldMessage, now: number): boolean {
-  if (m.terminal?.state === 'superseded') return false;
-  if (m.terminal?.retracted) {
-    const at = typeof m.payload.retracted_at === 'number' ? m.payload.retracted_at : null;
-    if (at !== null && now - at > RETRACTED_VISIBLE_MS) return false;
-  }
-  return true;
+/** A newer revision replaces a superseded one; everything else stays listed, retracted messages included. */
+function visible(m: HeldMessage): boolean {
+  return m.terminal?.state !== 'superseded';
 }
 
 function scores(s: State) {
@@ -87,18 +81,18 @@ function scores(s: State) {
 }
 
 /** Every row of a tab, flattened: the messages the detail can step through. */
-export function rows(s: State, tab: Tab, now = Date.now()): MessageRow[] {
+export function rows(s: State, tab: Tab): MessageRow[] {
   const out: MessageRow[] = [];
-  for (const e of entries(s, tab, now)) {
+  for (const e of entries(s, tab)) {
     if (e.type === 'message') out.push(e);
     if (e.type === 'thread') out.push(...e.members);
   }
   return out;
 }
 
-export function entries(s: State, tab: Tab, now = Date.now()): Entry[] {
+export function entries(s: State, tab: Tab): Entry[] {
   const items = s.view?.listItems;
-  return items ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox', now) : fallback(s, tab, now);
+  return items ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox') : fallback(s, tab);
 }
 
 function messageRow(s: State, key: string, m: HeldMessage, score: Map<string, number | null>, history: boolean): MessageRow {
@@ -106,7 +100,7 @@ function messageRow(s: State, key: string, m: HeldMessage, score: Map<string, nu
   return { type: 'message', key, message: m, priority: open ? priorityOf(score.get(key) ?? null) : null, history };
 }
 
-function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean, now: number): Entry[] {
+function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean): Entry[] {
   const { score, thread } = scores(s);
   const flat: (MessageRow | ReplyRow | Heading)[] = [];
   const headed = new Set<string>();
@@ -120,7 +114,7 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
   for (const it of items) {
     if (it.kind === 'message') {
       const m = s.messages.get(it.key);
-      if (!m || !visible(m, now)) continue;
+      if (!m || !visible(m)) continue;
       if (!freeOrder && (tab === 'replied') !== inReplied(s, it.key)) continue;
     } else {
       if (it.unseen === null) continue;
@@ -207,12 +201,12 @@ function groupThreads(s: State, flat: (MessageRow | ReplyRow | Heading)[], threa
 }
 
 /** Without a view: open messages first, newest first; finished ones after. */
-function fallback(s: State, tab: Tab, now: number): Entry[] {
+function fallback(s: State, tab: Tab): Entry[] {
   const { score } = scores(s);
   const out: MessageRow[] = [];
   for (const m of s.messages.values()) {
     const key = keyOf(m);
-    if (!visible(m, now)) continue;
+    if (!visible(m)) continue;
     if ((tab === 'replied') !== inReplied(s, key)) continue;
     out.push(messageRow(s, key, m, score, false));
   }

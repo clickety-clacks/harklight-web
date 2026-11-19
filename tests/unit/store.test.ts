@@ -53,6 +53,11 @@ describe('inbox events', () => {
     applyLifecycle(s, { seq: 5, sender_id: 'agent:a', message_id: 'm1', state: 'cleared', terminal_reason: 'retracted', retracted_at: 10 });
     expect(s.messages.get(K)?.terminal?.retracted).toBe(true);
   });
+  it('keeps a retracted message listed however long ago it was retracted', () => {
+    const s = delivered();
+    applyLifecycle(s, { seq: 5, sender_id: 'agent:a', message_id: 'm1', state: 'cleared', terminal_reason: 'retracted', retracted_at: 10 });
+    expect(rows(s, 'inbox').map((r) => r.key).concat(rows(s, 'replied').map((r) => r.key))).toEqual([K]);
+  });
   it('hides superseded messages', () => {
     const s = delivered();
     applyLifecycle(s, { seq: 5, sender_id: 'agent:a', message_id: 'm1', state: 'superseded' });

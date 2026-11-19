@@ -92,6 +92,10 @@
   background: var(--band);
   border-bottom: 1px solid var(--line);
 }
+.banner a {
+  color: inherit;
+  text-decoration: underline;
+}
 .banner--bad {
   color: var(--coral);
 }
