@@ -190,6 +190,26 @@ describe('relay session', () => {
     s.stop();
   });
 
+  it('an answer in flight at a policy close is resent once by Try again, with its original op_id', async () => {
+    const store = new Store();
+    const s = session(store);
+    s.start();
+    await until(() => store.state.connection === 'connected');
+    await post('hold-answers');
+    void s.answer(store.state.messages.get(LISBON)!, 'plaza', 'Lisboa Plaza');
+    await until(() => store.state.answers.get(LISBON)?.state === 'sending');
+    await post('policy-close');
+    await until(() => store.state.connection === 'failed');
+    expect(store.state.answers.get(LISBON)).toMatchObject({ state: 'failed', reason: 'connection' });
+    await post('hold-answers', { on: false });
+    s.tryAgain();
+    await until(() => store.state.answers.get(LISBON)?.state === 'accepted');
+    const frames = (await fetch(`${base()}/__fake/state`).then((r) => r.json())).answerFrames;
+    expect(frames).toHaveLength(2);
+    expect(frames[1].op_id).toBe(frames[0].op_id);
+    s.stop();
+  });
+
   it('starts over on a new recipient when a resume is refused, since the old one cannot start again', async () => {
     const store = new Store();
     const s = session(store);
