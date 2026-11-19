@@ -74,10 +74,10 @@ for (const [layout, w, h] of WIDTHS) {
     await p.getByRole('button', { name: 'Send answer' }).click();
     await p.getByTestId('answered').waitFor();
     await shot(p, '07-answered', layout, mode);
-    // The chat after answering is closed but readable
+    // The chat stays open after answering
     if (layout !== 'wide') await chatButton(p).click();
-    await p.getByText('This chat is closed').waitFor();
-    await shot(p, '08-chat-closed', layout, mode);
+    await p.getByRole('textbox', { name: 'Write a message' }).waitFor();
+    await shot(p, '08-chat-after-answer', layout, mode);
     await ctx.close();
 
     // Message types

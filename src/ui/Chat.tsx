@@ -211,9 +211,6 @@ export function Chat(p: ChatProps) {
           {error}
         </p>
       )}
-      {p.available && p.message.chat && !p.open && (
-        <p class="chat-closed">This chat is closed. You can still read it and download its files.</p>
-      )}
       {p.available && p.message.chat && p.open && (
         <div class="composer-wrap">
           {files.length > 0 && (

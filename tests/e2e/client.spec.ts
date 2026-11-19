@@ -140,7 +140,7 @@ test('refuses a file over the Server limit and sends nothing', async ({ page }) 
   await expect(page.locator('.pending-files .file')).toHaveCount(0);
 });
 
-test('closes the chat once the message is answered, keeping it readable', async ({ page }) => {
+test('keeps the chat open after the message is answered: the person can keep writing', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
@@ -148,8 +148,14 @@ test('closes the chat once the message is answered, keeping it readable', async 
   await page.getByRole('button', { name: 'Send answer' }).click();
   await expect(page.getByTestId('answered')).toBeVisible();
   await openChat(page);
-  await expect(page.getByText('This chat is closed. You can still read it and download its files.')).toBeVisible();
+  await expect(page.getByText('This chat is closed')).toHaveCount(0);
   await expect(page.getByText('I can hold either room until 6 PM today.')).toBeVisible();
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('Thanks, one more question');
+  await page.getByRole('button', { name: 'Send message' }).click();
+  await expect.poll(async () => (await control(page, 'state')).lastDiscussion?.text).toBe('Thanks, one more question');
+  await expect(page.locator('.turn--me', { hasText: 'Thanks, one more question' })).toBeVisible();
+  // The answer controls stay gone: a second answer is still refused.
+  await expect(page.getByRole('button', { name: 'Send answer' })).toHaveCount(0);
 });
 
 test('at wide width the chat stays a column beside the message: close hides it, Chat brings it back', async ({ page }) => {

@@ -67,11 +67,11 @@ describe('inbox events', () => {
 });
 
 describe('chat', () => {
-  it('is open only while the message has a chat and no terminal state', () => {
+  it('is open whenever the message has a chat, including after it is answered', () => {
     const s = delivered();
     expect(chatOpen(undefined, s.messages.get(K))).toBe(true);
     applyLifecycle(s, { seq: 4, sender_id: 'agent:a', message_id: 'm1', state: 'answered', answer_outcome: { kind: 'reply', text: 'ok' } });
-    expect(chatOpen(undefined, s.messages.get(K))).toBe(false);
+    expect(chatOpen(undefined, s.messages.get(K))).toBe(true);
     const noChat = initialState();
     applyDelivery(noChat, { seq: 1, sender_id: 'agent:a', message_id: 'm1', message: { title: 'x' } });
     expect(chatOpen(undefined, noChat.messages.get(K))).toBe(false);
