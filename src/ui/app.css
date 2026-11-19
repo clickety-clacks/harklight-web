@@ -683,13 +683,6 @@
   font-size: 13px;
   color: var(--coral);
 }
-.chat-closed {
-  margin: 0;
-  padding: 10px 24px 16px;
-  font-size: 13px;
-  color: var(--muted);
-  border-top: 1px solid var(--line);
-}
 .composer-wrap {
   display: flex;
   flex-direction: column;

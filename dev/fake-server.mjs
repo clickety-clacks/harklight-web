@@ -445,8 +445,8 @@ function serveConnection(ws, w, recipient) {
         if (f.text !== undefined && typeof f.text !== 'string') return err('invalid_field', { field: 'text' });
         if ((f.text ?? '') === '' && !hasFiles) return err('invalid_field', { field: 'text' });
         const text = f.text ?? '';
-        if (!m.session_handle) return err(m.terminal ? 'closed' : 'not_found');
-        if (m.terminal) return err('closed');
+        // Chat stays open after any outcome; only a message with no chat is refused.
+        if (!m.session_handle) return err('not_found');
         const files = [];
         let inline = 0;
         for (const x of f.files ?? []) {

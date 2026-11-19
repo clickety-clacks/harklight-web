@@ -270,13 +270,12 @@ export function threadFor(s: State, key: string): Thread {
   return t;
 }
 
-/** New chat is open only while the message has a chat and no terminal state:
- * answering (including No comment), clearing, expiry, supersede and
- * retraction all close it. The conversation stays readable. */
-export function chatOpen(t: Thread | undefined, m: HeldMessage | undefined): boolean {
-  if (!m || !m.chat) return false;
-  if (t?.retracted) return false;
-  return m.terminal === null;
+/** Chat is open whenever the message has a chat. It stays open after any
+ * outcome (answered, No comment, cleared, expired, superseded, retracted): the
+ * person can keep writing and the agent can keep replying. Only a second
+ * answer is refused, and that is the answer controls' business, not chat's. */
+export function chatOpen(_t: Thread | undefined, m: HeldMessage | undefined): boolean {
+  return !!m && !!m.chat;
 }
 
 export function latestAgentReply(t: Thread | undefined): Turn | null {
