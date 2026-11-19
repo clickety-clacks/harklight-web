@@ -22,6 +22,8 @@ export interface Config {
   relayPath: string;
   /** Base path of the browser file routes (D-7a). */
   filesPath: string;
+  /** Path of Harklight client API v2 on this origin. */
+  apiPath: string;
   /** Server path that ends the sign-in and the hosted account session (F-2). */
   signOutPath: string;
   /** Server page to open when the sign-in has ended, so the Server's own
@@ -44,6 +46,7 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
   relayPath: '/browser/relay',
   filesPath: '/browser/v1',
+  apiPath: '/v2',
   signOutPath: '/sign-out',
   sessionEndedPath: '/devices',
   accountUrl: '/account/',

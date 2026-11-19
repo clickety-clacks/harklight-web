@@ -1,0 +1,177 @@
+import { describe, expect, it } from 'vitest';
+import { rows } from '../../../src/state/inbox';
+import { hasUnread, initialState } from '../../../src/state/store';
+import { applyEntry, applyItem, applyRemoved, compareCodePoints, keyOfItem, Model, viewOf, wantThread } from '../../../src/v2/model';
+import { readChange, readEntry, readInboxPage, readItem, type Entry, type Item } from '../../../src/v2/wire';
+
+function item(over: Partial<Item> = {}): Item {
+  return {
+    item_id: 'it_1',
+    rev: 1,
+    sender: 'agent:a',
+    request_revision: 1,
+    message: { title: 'Hello', message_type: 'request' },
+    files: [],
+    seen: false,
+    chat: { available: true, started: false, read_position: null, last_origin_reply: null },
+    terminal: null,
+    rank: { key: 'b' },
+    ...over,
+  };
+}
+
+function entry(over: Partial<Entry> = {}): Entry {
+  return {
+    entry_id: 'en_1',
+    item_id: 'it_1',
+    rev: 2,
+    position: 1,
+    kind: 'reply',
+    author: 'origin',
+    at_ms: 0,
+    request_revision: 1,
+    text: 'hi',
+    ...over,
+  };
+}
+
+const K = keyOfItem({ sender: 'agent:a', item_id: 'it_1' });
+
+describe('client API v2 model', () => {
+  it('applies an item only if its rev is newer than the one held', () => {
+    const s = initialState();
+    const m = new Model();
+    expect(applyItem(s, m, item({ rev: 5, message: { title: 'Five' } }))).toBe(true);
+    expect(applyItem(s, m, item({ rev: 3, message: { title: 'Three' } }))).toBe(false);
+    expect(applyItem(s, m, item({ rev: 5, message: { title: 'Five again' } }))).toBe(false);
+    expect(s.messages.get(K)!.payload.title).toBe('Five');
+    expect(applyItem(s, m, item({ rev: 6, message: { title: 'Six' } }))).toBe(true);
+    expect(s.messages.get(K)!.payload.title).toBe('Six');
+  });
+
+  it('converges whatever order a read, a write response and feed events arrive in', () => {
+    const versions = [
+      item({ rev: 2, seen: true }),
+      item({ rev: 4, seen: true, terminal: { state: 'answered', at_ms: 1 } }),
+      item({ rev: 3, seen: true, request_revision: 1 }),
+    ];
+    const orders = [
+      [0, 1, 2],
+      [2, 1, 0],
+      [1, 0, 2],
+      [1, 2, 0],
+    ];
+    for (const order of orders) {
+      const s = initialState();
+      const m = new Model();
+      for (const i of order) applyItem(s, m, versions[i]);
+      expect(s.messages.get(K)!.v2!.rev).toBe(4);
+      expect(s.messages.get(K)!.terminal?.state).toBe('answered');
+    }
+  });
+
+  it('keeps a tombstone: an older snapshot row does not bring a removed item back, a newer one does', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ rev: 2 }));
+    applyRemoved(s, m, 'it_1', 5);
+    expect(s.messages.has(K)).toBe(false);
+    expect(applyItem(s, m, item({ rev: 4 }))).toBe(false);
+    expect(s.messages.has(K)).toBe(false);
+    expect(applyItem(s, m, item({ rev: 6 }))).toBe(true);
+    expect(s.messages.has(K)).toBe(true);
+  });
+
+  it('a removal older than the held item is ignored', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ rev: 7 }));
+    applyRemoved(s, m, 'it_1', 5);
+    expect(s.messages.has(K)).toBe(true);
+  });
+
+  it('sorts entries by position and upserts them by rev', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item());
+    // Entries of a conversation the tab does not hold are dropped.
+    expect(applyEntry(s, m, entry())).toBe(false);
+    wantThread(s, K);
+    applyEntry(s, m, entry({ entry_id: 'en_3', position: 3, rev: 9, text: 'three' }));
+    applyEntry(s, m, entry({ entry_id: 'en_1', position: 1, rev: 4, text: 'one' }));
+    applyEntry(s, m, entry({ entry_id: 'en_2', position: 2, rev: 6, author: 'person', text: 'two' }));
+    expect(s.threads.get(K)!.turns.map((t) => t.text)).toEqual(['one', 'two', 'three']);
+    expect(s.threads.get(K)!.turns.map((t) => t.kind)).toEqual(['reply', 'discussion', 'reply']);
+    // A newer version (delivered) replaces it in place; an older one does not.
+    applyEntry(s, m, entry({ entry_id: 'en_2', position: 2, rev: 10, author: 'person', text: 'two', delivery: { delivered: true } }));
+    applyEntry(s, m, entry({ entry_id: 'en_2', position: 2, rev: 5, author: 'person', text: 'stale' }));
+    expect(s.threads.get(K)!.turns.map((t) => t.text)).toEqual(['one', 'two', 'three']);
+    expect(s.threads.get(K)!.delivered.has('en_2')).toBe(true);
+  });
+
+  it('unread chat: the newest origin reply is past the read position', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ chat: { available: true, started: true, last_origin_reply: 'en_3', read_position: 'en_1' } }));
+    expect(hasUnread(s, K)).toBe(true);
+    applyItem(s, m, item({ rev: 2, chat: { available: true, started: true, last_origin_reply: 'en_3', read_position: 'en_3' } }));
+    expect(hasUnread(s, K)).toBe(false);
+    applyItem(s, m, item({ rev: 3, chat: { available: true, started: true, last_origin_reply: null, read_position: null } }));
+    expect(hasUnread(s, K)).toBe(false);
+  });
+
+  it('maps terminal states: retracted stays listed, no comment and Seen are told apart', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ terminal: { state: 'retracted', at_ms: 1 } }));
+    expect(s.messages.get(K)!.terminal).toMatchObject({ retracted: true });
+    expect(rows(s, 'inbox').map((r) => r.key)).toEqual([K]);
+    applyItem(s, m, item({ rev: 2, terminal: { state: 'answered', at_ms: 1, no_comment: true } }));
+    expect(s.messages.get(K)!.terminal?.state).toBe('no_comment');
+    const seenUi = { schema: 'attention-client.actions/1', actions: [{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }] };
+    applyItem(s, m, item({ rev: 3, message: { title: 'FYI', answer_ui: seenUi }, terminal: { state: 'answered', at_ms: 1 } }));
+    expect(s.messages.get(K)!.terminal?.outcome?.kind).toBe('seen');
+    applyItem(s, m, item({ rev: 4, terminal: { state: 'superseded', at_ms: 1 } }));
+    expect(rows(s, 'inbox')).toHaveLength(0);
+  });
+
+  it('an answer entry names the answer the terminal state does not carry', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ terminal: { state: 'answered', at_ms: 1 } }));
+    wantThread(s, K);
+    expect(s.messages.get(K)!.terminal?.outcome).toBeNull();
+    applyEntry(s, m, entry({ entry_id: 'en_9', kind: 'answer', author: 'person', text: 'Ship it', position: 4 }));
+    expect(s.messages.get(K)!.terminal?.outcome).toEqual({ kind: 'reply', text: 'Ship it' });
+  });
+
+  it('orders the inbox by rank key, by code point', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ item_id: 'it_a', rank: { key: 'b' } }));
+    applyItem(s, m, item({ item_id: 'it_b', rank: { key: 'a\u{1F600}' } }));
+    applyItem(s, m, item({ item_id: 'it_c', rank: { key: 'a￿' } }));
+    s.view = viewOf(s);
+    // U+FFFF sorts before U+1F600 by code point (and by UTF-8 bytes), unlike UTF-16 order.
+    expect(s.view.listItems!.map((i) => i.key.split('\u0000')[1])).toEqual(['it_c', 'it_b', 'it_a']);
+    expect(compareCodePoints('a￿', 'a\u{1F600}')).toBeLessThan(0);
+  });
+});
+
+describe('client API v2 readers', () => {
+  it('ignores unknown members and drops malformed resources', () => {
+    const page = readInboxPage({ rev: 3, items: [{ ...item(), extra: 1 }, { item_id: 'x' }], counts: { unresolved: 1 }, future: true });
+    expect(page?.items).toHaveLength(1);
+    expect(readItem({ ...item(), rev: 0 })).toBeNull();
+    expect(readEntry({ ...entry(), kind: 'mystery' })).toBeNull();
+  });
+
+  it('reads a feed event by its id and kind, and keeps big numbers exact', () => {
+    const c = readChange('item', '12', JSON.stringify(item()).replace('"title":"Hello"', '"title":"Hello","n":18446744073709551617'));
+    expect(c?.rev).toBe(12);
+    const it = readItem(c!.data)!;
+    expect(String((it.message.n as unknown as { text: string }).text)).toBe('18446744073709551617');
+    expect(readChange('closing', '', '{}')).toBeNull();
+    expect(readChange('item', '', '{}')).toBeNull();
+  });
+});
