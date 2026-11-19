@@ -2,8 +2,8 @@
 
 Read and answer your Harklight messages in the browser: the inbox, an open
 message, answering (choices, your own reply, Seen and No comment), chat with
-files, live updates, settings and sign out. It does what the Harklight iPhone
-app does, in light and dark, at desktop, tablet and phone widths.
+files, live updates, settings and sign out. It works in light and dark, at
+desktop, tablet and phone widths.
 
 The client is a static site (Preact and TypeScript, built with Vite). It is
 served from the hosted Harklight origin and talks to Harklight Server over one
