@@ -506,6 +506,8 @@ export class RelaySession {
       return;
     }
     if (code === CLOSE_POLICY) {
+      // An answer in flight is now unconfirmed: Try again resends it once.
+      this.markInFlightUnconfirmed();
       this.store.update((s) => {
         s.connection = 'failed';
       });
