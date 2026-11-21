@@ -52,6 +52,7 @@ function v2State(w) {
       nextPosition: new Map(), // item id -> next position
       entryIds: new Map(), // world event -> entry id
       idem: new Map(), // Idempotency-Key -> {digest, status, body}
+      downloadableUploads: new Map(), // download FileRef id -> upload
       inlineFiles: new Map(), // file id -> {bytes, name}
       feeds: new Set(),
       removed: new Set(),
@@ -73,7 +74,7 @@ function fileRef(w, f) {
   }
   if (f.file_id) {
     // The type a file was uploaded with is stored and shown (FileRef.content_type).
-    const ct = w.uploads.get(f.file_id)?.contentType;
+    const ct = v.downloadableUploads.get(f.file_id)?.contentType;
     return { file_id: f.file_id, name: f.name, size: f.size, sha256: f.sha256, ...(ct ? { content_type: ct } : {}) };
   }
   return { file_id: f.upload_id, name: f.name, size: f.size, sha256: f.sha256 };
@@ -370,9 +371,9 @@ export async function serveV2(req, res, url, w, ctx) {
   }
   if (method === 'GET' && p.startsWith('/files/')) {
     const id = decodeURIComponent(p.slice('/files/'.length));
-    const up = w.uploads.get(id);
+    const up = v.downloadableUploads.get(id);
     const inline = v.inlineFiles.get(id);
-    const bytes = up?.referenced ? up.bytes : inline?.bytes;
+    const bytes = up?.bytes ?? inline?.bytes;
     if (!bytes) return fail(res, 404, 'not_found');
     // Served to a browser as a download, never inline on the web origin.
     const name = up?.name ?? inline?.name ?? 'file';
@@ -455,13 +456,13 @@ export async function serveV2(req, res, url, w, ctx) {
       const ids = body.file_ids ?? [];
       if (!Array.isArray(ids)) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
       if (body.text === '' && ids.length === 0) return [400, { error: 'invalid_field', field: 'text', retryable: false }];
-      const files = [];
-      for (const id of ids) {
-        const up = w.uploads.get(id);
-        if (!up || !up.v2) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
-        up.referenced = true;
-        files.push({ name: up.name, file_id: id, size: up.size, sha256: up.sha256 });
-      }
+      const uploads = ids.map((id) => w.uploads.get(id));
+      if (uploads.some((up) => !up?.v2)) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
+      const files = uploads.map((up) => {
+        const file_id = `fu${up.id}`;
+        v.downloadableUploads.set(file_id, up);
+        return { name: up.name, file_id, size: up.size, sha256: up.sha256 };
+      });
       // Replies are taken in every item state (answered, finished, retracted,
       // agent not listening): they are stored and delivered when the agent is back.
       const ev = ctx.personTurn(k, body.text, files);
@@ -612,7 +613,7 @@ async function upload(req, res, w) {
   const name = fileNameOf(req.headers['content-disposition']);
   if (!name) return fail(res, 400, 'invalid_field', { field: 'name' });
   const id = `f_${randomUUID()}`;
-  const up = { id, name, size: bytes.length, sha256: sha(bytes), bytes, referenced: false, v2: true, contentType: req.headers['content-type'] };
+  const up = { id, name, size: bytes.length, sha256: sha(bytes), bytes, v2: true, contentType: req.headers['content-type'] };
   w.uploads.set(id, up);
   const body = { file_id: id, name, sha256: up.sha256, size: up.size };
   v.idem.set(k, { digest, status: 201, body });
