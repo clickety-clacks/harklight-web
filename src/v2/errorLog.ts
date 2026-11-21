@@ -17,6 +17,8 @@ export interface ErrorRecord {
   closing?: string;
 }
 
+export type ErrorDetails = Pick<ErrorRecord, 'op' | 'status' | 'token' | 'requestId'>;
+
 const LIMIT = 200;
 
 export class ErrorLog {

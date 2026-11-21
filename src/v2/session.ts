@@ -115,6 +115,8 @@ export class V2Session {
   private attempt = 0;
   private retry: (() => void) | null = null;
   private recovering = false;
+  private feedFault = false;
+  private failedEntryReads = new Set<string>();
   private seenSent = new Set<string>();
   private readsInFlight = new Set<string>();
   /** Conversations read or being read: whole (`full`) or just the newest page, for a reply row. */
@@ -135,7 +137,19 @@ export class V2Session {
 
   constructor(private deps: V2Deps) {
     this.log = deps.log ?? new ErrorLog();
-    this.api = { base: `${deps.origin ?? ''}${deps.config.apiPath}`, fetch: deps.fetch, log: this.log };
+    this.api = {
+      base: `${deps.origin ?? ''}${deps.config.apiPath}`,
+      fetch: deps.fetch,
+      log: this.log,
+      onInternalError: (details) => this.store.update((s) => {
+        if (!this.feedFault || details.op === 'changes') s.internalError = details;
+      }),
+      onSuccess: (op) => {
+        if (!this.feedFault && this.store.state.internalError?.op === op) {
+          this.store.update((s) => { s.internalError = null; });
+        }
+      },
+    };
   }
 
   private get store(): Store {
@@ -175,7 +189,20 @@ export class V2Session {
   }
 
   /** Try now instead of waiting, for example when the network comes back. */
-  nudge(): void {
+  nudge(foreground = false): void {
+    if (foreground && this.feedFault) return this.tryAgain();
+    if (foreground && this.store.state.connection === 'inactive' && !this.pausePolling && !this.left) {
+      this.pausePolling = true;
+      void this.pollPause();
+    }
+    if (foreground && !this.stopped) {
+      for (const key of this.failedEntryReads) {
+        const full = this.entriesLoading.get(key)?.full;
+        this.entriesLoading.delete(key);
+        if (this.store.state.messages.has(key)) void this.loadEntries(key, { full });
+      }
+      this.failedEntryReads.clear();
+    }
     if (this.stopped || !this.retry) return;
     const run = this.retry;
     this.retry = null;
@@ -187,6 +214,13 @@ export class V2Session {
   tryAgain(): void {
     if (this.stopped || this.store.state.connection !== 'failed') return;
     this.attempt = 0;
+    if (this.feedFault) {
+      this.feedFault = false;
+      this.store.update((s) => {
+        s.internalError = null;
+        s.connection = s.loaded ? 'reconnecting' : 'connecting';
+      });
+    }
     // Resume from the cursor when the tab holds an inbox, so nothing between
     // it and now is skipped; only a tab that never loaded starts afresh.
     if (this.store.state.loaded) void this.recover();
@@ -249,10 +283,20 @@ export class V2Session {
         else void this.baseline(false);
         return;
       }
-    } catch {
-      // Asked again later.
+    } catch (e) {
+      if (e instanceof ApiError && e.token === 'internal_error') {
+        this.pausePolling = false;
+        return;
+      }
     }
     this.timer(() => void this.pollPause(), PAUSE_POLL_MS);
+  }
+
+  private pauseForFeedError(): void {
+    this.feedFault = true;
+    this.retry = null;
+    this.closeFeed();
+    this.store.update((s) => { s.connection = 'failed'; });
   }
 
   /** A read failed: what the tab does next. */
@@ -262,6 +306,7 @@ export class V2Session {
     if (e instanceof ApiError) {
       if (e.status === 401) return this.ended();
       if (e.token === 'account_paused') return this.inactive();
+      if (e.token === 'internal_error') return this.pauseForFeedError();
       if (!e.retryable && e.status !== 410) {
         this.store.update((s) => {
           s.connection = 'failed';
@@ -315,6 +360,7 @@ export class V2Session {
         }
         this.entriesGeneration++;
         this.entriesLoading.clear();
+        this.failedEntryReads.clear();
       }
       this.store.update((s) => {
         if (full) {
@@ -412,6 +458,7 @@ export class V2Session {
         if (generation !== this.entriesGeneration) return;
         const page = readEntriesPage(r.body);
         if (!page) return;
+        this.failedEntryReads.delete(key);
         this.store.update((s) => {
           // Only the newest page can hold a turn a pending send looks like.
           for (const e of page.entries) if (applyEntry(s, this.model, e) && before === null) markLookalike(s, key, e);
@@ -422,6 +469,10 @@ export class V2Session {
       }
     })().catch((e) => {
       if (generation !== this.entriesGeneration) return;
+      if (e instanceof ApiError && e.token === 'internal_error') {
+        this.failedEntryReads.add(key);
+        return;
+      }
       this.entriesLoading.delete(key);
       if (e instanceof ApiError && e.status === 401) this.ended();
     });
@@ -471,7 +522,7 @@ export class V2Session {
   }
 
   private openFeed(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.feedFault) return;
     this.closeFeed();
     const es = this.deps.eventSource(`${this.api.base}/changes?after=${this.cursor}`);
     this.feed = es;
@@ -526,6 +577,12 @@ export class V2Session {
       }
       // A closing event has no id: it never moves the cursor. Native
       // EventSource hides response headers, including the Server Request-Id.
+      if (reason === 'internal_error') {
+        const details = { op: 'feed', status: null, token: reason, requestId: null };
+        this.log.record(details);
+        this.store.update((s) => { s.internalError = details; });
+        return this.pauseForFeedError();
+      }
       this.log.record({ op: 'feed', status: null, token: 'closing', requestId: null, closing: reason });
       this.closeFeed();
       // The sign-in ended, as a 401 says.
@@ -602,7 +659,7 @@ export class V2Session {
    * full). Otherwise its changes are applied and the feed reopens after them.
    */
   private async recover(): Promise<void> {
-    if (this.stopped || this.recovering) return;
+    if (this.stopped || this.feedFault || this.recovering) return;
     this.recovering = true;
     try {
       const r = await this.get(`/changes?after=${this.cursor}`, 'changes');

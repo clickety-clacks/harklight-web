@@ -440,6 +440,25 @@ function ConnectionBanner({ state, config, onTryAgain }: { state: State; config:
         )}
       </div>
     );
+  if (state.internalError) {
+    const { op, status, token, requestId } = state.internalError;
+    const details = [
+      `Operation: ${op}`,
+      `Error: ${token}`,
+      ...(status === null ? [] : [`HTTP status: ${status}`]),
+      `Request-Id: ${requestId ?? 'unavailable'}`,
+    ].join('\n');
+    const failed = state.connection === 'failed';
+    return (
+      <div class="banner banner--bad" role="alert">
+        {failed && state.loaded ? 'Live updates paused.' : 'Harklight Server could not finish the request.'}{' '}
+        <button type="button" class="tool tool--inline" onClick={() => void navigator.clipboard.writeText(details).catch(() => undefined)}>
+          Copy details
+        </button>{' '}
+        {failed && <button type="button" class="tool tool--inline" onClick={onTryAgain}>Try again</button>}
+      </div>
+    );
+  }
   if (state.connection === 'reconnecting')
     return (
       <div class="banner" role="status">

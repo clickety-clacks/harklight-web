@@ -98,6 +98,29 @@ test('signing out elsewhere ends the feed (revoked) and the tab leaves for sign-
   await expect(page).toHaveURL(/\/devices$/);
 });
 
+test('an internal feed error pauses live updates and copies safe details from a failed recovery', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openInbox(page);
+  await expect.poll(async () => (await control(page, 'state')).feeds).toBe(1);
+  await control(page, 'closing', { reason: 'internal_error' });
+  const banner = page.getByRole('alert').filter({ hasText: 'Live updates paused.' });
+  await expect(banner).toBeVisible();
+  await control(page, 'internal-error', { path: '/changes' });
+  const batch = page.waitForResponse((res) => new URL(res.url()).pathname === '/v2/changes' && res.status() === 500);
+  await banner.getByRole('button', { name: 'Try again' }).click();
+  const requestId = (await batch).headers()['request-id'];
+  expect(requestId).toBeTruthy();
+  await expect(banner).toBeVisible();
+  await banner.getByRole('button', { name: 'Copy details' }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+    `Operation: changes\nError: internal_error\nHTTP status: 500\nRequest-Id: ${requestId}`,
+  );
+  await control(page, 'internal-error', { on: false });
+  await banner.getByRole('button', { name: 'Try again' }).click();
+  await expect(banner).toHaveCount(0);
+  await expect.poll(async () => (await control(page, 'state')).feeds).toBe(1);
+});
+
 test('a paused account keeps the inbox readable and says messages are paused', async ({ page }) => {
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');

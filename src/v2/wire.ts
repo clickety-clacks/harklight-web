@@ -162,6 +162,7 @@ export const ERROR_TOKENS = [
   'unauthorized',
   'forbidden',
   'retry_later',
+  'internal_error',
   'storage_unavailable',
   'payload_too_large',
   'unsupported',

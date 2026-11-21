@@ -730,6 +730,85 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
+  it('does not retry a request returning internal_error and keeps copyable metadata', async () => {
+    const h = session({
+      fetch: (input, init) => String(input).endsWith('/answer')
+        ? Promise.resolve(Response.json({ error: 'internal_error', private: 'never copied' }, {
+            status: 500, headers: { 'Request-Id': 'rq_render' },
+          }))
+        : fetch(input, init),
+    });
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await h.s.answer(h.store.state.messages.get(SURVEY)!, null, null, { control: 'approve' });
+    expect(h.requests.filter((r) => r.url.endsWith('/answer'))).toHaveLength(1);
+    expect(h.store.state.internalError).toEqual({ op: 'answer', status: 500, token: 'internal_error', requestId: 'rq_render' });
+    expect(h.s.log.list().at(-1)).toMatchObject({ op: 'answer', status: 500, token: 'internal_error', requestId: 'rq_render' });
+    expect(JSON.stringify(h.s.log.list())).not.toContain('never copied');
+    h.s.stop();
+  });
+
+  it('pauses live updates after a batch internal_error until explicit retry', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await post('fail-feeds', { count: 1 });
+    await post('internal-error', { path: '/changes', drop: true });
+    await until(() => h.store.state.connection === 'failed');
+    const requests = () => h.requests.filter((r) => r.url.includes('/changes?'));
+    h.s.nudge();
+    expect(requests()).toHaveLength(1);
+    expect(h.store.state.internalError).toMatchObject({ op: 'changes', status: 500, requestId: expect.stringMatching(/^rq_/) });
+    await post('internal-error', { on: false });
+    h.s.tryAgain();
+    await until(() => h.sources.length === 2 && h.store.state.connection === 'connected');
+    expect(requests()[1].url).toBe(requests()[0].url);
+    h.s.stop();
+  });
+
+  it('pauses on an internal_error SSE closing and resumes from the same cursor on foreground', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const before = (await fakeState()).feedOpens.at(-1).after;
+    await post('closing', { reason: 'internal_error' });
+    await until(() => h.store.state.connection === 'failed', 500);
+    expect(h.sources).toHaveLength(1);
+    expect(h.requests.filter((r) => r.url.includes('/changes?'))).toHaveLength(0);
+    expect(h.s.log.list().at(-1)).toMatchObject({ op: 'feed', status: null, token: 'internal_error', requestId: null });
+    h.s.nudge();
+    expect(h.sources).toHaveLength(1);
+    h.s.nudge(true);
+    await until(() => h.sources.length === 2 && h.store.state.connection === 'connected');
+    expect(h.requests.find((r) => r.url.includes('/changes?'))?.url).toContain(`after=${before}`);
+    h.s.stop();
+  });
+
+  it('still backs off and resends a write on retry_later', async () => {
+    const delays: number[] = [];
+    let busy = true;
+    const h = session({
+      setTimer: (fn, ms) => (delays.push(ms), setTimeout(fn, Math.min(ms, 20))),
+      fetch: (input, init) => {
+        if (busy && String(input).endsWith('/answer')) {
+          busy = false;
+          return Promise.resolve(Response.json({ error: 'retry_later', retryable: true }, {
+            status: 503, headers: { 'Retry-After': '3' },
+          }));
+        }
+        return fetch(input, init);
+      },
+    });
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await h.s.answer(h.store.state.messages.get(SURVEY)!, null, null, { control: 'approve' });
+    const writes = h.requests.filter((r) => r.url.endsWith('/answer'));
+    expect(writes).toHaveLength(2);
+    expect(writes[1].key).toBe(writes[0].key);
+    expect(delays).toContain(3000);
+    h.s.stop();
+  });
+
   it('closing cursor_expired reads every inbox page again and reopens from the first page\'s rev', async () => {
     await post('bulk', { count: 25 });
     const h = session();

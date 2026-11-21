@@ -3,7 +3,7 @@
 // into one shape (status, token, Request-Id) and recorded in the error log.
 
 import { parse, stringify } from '../state/json';
-import type { ErrorLog } from './errorLog';
+import type { ErrorDetails, ErrorLog } from './errorLog';
 import { ERROR_TOKENS, type ErrorToken } from './wire';
 
 export interface ApiDeps {
@@ -11,6 +11,8 @@ export interface ApiDeps {
   base: string;
   fetch: typeof fetch;
   log: ErrorLog;
+  onInternalError?: (details: ErrorDetails) => void;
+  onSuccess?: (op: string) => void;
 }
 
 /** A response arrived and it was not a success. */
@@ -112,6 +114,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
     }
   }
   if (res.ok) {
+    deps.onSuccess?.(o.op);
     return { status: res.status, body: parsed, requestId, replayed: res.headers.get('idempotent-replayed') === 'true' };
   }
   const e = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
@@ -120,11 +123,13 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
     return { status: res.status, body: parsed, requestId, replayed: false };
   }
   const id = requestId ?? (typeof e.request_id === 'string' ? e.request_id : null);
-  deps.log.record({ op: o.op, status: res.status, token, requestId: id });
+  const details = { op: o.op, status: res.status, token, requestId: id };
+  deps.log.record(details);
+  if (token === 'internal_error') deps.onInternalError?.(details);
   // A 5xx with no contract body comes from something in front of the Server
   // (a proxy while it restarts): treated like no response, retried.
-  const retryable = typeof e.retryable === 'boolean' ? e.retryable : res.status >= 500;
-  throw new ApiError(res.status, token, id, retryable, retryAfter(res), typeof e.field === 'string' ? e.field : null);
+  const retryable = token !== 'internal_error' && (typeof e.retryable === 'boolean' ? e.retryable : res.status >= 500);
+  throw new ApiError(res.status, token, id, retryable, token === 'internal_error' ? null : retryAfter(res), typeof e.field === 'string' ? e.field : null);
 }
 
 /** A fresh UUIDv4 for an Idempotency-Key, minted once at the person's intent. */

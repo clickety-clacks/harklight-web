@@ -4,6 +4,7 @@
 import type { Ui1Limits } from '../ui1/validate';
 import type { ChatSend, ConnectionState, HeldMessage, Thread } from './types';
 import type { ServerView } from './view';
+import type { ErrorDetails } from '../v2/errorLog';
 import { v2Unread } from '../v2/model';
 
 /**
@@ -34,6 +35,7 @@ export interface LocalAnswer {
 
 export interface State {
   connection: ConnectionState;
+  internalError: ErrorDetails | null;
   displayName: string | null;
   messages: Map<string, HeldMessage>;
   threads: Map<string, Thread>;
@@ -52,6 +54,7 @@ export interface State {
 export function initialState(): State {
   return {
     connection: 'connecting',
+    internalError: null,
     displayName: null,
     messages: new Map(),
     threads: new Map(),

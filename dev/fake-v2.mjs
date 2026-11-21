@@ -326,6 +326,11 @@ export async function serveV2(req, res, url, w, ctx) {
   if (!w.sessionLive) return fail(res, 401, 'unauthorized');
   // A paused account: 403 account_paused on every /v2 request but GET /v2/me.
   if (w.inactive && p !== '/me') return fail(res, 403, 'account_paused');
+  const fault = v.internalError;
+  if (fault?.path === p && fault.method === method &&
+      !(p === '/changes' && String(req.headers.accept ?? '').includes('text/event-stream'))) {
+    return fail(res, 500, 'internal_error');
+  }
   if (p.startsWith('/devices/me')) return fail(res, 403, 'forbidden');
   if (w.refuseReads && method === 'GET' && (p === '/inbox' || p === '/changes')) return fail(res, 400, 'invalid_field');
   if (w.badGateway && method === 'GET' && (p === '/inbox' || p === '/changes')) {
@@ -701,6 +706,10 @@ export function v2Control(w, what, body) {
       v.floor = v.rev;
       return true;
     }
+    case 'internal-error':
+      v.internalError = body.on === false ? null : { path: body.path ?? '/changes', method: body.method ?? 'GET' };
+      if (body.drop) for (const f of [...v.feeds]) f.drop();
+      return true;
     case 'revoke':
       for (const f of [...v.feeds]) f.close('revoked');
       return true;
