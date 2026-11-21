@@ -178,7 +178,7 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
-  it('a sign-in that ends closes the feed (revoked) and the tab leaves for sign-in (401)', async () => {
+  it('a sign-in that ends closes the feed (revoked) and the tab leaves for sign-in at once', async () => {
     const h = session();
     h.s.start();
     await until(() => h.store.state.connection === 'connected');
@@ -187,7 +187,8 @@ describe('client API v2 session', () => {
     expect(h.store.state.connection).toBe('ended');
     expect(live(h)).toHaveLength(0);
     expect(h.s.log.list().some((r) => r.closing === 'revoked')).toBe(true);
-    expect(h.s.log.list().some((r) => r.status === 401 && r.token === 'unauthorized' && r.requestId)).toBe(true);
+    // Revoked is the end of the sign-in itself: no request has to find a 401 first.
+    expect(h.requests.some((r) => r.url.includes('/v2/changes'))).toBe(false);
     h.s.stop();
   });
 
@@ -657,6 +658,54 @@ describe('client API v2 session', () => {
     }
     const bodies = (await fakeState()).answerFrames.map((f: { body: Record<string, unknown> }) => f.body);
     expect(bodies.map((b: Record<string, unknown>) => ['result' in b, b.result])).toEqual(values.map((v) => [true, v]));
+    h.s.stop();
+  });
+
+  it('closing cursor_expired reads every inbox page again and reopens from the first page\'s rev', async () => {
+    await post('bulk', { count: 25 });
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    expect(h.store.state.morePages).toBe(true);
+    const inboxReads = () => h.requests.filter((r) => r.url.includes('/v2/inbox')).length;
+    const before = inboxReads();
+    await post('closing', { reason: 'cursor_expired', remove: 'Quarterly report is ready' });
+    await until(() => h.sources.length >= 2 && h.store.state.connection === 'connected');
+    // All pages were read (20 per page in the fake: 31 items, so 2), and the removal shows.
+    expect(inboxReads() - before).toBe(2);
+    expect(h.store.state.morePages).toBe(false);
+    expect([...h.store.state.messages.values()].some((m) => m.payload.title === 'Quarterly report is ready')).toBe(false);
+    expect(h.requests.some((r) => r.url.includes('/v2/changes?'))).toBe(false);
+    h.s.stop();
+  });
+
+  for (const reason of ['server_shutdown', 'storage_unavailable'] as const) {
+    it(`closing ${reason} reopens the feed from the cursor after a backoff, re-reading nothing`, async () => {
+      const h = session();
+      h.s.start();
+      await until(() => h.store.state.connection === 'connected');
+      await post('send', { message: { sender_id: 'agent:c', message_id: `c-${reason}`, title: 'Before the close' } });
+      await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === 'Before the close'));
+      const inboxReads = h.requests.filter((r) => r.url.includes('/v2/inbox')).length;
+      const cursor = Number(new URL(h.sources[0].url).searchParams.get('after'));
+      await post('closing', { reason });
+      await until(() => h.sources.length === 2 && h.store.state.connection === 'connected');
+      const reopened = Number(new URL(h.sources[1].url).searchParams.get('after'));
+      expect(reopened).toBeGreaterThan(cursor);
+      expect(h.requests.filter((r) => r.url.includes('/v2/inbox')).length).toBe(inboxReads);
+      expect(h.s.log.list().some((r) => r.closing === reason)).toBe(true);
+      h.s.stop();
+    });
+  }
+
+  it('closing account_paused keeps the tab readable and shows the pause', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await post('closing', { reason: 'account_paused' });
+    await until(() => h.store.state.connection === 'inactive');
+    expect(h.store.state.messages.size).toBe(6);
+    expect(h.ended()).toBe(false);
     h.s.stop();
   });
 

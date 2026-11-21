@@ -692,6 +692,21 @@ export function v2Control(w, what, body) {
     case 'server-shutdown':
       for (const f of [...v.feeds]) f.close('server_shutdown');
       return true;
+    case 'closing': {
+      // End open feeds with a closing event of the given reason. For
+      // cursor_expired the log before now is pruned first (optionally after
+      // removing a message by title, so no tab sees that as a change).
+      if (body.reason === 'cursor_expired') {
+        const m = body.remove ? [...w.messages.values()].find((x) => x.payload?.title === body.remove) : null;
+        for (const f of [...v.feeds]) f.muted = true;
+        if (m) w.messages.delete(key(m.sender_id, m.message_id));
+        syncV2(w);
+        append(w, 'counts', 'counts', { unresolved: [...w.messages.values()].filter((x) => !x.terminal).length });
+        v.floor = v.rev;
+      }
+      for (const f of [...v.feeds]) f.close(body.reason);
+      return true;
+    }
     case 'fail-feeds':
       v.failFeeds = body.count ?? 1;
       return true;

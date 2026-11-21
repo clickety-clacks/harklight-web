@@ -508,15 +508,22 @@ export class V2Session {
       } catch {
         // An unreadable closing still ends the feed.
       }
+      // A closing event has no id: it never moves the cursor.
       this.log.record({ op: 'feed', status: null, token: 'closing', requestId: null, closing: reason });
       this.closeFeed();
+      // The sign-in ended, as a 401 says.
+      if (reason === 'revoked') return this.ended();
+      // The account is paused: what the tab holds stays readable.
+      if (reason === 'account_paused') return this.inactive();
       this.store.update((s) => {
         s.connection = 'reconnecting';
       });
-      if (reason === 'account_paused') return this.inactive();
-      // Revoked: the next request finds the sign-in ended (401). A shutdown: try again.
-      if (reason === 'revoked') void this.recover();
-      else this.later(() => void this.recover());
+      // The cursor is past retention: read every inbox page and start again
+      // from the first page's rev. This is the one case for a full re-read.
+      if (reason === 'cursor_expired') return void this.baseline(true);
+      // server_shutdown, storage_unavailable (and any other): reopen from the
+      // cursor after a backoff; nothing is re-read.
+      this.later(() => this.openFeed());
     });
   }
 
