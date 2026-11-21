@@ -42,7 +42,14 @@ export function toWireFile(f: FileRef): WireFile {
 function terminalOf(t: Terminal | null | undefined, rev: number, payload: HeldMessage['payload']): HeldTerminal | null {
   if (!t) return null;
   if (t.state === 'retracted') return { state: 'cleared', seq: rev, retracted: true, outcome: null };
-  let outcome: AnswerOutcome | null = t.answer ? { kind: t.answer.kind, text: t.answer.text, value: t.answer.value } : null;
+  let outcome: AnswerOutcome | null = t.answer
+    ? {
+        kind: t.answer.kind,
+        text: t.answer.text,
+        value: t.answer.value,
+        ...(t.answer.kind === 'choice' && t.answer.id !== undefined ? { choice: { id: t.answer.id, label: t.answer.label ?? t.answer.id } } : {}),
+      }
+    : null;
   // A message whose only answer is Seen, answered with no answer named, was
   // answered Seen: it keeps its Seen check in the Inbox, as today.
   if (!outcome && t.state === 'answered' && seenValue(payload) !== null) outcome = { kind: 'seen' };
@@ -82,6 +89,8 @@ function toHeld(item: Item): HeldMessage {
       replyGroup: item.chat.reply_group ?? null,
       replyRankKey: item.chat.reply_rank_key ?? null,
       thread: item.thread ?? null,
+      level: item.rank.level ?? null,
+      replyLevel: item.chat.reply_priority?.level ?? null,
     },
   };
 }
@@ -223,6 +232,7 @@ export function viewOf(s: State): ServerView {
           unseen: v.unreadReplies!,
           score: v.score,
           historical: false,
+          priority: markOf(v.replyLevel),
         },
       });
     }
@@ -232,10 +242,21 @@ export function viewOf(s: State): ServerView {
   // Adjacent open items with the same (sender, thread) draw as one "N messages from" group.
   const entries = rows
     .filter((r) => r.item.kind === 'message')
-    .map((r) => ({ key: r.key, score: s.messages.get(r.key)!.v2!.score, thread: s.messages.get(r.key)!.v2!.thread }));
+    .map((r) => {
+      const v = s.messages.get(r.key)!.v2!;
+      return { key: r.key, score: v.score, thread: v.thread, priority: markOf(v.level) };
+    });
   // Free order (the groups and their headings) applies only when the Server
   // sends groups and they come in today's order.
   return { entries, listItems, freeOrder: grouped && freeOrderValid(1, listItems) };
+}
+
+/**
+ * The urgent and high marks come from the Server's level, never from a score:
+ * now is urgent, high is high. With no level there is no mark.
+ */
+export function markOf(level: 'now' | 'high' | 'normal' | 'low' | null): 'urgent' | 'high' | null {
+  return level === 'now' ? 'urgent' : level === 'high' ? 'high' : null;
 }
 
 /** Unread chat: the newest agent reply is past the read position. */

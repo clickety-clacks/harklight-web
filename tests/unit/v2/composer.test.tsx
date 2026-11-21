@@ -24,6 +24,8 @@ function v2(over: Partial<V2Item> = {}): V2Item {
     replyGroup: null,
     replyRankKey: null,
     thread: null,
+    level: null,
+    replyLevel: null,
     ...over,
   };
 }

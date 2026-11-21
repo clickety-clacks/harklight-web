@@ -148,3 +148,21 @@ test('adjacent messages of one sender’s thread draw as one group (Item.thread)
   await control(page, 'send', { message: ask('s2') });
   await expect(page.getByText('2 messages from Ops agent')).toBeVisible();
 });
+
+test('the urgent mark comes from Rank.level, and another device\'s choice shows its label', async ({ page }) => {
+  await openInbox(page);
+  // Production deploy failed has level now.
+  await expect(row(page, 'Production deploy failed').first()).toHaveClass(/row--urgent/);
+  await expect(row(page, 'Approve the survey questions?').first()).not.toHaveClass(/row--urgent|row--high/);
+  // Another device answers with a choice: the card names it.
+  const inbox = await (await page.request.get('/v2/inbox?limit=200')).json();
+  const survey = inbox.items.find((i: { message: { title: string } }) => i.message.title === 'Approve the survey questions?');
+  const r = await page.request.post(`/v2/items/${survey.item_id}/answer`, {
+    headers: { 'idempotency-key': crypto.randomUUID() },
+    data: { request_revision: 1, choice: 'approve' },
+  });
+  expect(r.status()).toBe(200);
+  await page.getByRole('tab', { name: 'Replied' }).click();
+  await openRow(page, 'Approve the survey questions?');
+  await expect(page.getByTestId('answered')).toContainText('Approve');
+});

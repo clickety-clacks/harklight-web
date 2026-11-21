@@ -19,9 +19,20 @@ export type TerminalState = 'answered' | 'cleared' | 'expired' | 'superseded' | 
 
 /** The answer as the person sees it (today's answer outcome). `value` only for `default`. */
 export interface Answer {
-  kind: 'seen' | 'reply' | 'default' | 'no_comment';
+  kind: 'seen' | 'reply' | 'default' | 'no_comment' | 'choice';
   text?: string;
   value?: Json;
+  /** kind choice: the matched answer_ui action. */
+  id?: string;
+  label?: string;
+}
+
+/** The priority scale of Rank.level, Chat.reply_priority.level and Entry.priority.level. */
+export type Level = 'now' | 'high' | 'normal' | 'low';
+const LEVELS: Level[] = ['now', 'high', 'normal', 'low'];
+
+function readLevel(v: unknown): Level | undefined {
+  return LEVELS.includes(v as Level) ? (v as Level) : undefined;
 }
 
 export interface Terminal {
@@ -51,6 +62,8 @@ export interface Item {
     /** While there are unread replies: the reply row's free-order group and its sort key, in Rank.key's space. */
     reply_group?: 'earlier_chat_replies' | 'earlier_chat_replies_unknown';
     reply_rank_key?: string;
+    /** The reply row's priority: the highest level among its unseen replies. */
+    reply_priority?: { level: Level };
   };
   /** When the item first reached the person (display only). */
   created_at_ms?: number;
@@ -66,6 +79,8 @@ export interface Item {
     section?: 'current' | 'resolved';
     /** For current items while the inbox is in free order; `common` has no heading. */
     group?: 'common' | 'earlier_messages';
+    /** Always present for current items: the urgent and high marks come from it. */
+    level?: Level;
   };
 }
 
@@ -170,7 +185,7 @@ function optId(v: unknown): string | null {
 const AVAILABILITY: AvailabilityState[] = ['listening', 'not_listening', 'gone', 'unsupported'];
 const TERMINAL: TerminalState[] = ['answered', 'cleared', 'expired', 'superseded', 'retracted'];
 const ENTRY_KINDS: EntryKind[] = ['reply', 'lifecycle', 'revision', 'availability', 'result'];
-const ANSWER_KINDS: Answer['kind'][] = ['seen', 'reply', 'default', 'no_comment'];
+const ANSWER_KINDS: Answer['kind'][] = ['seen', 'reply', 'default', 'no_comment', 'choice'];
 
 function readAnswer(v: unknown): Answer | undefined {
   const o = obj(v);
@@ -179,6 +194,8 @@ function readAnswer(v: unknown): Answer | undefined {
     kind: o.kind as Answer['kind'],
     ...(typeof o.text === 'string' ? { text: o.text } : {}),
     ...('value' in o && o.value !== undefined ? { value: o.value as Json } : {}),
+    ...(typeof o.id === 'string' ? { id: o.id } : {}),
+    ...(typeof o.label === 'string' ? { label: o.label } : {}),
   };
 }
 
@@ -247,6 +264,7 @@ export function readItem(v: unknown): Item | null {
       ...(int(chat.unread_replies, 0) !== null ? { unread_replies: chat.unread_replies as number } : {}),
       ...(chat.reply_group === 'earlier_chat_replies' || chat.reply_group === 'earlier_chat_replies_unknown' ? { reply_group: chat.reply_group } : {}),
       ...(typeof chat.reply_rank_key === 'string' ? { reply_rank_key: chat.reply_rank_key } : {}),
+      ...(readLevel(obj(chat.reply_priority)?.level) ? { reply_priority: { level: readLevel(obj(chat.reply_priority)!.level)! } } : {}),
     },
     ...(int(o.created_at_ms, 0) !== null ? { created_at_ms: o.created_at_ms as number } : {}),
     ...(typeof o.thread === 'string' && o.thread !== '' ? { thread: o.thread } : {}),
@@ -257,6 +275,7 @@ export function readItem(v: unknown): Item | null {
       ...(typeof rank.score === 'number' && Number.isFinite(rank.score) ? { score: rank.score } : {}),
       ...(rank.section === 'current' || rank.section === 'resolved' ? { section: rank.section } : {}),
       ...(rank.group === 'common' || rank.group === 'earlier_messages' ? { group: rank.group } : {}),
+      ...(readLevel(rank.level) ? { level: readLevel(rank.level)! } : {}),
     },
   };
 }
