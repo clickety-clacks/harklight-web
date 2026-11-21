@@ -185,6 +185,56 @@ test('a failed UI/1 picture GET is logged and exposes its Request-Id without rep
   expect(attempts).toBe(2);
 });
 
+test('a successful UI/1 picture does not clear another picture’s failure', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  let failFirst = true;
+  let firstReads = 0;
+  let secondReads = 0;
+  let releaseSecond!: () => void;
+  const secondReady = new Promise<void>((resolve) => { releaseSecond = resolve; });
+  await page.route('**/v2/inbox*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    const item = body.items.find((it: { message: { title: string } }) => it.message.title === 'Which cover for the November issue?');
+    if (item) {
+      item.seen = true;
+      const first = item.files[0];
+      item.files.push({ ...first, file_id: 'second-picture', name: 'cover-b.avif', content_type: 'image/avif' });
+      item.message.answer_ui.illustrations[1].primitives.push({ kind: 'image', x: 0, y: 0, width: 400, height: 240, file: 'cover-b.avif' });
+      await page.route(`**/v2/files/${first.file_id}`, (get) => {
+        firstReads++;
+        return failFirst
+          ? get.fulfill({ status: 500, headers: { 'Request-Id': 'rq_first_picture' }, json: { error: 'internal_error', retryable: false } })
+          : get.continue();
+      });
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.route('**/v2/files/second-picture', async (route) => {
+    secondReads++;
+    await secondReady;
+    await route.fulfill({ path: 'tests/fixtures/cover-2x2.avif', contentType: 'application/octet-stream' });
+  });
+  await openInbox(page);
+  await openRow(page, 'Which cover for the November issue?');
+  const copy = page.getByRole('button', { name: 'Copy details' });
+  try {
+    await expect(copy).toBeVisible();
+  } finally {
+    releaseSecond();
+  }
+  await expect(page.locator('svg image')).toHaveCount(1);
+  await expect(page.locator('.u-img-missing')).toHaveCount(1);
+  await copy.click({ timeout: 1500 });
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('Request-Id: rq_first_picture');
+  expect([firstReads, secondReads]).toEqual([1, 1]);
+  failFirst = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.locator('svg image')).toHaveCount(2);
+  await expect(copy).toHaveCount(0);
+  expect([firstReads, secondReads]).toEqual([2, 1]);
+});
+
 test('a paused account keeps the inbox readable and says messages are paused', async ({ page }) => {
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');

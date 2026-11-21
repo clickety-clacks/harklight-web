@@ -11,8 +11,8 @@ export interface ApiDeps {
   base: string;
   fetch: typeof fetch;
   log: ErrorLog;
-  onInternalError?: (details: ErrorDetails) => void;
-  onSuccess?: (op: string) => void;
+  onInternalError?: (key: string, details: ErrorDetails) => void;
+  onSuccess?: (key: string) => void;
   internalFaults?: Map<string, ApiError>;
 }
 
@@ -108,7 +108,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
   try {
     if (res.ok && o.responseBytes) {
       const body = await res.arrayBuffer();
-      deps.onSuccess?.(o.op);
+      deps.onSuccess?.(faultKey);
       return { status: res.status, body, requestId, replayed: false };
     }
     text = await res.text();
@@ -125,7 +125,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
     }
   }
   if (res.ok) {
-    deps.onSuccess?.(o.op);
+    deps.onSuccess?.(faultKey);
     return { status: res.status, body: parsed, requestId, replayed: res.headers.get('idempotent-replayed') === 'true' };
   }
   const e = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
@@ -142,7 +142,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
   const error = new ApiError(res.status, token, id, retryable, token === 'internal_error' ? null : retryAfter(res), typeof e.field === 'string' ? e.field : null);
   if (token === 'internal_error') {
     if (o.automatic) deps.internalFaults?.set(faultKey, error);
-    deps.onInternalError?.(details);
+    deps.onInternalError?.(faultKey, details);
   }
   throw error;
 }

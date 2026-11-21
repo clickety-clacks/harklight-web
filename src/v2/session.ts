@@ -18,7 +18,7 @@ import { parse } from '../state/json';
 import type { LocalAnswer, Store } from '../state/store';
 import type { ChatSend, HeldMessage, Json } from '../state/types';
 import { parseUi1Limits } from '../ui1/validate';
-import { ErrorLog } from './errorLog';
+import { ErrorLog, type ErrorDetails } from './errorLog';
 import { ApiError, call, NetworkError, newKey, seg, type ApiDeps, type Response2 } from './http';
 import { applyEntry, applyItem, applyRemoved, itemIdOf, keyOfItem, Model, viewOf, wantThread } from './model';
 import {
@@ -117,6 +117,7 @@ export class V2Session {
   private recovering = false;
   private feedFault = false;
   private internalFaults = new Map<string, ApiError>();
+  private requestErrors = new Map<string, ErrorDetails>();
   private failedEntryReads = new Set<string>();
   private seenSent = new Set<string>();
   private readsInFlight = new Set<string>();
@@ -143,15 +144,26 @@ export class V2Session {
       fetch: deps.fetch,
       log: this.log,
       internalFaults: this.internalFaults,
-      onInternalError: (details) => this.store.update((s) => {
-        if (!this.feedFault || details.op === 'changes') s.internalError = details;
-      }),
-      onSuccess: (op) => {
-        if (!this.feedFault && this.store.state.internalError?.op === op) {
-          this.store.update((s) => { s.internalError = null; });
+      onInternalError: (key, details) => {
+        this.requestErrors.delete(key);
+        this.requestErrors.set(key, details);
+        if (!this.feedFault || details.op === 'changes') {
+          this.store.update((s) => { s.internalError = details; });
+        }
+      },
+      onSuccess: (key) => {
+        this.internalFaults.delete(key);
+        const previous = this.requestErrors.get(key);
+        this.requestErrors.delete(key);
+        if (previous && this.store.state.internalError === previous && !this.feedFault) {
+          this.store.update((s) => { s.internalError = this.latestRequestError(); });
         }
       },
     };
+  }
+
+  private latestRequestError(): ErrorDetails | null {
+    return [...this.requestErrors.values()].at(-1) ?? null;
   }
 
   private get store(): Store {
@@ -245,7 +257,6 @@ export class V2Session {
     }
     if (operations.size === 0) return;
     this.store.update((s) => {
-      if (s.internalError && operations.has(s.internalError.op)) s.internalError = null;
       if (operations.has('file_preview')) s.pictureRetry++;
     });
     if (operations.has('inbox')) void this.loadMore();
@@ -566,6 +577,7 @@ export class V2Session {
       this.attempt = 0;
       this.store.update((s) => {
         s.connection = 'connected';
+        s.internalError = this.latestRequestError();
       });
       this.flushWaiting();
     };
