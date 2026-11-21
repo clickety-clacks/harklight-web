@@ -2,8 +2,9 @@
 // browser messaging contract. It serves the web client and speaks the relay
 // frames the client uses, with sample messages, so the client can be developed
 // and tested before the real door exists. It is not a server implementation.
+// The same world is also served as client API v2 under /v2 (dev/fake-v2.mjs).
 //
-//   node dev/fake-server.mjs [--vite] [--dist] [--port 5173] [--flags attachments]
+//   node dev/fake-server.mjs [--vite] [--dist] [--port 5173] [--flags attachments,client-api-v2]
 //
 // Test controls (POST, JSON body) live under /__fake/.
 
@@ -13,6 +14,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { fixture, formFixture } from './fixture.mjs';
+import { serveV2, syncV2, v2Control, v2DropAll, v2Feeds, v2Tick } from './fake-v2.mjs';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -49,6 +51,8 @@ export function createWorld(now = Date.now(), forms = false) {
     displayName: 'Dana Reyes',
   };
   for (const m of [...(forms ? formFixture(now) : []), ...fixture(now)]) addMessage(w, m.message, m);
+  // Client API v2 sees the same world: its change log starts here, from rev 1.
+  syncV2(w);
   return w;
 }
 
@@ -148,6 +152,22 @@ function agentOrPersonTurn(w, k, c) {
     channel: 'chat',
     event_id: `e${w.convSeq + 1}`,
     ...(c.files ? { files: c.files } : {}),
+  });
+}
+
+/** A chat turn from the person, as the relay's discussion frame stores it. */
+function personTurn(w, k, text, files) {
+  const m = w.messages.get(k);
+  return pushConv(w, k, {
+    kind: 'discussion',
+    author: 'person',
+    delivery_acks: true,
+    session_handle: m.session_handle ?? 'h',
+    op_id: randomUUID(),
+    text,
+    channel: 'chat',
+    event_id: `e${w.convSeq + 1}`,
+    ...(files.length ? { files: files.map((f) => ({ name: f.name, tier: 'upload', upload_id: f.file_id, file_id: f.file_id, size: f.size, sha256: f.sha256 })) } : {}),
   });
 }
 
@@ -520,8 +540,21 @@ function json(res, status, body) {
 export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIST, flags = FLAGS } = {}) {
   const forms = flags.includes('answer-forms');
   let world = createWorld(Date.now(), forms);
+  world.uploadCap = UPLOAD_CAP;
+  // What the v2 door changes in the world, done the way the relay door does it.
+  const v2ctx = {
+    personTurn: (k, text, files) => personTurn(world, k, text, files),
+    terminate: (k, extra) => terminate(world, k, extra),
+    readTo: (k, seq) => {
+      world.readPositions.set(k, seq);
+      pushConv(world, k, { kind: 'read_position', event_id: `read:${world.convSeq + 1}`, read_through_conversation_seq: seq });
+    },
+  };
+  const v2Timer = setInterval(() => v2Tick(world), 50);
   let webClient = !flags.includes('customer-off');
   let attachments = flags.includes('attachments');
+  // The client speaks client API v2 (--flags client-api-v2) instead of the relay.
+  let clientApiV2 = flags.includes('client-api-v2');
   let viteServer = null;
   if (vite) {
     const { createServer: createVite } = await import('vite');
@@ -537,7 +570,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       if (p === '/app/config.json')
         return json(res, 200, {
           accountInfoPath: '/__fake/me',
-          flags: { webClient, attachments, answerForms: flags.includes('answer-forms') },
+          flags: { webClient, attachments, answerForms: flags.includes('answer-forms'), clientApiV2 },
         });
       if (p === '/sign-out' && req.method === 'POST') {
         const body = (await readBody(req)).toString();
@@ -552,6 +585,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         return res.end(`<!doctype html><title>${p}</title><p>Stand-in for ${p}</p>`);
       }
       if (p.startsWith('/browser/v1')) return files(req, res, url);
+      if (p === '/v2' || p.startsWith('/v2/')) return serveV2(req, res, url, world, v2ctx);
       const page = p === '/' || p === '/inbox' || p === '/settings';
       if (viteServer) {
         if (page) req.url = '/app/';
@@ -624,14 +658,20 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       case 'attachments':
         attachments = body.on !== false;
         return json(res, 200, { ok: true });
+      case 'client-api-v2':
+        clientApiV2 = body.on !== false;
+        return json(res, 200, { ok: true });
       case 'reset':
         webClient = !flags.includes('customer-off');
         attachments = flags.includes('attachments');
+        clientApiV2 = flags.includes('client-api-v2');
+        v2DropAll(world);
         world = createWorld(body.now ?? Date.now(), forms);
+        world.uploadCap = UPLOAD_CAP;
         relay.dropAll();
         return json(res, 200, { ok: true });
       case 'state':
-        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], connections: relay.count() });
+        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], connections: relay.count(), feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [] });
       case 'send': {
         const m = addMessage(world, { created_at: Date.now(), ...body.message }, { chat: body.chat });
         return json(res, 200, { ok: true, seq: m.acceptedSeq });
@@ -702,8 +742,33 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         return json(res, 200, { ok: true });
       case 'drop':
         relay.dropAll();
+        v2DropAll(world);
+        for (const sock of world.heldSockets ?? []) sock.destroy();
+        world.heldSockets = [];
         return json(res, 200, { ok: true });
+      case 'retract': {
+        // The origin retracts a message (by title); it stays listed and readable.
+        const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
+        if (!m) return json(res, 404, { error: 'no message with that title' });
+        terminate(world, key(m.sender_id, m.message_id), { state: 'cleared', terminal_reason: 'retracted' });
+        return json(res, 200, { ok: true });
+      }
+      case 'availability': {
+        // The agent stops or starts listening to a message's chat (by title).
+        const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
+        if (!m) return json(res, 404, { error: 'no message with that title' });
+        m.availability = body.state;
+        pushConv(world, key(m.sender_id, m.message_id), { kind: 'availability', availability: body.state, event_id: `av${world.convSeq + 1}` });
+        return json(res, 200, { ok: true });
+      }
+      case 'remove': {
+        const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
+        if (!m) return json(res, 404, { error: 'no message with that title' });
+        world.messages.delete(key(m.sender_id, m.message_id));
+        return json(res, 200, { ok: true });
+      }
       default:
+        if (v2Control(world, what, body)) return json(res, 200, { ok: true });
         return json(res, 404, {});
     }
   }
@@ -713,6 +778,8 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
   return {
     port: server.address().port,
     close: async () => {
+      clearInterval(v2Timer);
+      v2DropAll(world);
       relay.dropAll();
       await viteServer?.close();
       await new Promise((r) => server.close(r));

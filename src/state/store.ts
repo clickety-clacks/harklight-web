@@ -16,6 +16,7 @@ import type {
 } from './types';
 import { keyOf } from './types';
 import type { ServerView } from './view';
+import { v2Unread } from '../v2/model';
 
 /**
  * A submission's state, carried by the control the person tapped: sending
@@ -275,6 +276,9 @@ export function threadFor(s: State, key: string): Thread {
  * person can keep writing and the agent can keep replying. Only a second
  * answer is refused, and that is the answer controls' business, not chat's. */
 export function chatOpen(_t: Thread | undefined, m: HeldMessage | undefined): boolean {
+  // Client API v2: chat availability is only informational, so the person can
+  // always write; a reply to an agent that is not listening is delivered later.
+  if (m?.v2) return true;
   return !!m && !!m.chat;
 }
 
@@ -288,6 +292,8 @@ export function latestAgentReply(t: Thread | undefined): Turn | null {
 }
 
 export function hasUnread(s: State, key: string): boolean {
+  const held = s.messages.get(key);
+  if (held?.v2) return v2Unread(held, s.threads.get(key));
   const reply = latestAgentReply(s.threads.get(key));
   if (!reply) return false;
   if (!s.readSupport || reply.seq === null) return true;

@@ -4,7 +4,9 @@ import './ui/theme.css';
 import './ui/app.css';
 import { render } from 'preact';
 import { applyPreview, loadConfig } from './config';
+import type { ClientSession } from './client';
 import { RelaySession } from './relay/session';
+import { V2Session, type EventSourceLike } from './v2/session';
 import { Store } from './state/store';
 import { App, NotYet } from './ui/App';
 
@@ -26,18 +28,26 @@ async function main() {
     return;
   }
   const store = new Store();
-  const session = new RelaySession({
-    config,
-    store,
-    // No subprotocol: the browser door requires none and the client offers none (B-1).
-    socketFactory: (url) => new WebSocket(url) as unknown as import('./relay/connection').SocketLike,
-    files: config.flags.attachments ? { base: config.filesPath, fetch: (...a) => fetch(...a) } : undefined,
-    onSessionEnded: () => {
-      // A Server page: without a sign-in the Server sends the browser to
-      // hosted sign-in (A-3).
-      location.assign(config.sessionEndedPath);
-    },
-  });
+  // A Server page: without a sign-in the Server sends the browser to hosted
+  // sign-in (A-3).
+  const onSessionEnded = () => location.assign(config.sessionEndedPath);
+  const session: ClientSession = config.flags.clientApiV2
+    ? new V2Session({
+        config,
+        store,
+        fetch: (...a) => fetch(...a),
+        // Same origin: the sign-in cookie goes with it.
+        eventSource: (url) => new EventSource(url) as unknown as EventSourceLike,
+        onSessionEnded,
+      })
+    : new RelaySession({
+        config,
+        store,
+        // No subprotocol: the browser door requires none and the client offers none (B-1).
+        socketFactory: (url) => new WebSocket(url) as unknown as import('./relay/connection').SocketLike,
+        files: config.flags.attachments ? { base: config.filesPath, fetch: (...a) => fetch(...a) } : undefined,
+        onSessionEnded,
+      });
   if (config.accountInfoPath) {
     fetch(config.accountInfoPath, { credentials: 'same-origin', redirect: 'manual' })
       .then((r) => (r.ok ? r.json() : null))

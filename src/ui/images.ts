@@ -1,5 +1,4 @@
 import type { Config } from '../config';
-import { fileUrl } from '../relay/files';
 import type { WireFile } from '../state/types';
 
 const TYPES: Record<string, string> = {
@@ -23,17 +22,17 @@ const cache = new Map<string, Promise<string | null>>();
  * files come from the message itself; uploaded ones are fetched (they are
  * served as downloads, so they are read as bytes and shown from memory).
  */
-export function imageUrlFor(f: WireFile, config: Config): Promise<string | null> {
-  const key = f.upload_id ?? `${f.name}\u0000${f.sha256 ?? ''}`;
+export function imageUrlFor(f: WireFile, config: Config, fileHref: (id: string) => string): Promise<string | null> {
+  const key = f.file_id ?? f.upload_id ?? `${f.name}\u0000${f.sha256 ?? ''}`;
   let p = cache.get(key);
   if (!p) {
-    p = load(f, config);
+    p = load(f, config, fileHref);
     cache.set(key, p);
   }
   return p;
 }
 
-async function load(f: WireFile, config: Config): Promise<string | null> {
+async function load(f: WireFile, config: Config, fileHref: (id: string) => string): Promise<string | null> {
   try {
     if (f.data_base64 !== undefined) {
       const bin = atob(f.data_base64);
@@ -41,8 +40,9 @@ async function load(f: WireFile, config: Config): Promise<string | null> {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       return URL.createObjectURL(new Blob([bytes], { type: typeOf(f.name) }));
     }
-    if (f.upload_id && config.flags.attachments) {
-      const res = await fetch(fileUrl(config.filesPath, f.upload_id), { credentials: 'same-origin', redirect: 'manual' });
+    const id = f.file_id ?? f.upload_id;
+    if (id && config.flags.attachments) {
+      const res = await fetch(fileHref(id), { credentials: 'same-origin', redirect: 'manual' });
       if (!res.ok) return null;
       return URL.createObjectURL(new Blob([await res.arrayBuffer()], { type: typeOf(f.name) }));
     }
