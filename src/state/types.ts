@@ -1,4 +1,4 @@
-// Domain types for the web client. They mirror what the device relay carries;
+// Domain types for the web client, filled from client API v2 resources;
 // the web client keeps them in memory for one tab only.
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -51,9 +51,7 @@ export interface WireFile {
   name: string;
   size?: number;
   sha256?: string;
-  data_base64?: string;
-  upload_id?: string;
-  /** Client API v2: the id the file is read by (GET /v2/files/{id}). */
+  /** The id the file is read by (GET /v2/files/{id}); absent on a file still being picked. */
   file_id?: string;
   content_type?: string;
 }
@@ -67,11 +65,11 @@ export interface HeldMessage extends MessageKey {
   acceptedSeq: number;
   terminal: Terminal | null;
   files: WireFile[];
-  /** Revision 1's files, which custom answer forms' images name. */
+  /** The files available to the item's custom answer form. */
   firstFiles: WireFile[];
-  /** The agent opened a chat for this message (delivery carries session_handle). */
+  /** The item has a conversation (Chat.available). */
   chat: boolean;
-  /** Held only when the message came over client API v2. */
+  /** Resource state supplied by client API v2. */
   v2?: V2Item;
 }
 

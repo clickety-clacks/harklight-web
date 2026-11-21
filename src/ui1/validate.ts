@@ -3,7 +3,7 @@
 // shared conformance corpus. Any fault anywhere means the form is not drawn
 // (the person gets the plain Reply instead); there is no partial rendering.
 
-import { duplicateKeys, integerValue, RawNumber, stringify, utf8Length } from '../relay/json';
+import { duplicateKeys, integerValue, RawNumber, stringify, utf8Length } from '../state/json';
 
 export const UI1_SCHEMA = 'attention-client.ui/1';
 const REQUIRED = ['schema', 'requires', 'illustrations', 'inputs', 'open', 'resolved', 'submission'];

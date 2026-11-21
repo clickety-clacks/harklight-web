@@ -3,7 +3,7 @@
 // free-order section headings and thread groups, as the iPhone app draws it.
 // Without a view it falls back to open messages first, newest first.
 
-import { belongsToReplied, priorityOf, senderLabel, type Priority } from './message';
+import { belongsToReplied, senderLabel, type Priority } from './message';
 import type { State } from './store';
 import type { HeldMessage } from './types';
 import { keyOf } from './types';
@@ -68,18 +68,16 @@ function visible(m: HeldMessage): boolean {
   return m.terminal?.state !== 'superseded';
 }
 
-function scores(s: State) {
-  const score = new Map<string, number | null>();
-  const level = new Map<string, Priority>();
+function rowDetails(s: State) {
+  const priority = new Map<string, Priority>();
   const thread = new Map<string, string | null>();
   for (const e of s.view?.entries ?? []) {
-    if (!score.has(e.key)) {
-      score.set(e.key, e.score);
-      if (e.priority !== undefined) level.set(e.key, e.priority);
+    if (!priority.has(e.key)) {
+      priority.set(e.key, e.priority);
       thread.set(e.key, e.thread);
     }
   }
-  return { score, thread, level };
+  return { priority, thread };
 }
 
 /** Every row of a tab, flattened: the messages the detail can step through. */
@@ -97,15 +95,14 @@ export function entries(s: State, tab: Tab): Entry[] {
   return items ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox') : fallback(s, tab);
 }
 
-function messageRow(s: State, key: string, m: HeldMessage, sc: ReturnType<typeof scores>, history: boolean): MessageRow {
+function messageRow(s: State, key: string, m: HeldMessage, sc: ReturnType<typeof rowDetails>, history: boolean): MessageRow {
   const open = m.terminal === null && !inReplied(s, key);
-  // A level from the Server (client API v2) gives the mark; otherwise the score does.
-  const mark = sc.level.has(key) ? sc.level.get(key)! : priorityOf(sc.score.get(key) ?? null);
+  const mark = sc.priority.get(key) ?? null;
   return { type: 'message', key, message: m, priority: open ? mark : null, history };
 }
 
 function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean): Entry[] {
-  const sc = scores(s);
+  const sc = rowDetails(s);
   const { thread } = sc;
   const flat: (MessageRow | ReplyRow | Heading)[] = [];
   const headed = new Set<string>();
@@ -156,7 +153,7 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
         conversationSeq: it.conversationSeq,
         openAt: it.openAt,
         unseen: it.unseen ?? 0,
-        priority: it.priority !== undefined ? it.priority : priorityOf(it.score),
+        priority: it.priority,
         historical: it.historical,
         history,
       });
@@ -207,7 +204,7 @@ function groupThreads(s: State, flat: (MessageRow | ReplyRow | Heading)[], threa
 
 /** Without a view: open messages first, newest first; finished ones after. */
 function fallback(s: State, tab: Tab): Entry[] {
-  const sc = scores(s);
+  const sc = rowDetails(s);
   const out: MessageRow[] = [];
   for (const m of s.messages.values()) {
     const key = keyOf(m);

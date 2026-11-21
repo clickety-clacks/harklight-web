@@ -1,4 +1,4 @@
-// JSON for the relay. Harklight keeps numbers exactly as written: an agent may
+// JSON as Harklight writes it. Harklight keeps numbers exactly as written: an agent may
 // declare an answer value such as 18446744073709551617, which a JavaScript
 // number cannot hold. This parser keeps any number whose text a JavaScript
 // number would not reproduce as a RawNumber holding the original text, and
@@ -12,7 +12,7 @@ export class RawNumber {
     return /^-?(0|[1-9][0-9]*)$/.test(this.text);
   }
   toJSON(): never {
-    throw new Error('RawNumber must be written with relay stringify');
+    throw new Error('RawNumber must be written with stringify from state/json');
   }
 }
 

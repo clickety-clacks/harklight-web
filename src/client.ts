@@ -1,6 +1,5 @@
-// What the UI asks of the tab's connection to the Server. The relay session
-// (browser WebSocket) and the client API v2 session both provide it; the
-// clientApiV2 flag picks one in main.tsx.
+// What the UI asks of the tab's connection to the Server: the client API v2
+// session (src/v2/session.ts) provides it.
 
 import type { State } from './state/store';
 import type { ChatSend, HeldMessage, Json } from './state/types';

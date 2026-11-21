@@ -1,6 +1,5 @@
-// What only client API v2 does, in the browser, with flags.clientApiV2 on.
-// client.spec.ts runs the whole suite on both protocols; these cases are the
-// ones the relay has no equivalent for. Runs in the chromium-v2 project.
+// Client API v2 in the browser: the transport, the feed's recovery paths and
+// the rules that keep the composer and written answers available.
 import { expect, test, type Page } from '@playwright/test';
 
 const control = (page: Page, what: string, body: unknown = {}) =>
@@ -181,9 +180,8 @@ test('adjacent messages of one sender’s thread draw as one group (Item.thread)
   await expect(page.getByText('2 messages from Ops agent')).toBeVisible();
 });
 
-test('the urgent mark comes from Rank.level, and another device\'s choice shows its label', async ({ page }) => {
+test('an urgent item is marked, and another device\'s choice shows its label', async ({ page }) => {
   await openInbox(page);
-  // Production deploy failed has level now.
   await expect(row(page, 'Production deploy failed').first()).toHaveClass(/row--urgent/);
   await expect(row(page, 'Approve the survey questions?').first()).not.toHaveClass(/row--urgent|row--high/);
   // Another device answers with a choice: the card names it.

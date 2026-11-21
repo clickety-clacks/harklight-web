@@ -123,20 +123,20 @@ import { answerForm, answeredText } from '../../../src/state/message';
 describe('client API v2 answers: a plain written answer is always offered', () => {
   const actions = (list: unknown[]) => ({ message_type: 'request', answer_ui: { schema: 'attention-client.actions/1', actions: list } });
   it('adds Reply to choices that have none, and leaves one that has it', () => {
-    const f = answerForm(actions([{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }]) as never, undefined, { plainReply: true });
+    const f = answerForm(actions([{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }]) as never);
     expect(f.kind === 'choices' && f.choices.map((c) => `${c.kind}:${c.id}`)).toEqual(['value:ok', 'text:reply']);
-    const g = answerForm(actions([{ id: 'reply', label: 'Write', kind: 'text' }]) as never, undefined, { plainReply: true });
+    const g = answerForm(actions([{ id: 'reply', label: 'Write', kind: 'text' }]) as never);
     expect(g.kind === 'choices' && g.choices).toHaveLength(1);
-    const h = answerForm(actions([{ id: 'reply', label: 'Yes', kind: 'value', value: 1 }]) as never, undefined, { plainReply: true });
+    const h = answerForm(actions([{ id: 'reply', label: 'Yes', kind: 'value', value: 1 }]) as never);
     expect(h.kind === 'choices' && h.choices.map((c) => c.id)).toEqual(['reply', '_reply']);
   });
   it('turns a screen this client cannot draw into a plain reply with a note', () => {
-    const f = answerForm({ message_type: 'request', answer_ui: { schema: 'something.else/9' } } as never, undefined, { plainReply: true });
+    const f = answerForm({ message_type: 'request', answer_ui: { schema: 'something.else/9' } } as never);
     expect(f).toMatchObject({ kind: 'choices', notShown: true });
     expect(f.kind === 'choices' && f.choices.map((c) => c.kind)).toEqual(['text']);
   });
   it('never offers a written answer on an information message (Seen)', () => {
-    const f = answerForm(actions([{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }]) as never, undefined, { plainReply: true });
+    const f = answerForm(actions([{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }]) as never);
     expect(f.kind).toBe('seen');
   });
 });

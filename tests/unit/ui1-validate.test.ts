@@ -6,7 +6,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parse } from '../../src/relay/json';
+import { parse } from '../../src/state/json';
 import { CORPUS_LIMITS, parseUi1Limits, Ui1Fault, validateUi1, WEB_LIMITS } from '../../src/ui1/validate';
 
 const raw = readFileSync(new URL('../fixtures/attention-client-ui1-conformance-v3.json', import.meta.url), 'utf8');

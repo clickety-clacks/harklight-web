@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parse, RawNumber, stringify } from '../../src/relay/json';
+import { parse, RawNumber, stringify } from '../../src/state/json';
 import { compose, emptyDraft, summarize, terminalScene, toPoint, actionTextKey } from '../../src/ui1/form';
 import { answerForm } from '../../src/state/message';
 

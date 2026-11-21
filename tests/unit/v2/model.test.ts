@@ -131,10 +131,9 @@ describe('client API v2 model', () => {
     const seenUi = { schema: 'attention-client.actions/1', actions: [{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }] };
     applyItem(s, m, item({ rev: 3, message: { title: 'FYI', answer_ui: seenUi }, terminal: { state: 'answered', at_ms: 1, answer: { kind: 'seen' } } }));
     expect(s.messages.get(K)!.terminal?.outcome?.kind).toBe('seen');
-    // A Server that names no answer for a Seen: still the Seen check, in the Inbox.
     applyItem(s, m, item({ rev: 4, message: { title: 'FYI', answer_ui: seenUi }, terminal: { state: 'answered', at_ms: 1 } }));
-    expect(s.messages.get(K)!.terminal?.outcome?.kind).toBe('seen');
-    expect(rows(s, 'inbox').map((r) => r.key)).toEqual([K]);
+    expect(s.messages.get(K)!.terminal?.outcome).toBeNull();
+    expect(rows(s, 'replied').map((r) => r.key)).toEqual([K]);
     applyItem(s, m, item({ rev: 5, terminal: { state: 'superseded', at_ms: 1 } }));
     expect(rows(s, 'inbox')).toHaveLength(0);
   });

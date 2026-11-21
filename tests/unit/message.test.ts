@@ -118,17 +118,15 @@ describe('web client flag', () => {
   });
   it('turns every feature on in the previewing browser, leaving the deployment settings alone', () => {
     const st = mem();
-    const live = { ...DEFAULT_CONFIG, flags: { webClient: true, answerForms: true, attachments: false, clientApiV2: false } };
+    const live = { ...DEFAULT_CONFIG, flags: { webClient: true, answerForms: true, attachments: false } };
     expect(applyPreview(live, '', st).flags.attachments).toBe(false);
-    expect(applyPreview(live, '#preview', st).flags).toEqual({ webClient: true, answerForms: true, attachments: true, clientApiV2: false });
+    expect(applyPreview(live, '#preview', st).flags).toEqual({ webClient: true, answerForms: true, attachments: true });
     expect(live.flags.attachments).toBe(false);
   });
-  it('leaves the Server protocol (clientApiV2) as the deployment set it', () => {
-    const st = mem();
-    expect(applyPreview(DEFAULT_CONFIG, '#preview', st).flags.clientApiV2).toBe(false);
-    const v2 = { ...DEFAULT_CONFIG, flags: { ...DEFAULT_CONFIG.flags, clientApiV2: true } };
-    expect(applyPreview(v2, '#preview', st).flags.clientApiV2).toBe(true);
-    expect(mergeConfig(DEFAULT_CONFIG, { flags: { clientApiV2: true } }).flags.clientApiV2).toBe(true);
-    expect(DEFAULT_CONFIG.flags.clientApiV2).toBe(false);
+  it('has no relay settings left: a deployment config naming them changes nothing', () => {
+    const c = mergeConfig(DEFAULT_CONFIG, { relayPath: '/browser/relay', filesPath: '/browser/v1', flags: { clientApiV2: false } });
+    expect(c).toEqual(DEFAULT_CONFIG);
+    expect(c.apiPath).toBe('/v2');
   });
+
 });
