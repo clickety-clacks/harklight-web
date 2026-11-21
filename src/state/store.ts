@@ -1,6 +1,7 @@
 // The tab's in-memory state and the small subscription the UI reads it with.
 // The relay session writes it; components only read it and call actions.
 
+import type { Ui1Limits } from '../ui1/validate';
 import type {
   AnswerOutcome,
   ChatSend,
@@ -61,7 +62,7 @@ export interface State {
   /** The first inbox page has arrived. */
   loaded: boolean;
   chatAvailable: boolean;
-  fileLimits: { inline: number; cap: number | null } | null;
+  fileLimits: { inline: number; cap: number | null; ui1?: Ui1Limits } | null;
   /** Lifecycle events for messages not yet held wait here until they arrive. */
   pendingTerminals: Map<string, Terminal>;
   /** Revisions for messages not yet held (their page has not loaded) wait here. */

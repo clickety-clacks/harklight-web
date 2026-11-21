@@ -1,3 +1,4 @@
+import type { Ui1Limits } from '../ui1/validate';
 import { useState } from 'preact/hooks';
 import {
   answerForm,
@@ -36,6 +37,8 @@ export interface DetailProps {
   attachments: boolean;
   /** Draw custom answer forms (attention-client.ui/1). */
   answerForms: boolean;
+  /** The custom-screen bounds the Server published, when it did. */
+  ui1Limits?: Ui1Limits;
   imageUrl: (f: WireFile) => Promise<string | null>;
   canAct: boolean;
   onPrev: (() => void) | null;
@@ -54,7 +57,7 @@ export interface DetailProps {
 export function Detail(p: DetailProps) {
   const m = p.message;
   const type = messageType(m.payload);
-  const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name) });
+  const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name), limits: p.ui1Limits });
   const sender = senderLabel(m);
   // A failed or sending written answer reopens as it was sent, so its text
   // and its Retry survive leaving the message and coming back.

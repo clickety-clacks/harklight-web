@@ -269,6 +269,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       phone={phone}
       attachments={config.flags.attachments}
       answerForms={config.flags.answerForms}
+      ui1Limits={s.fileLimits?.ui1}
       imageUrl={imageUrl}
       canAct={canWrite}
       onPrev={index > 0 ? () => open(rows[index - 1].key) : null}

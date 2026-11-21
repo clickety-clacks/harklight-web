@@ -52,6 +52,23 @@ export const WEB_LIMITS: Ui1Limits = {
   identifierBytes: 512,
 };
 
+/**
+ * The bounds the Server publishes as `answer_ui_limits` (snake_case names), or
+ * null when it publishes none or they are not all positive integers. Each
+ * number is what the Server accepts, so the web draws up to it.
+ */
+export function parseUi1Limits(raw: unknown): Ui1Limits | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const out: Record<string, number> = {};
+  for (const key of Object.keys(WEB_LIMITS) as (keyof Ui1Limits)[]) {
+    const v = o[key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)];
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) return null;
+    out[key] = v;
+  }
+  return out as unknown as Ui1Limits;
+}
+
 /** The earlier fixed bounds, which the shared conformance corpus was written against. */
 export const CORPUS_LIMITS: Ui1Limits = {
   documentBytes: 65_536,

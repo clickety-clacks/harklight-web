@@ -287,6 +287,13 @@ function attachRelay(server, getWorld) {
   };
 }
 
+// What the real Server publishes as answer_ui_limits (snake_case).
+const ANSWER_UI_LIMITS = {
+  document_bytes: 1_048_576, requires: 32, illustrations: 256, primitives_per_illustration: 4_096, primitives_total: 16_384,
+  inputs: 128, actions: 512, scene_nodes: 4_096, scene_depth: 64, result_nodes: 4_096, result_depth: 64,
+  result_point_path: 64, array_items: 4_096, object_members: 4_096, identifier_bytes: 512,
+};
+
 const snapshots = new Map();
 
 function serveConnection(ws, w, recipient) {
@@ -628,7 +635,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
     if (req.method !== 'POST') return json(res, 405, {});
     if (url.pathname === '/browser/v1/upload') {
       const len = Number(req.headers['content-length'] ?? 0);
-      if (len > UPLOAD_CAP) return json(res, 413, { v: 1, type: 'error', reason: 'upload_cap_exceeded', upload_cap_bytes_per_file: UPLOAD_CAP });
+      if (len > UPLOAD_CAP) return json(res, 413, { v: 1, type: 'error', reason: 'upload_cap_exceeded', upload_cap_bytes_per_file: UPLOAD_CAP, answer_ui_limits: ANSWER_UI_LIMITS });
       const bytes = await readBody(req);
       const name = Buffer.from(String(req.headers['x-harklight-file-name']), 'base64url').toString('utf8');
       const op = String(req.headers['x-harklight-op-id']);

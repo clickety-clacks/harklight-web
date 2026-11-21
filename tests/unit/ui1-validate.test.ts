@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../src/relay/json';
-import { CORPUS_LIMITS, Ui1Fault, validateUi1, WEB_LIMITS } from '../../src/ui1/validate';
+import { CORPUS_LIMITS, parseUi1Limits, Ui1Fault, validateUi1, WEB_LIMITS } from '../../src/ui1/validate';
 
 const raw = readFileSync(new URL('../fixtures/attention-client-ui1-conformance-v3.json', import.meta.url), 'utf8');
 const corpus = parse(raw) as { cases: Record<string, unknown>[] };
@@ -44,5 +44,23 @@ describe('web limits', () => {
     const c = accepted[0];
     const doc = { ...(c.document as Record<string, unknown>), requires: Array.from({ length: WEB_LIMITS.requires + 1 }, (_, i) => `cap${i}`) };
     expect(() => validateUi1(doc, c.delivered_file_names as string[])).toThrow(/at most 32 capabilities/);
+  });
+});
+
+describe('published limits', () => {
+  const published = {
+    document_bytes: 1_048_576, requires: 32, illustrations: 256, primitives_per_illustration: 4_096, primitives_total: 16_384,
+    inputs: 128, actions: 512, scene_nodes: 4_096, scene_depth: 64, result_nodes: 4_096, result_depth: 64,
+    result_point_path: 64, array_items: 4_096, object_members: 4_096, identifier_bytes: 512,
+  };
+  it('are read from the Server reply', () => {
+    expect(parseUi1Limits(published)).toEqual(WEB_LIMITS);
+    expect(parseUi1Limits({ ...published, inputs: 7 })?.inputs).toBe(7);
+  });
+  it('are ignored when absent or incomplete, so the web keeps its own', () => {
+    expect(parseUi1Limits(undefined)).toBeNull();
+    expect(parseUi1Limits({ ...published, inputs: 'many' })).toBeNull();
+    const { actions: _a, ...missing } = published;
+    expect(parseUi1Limits(missing)).toBeNull();
   });
 });

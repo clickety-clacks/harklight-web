@@ -3,6 +3,7 @@
 // cookie and the tab's recipient id names the uploader.
 
 import type { ChatSend } from '../state/types';
+import { parseUi1Limits, type Ui1Limits } from '../ui1/validate';
 
 export interface FileRoutes {
   /** Base path, for example `/browser/v1`. */
@@ -13,6 +14,8 @@ export interface FileRoutes {
 export interface FileLimits {
   inline: number;
   cap: number | null;
+  /** The custom-screen bounds the Server publishes; absent from an older Server. */
+  ui1?: Ui1Limits;
 }
 
 export interface Uploaded {
@@ -45,7 +48,8 @@ export async function fetchFileLimits(routes: FileRoutes, recipient: string): Pr
   const r = await command(routes, recipient, { type: 'file_limits' });
   const inline = typeof r.inline_decoded_bytes_per_entry === 'number' ? r.inline_decoded_bytes_per_entry : 0;
   const cap = typeof r.upload_cap_bytes_per_file === 'number' ? r.upload_cap_bytes_per_file : null;
-  return { inline, cap };
+  const ui1 = parseUi1Limits(r.answer_ui_limits);
+  return ui1 ? { inline, cap, ui1 } : { inline, cap };
 }
 
 /** base64url without padding, of the name's UTF-8 bytes. */
