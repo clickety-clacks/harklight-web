@@ -121,6 +121,8 @@ export class V2Session {
   private entriesLoading = new Map<string, { run: Promise<void>; full: boolean }>();
   /** The person left (sign-out): nothing restarts, not even a lifted pause. */
   private left = false;
+  /** A GET /v2/me poll for the end of a pause is scheduled. */
+  private pausePolling = false;
   private queues = new Map<string, Promise<void>>();
   /** Files of a chat send: their upload keys and, once uploaded, their ids. */
   private chatFiles = new Map<string, { keys: Map<string, string>; ids: Map<string, string> }>();
@@ -221,15 +223,22 @@ export class V2Session {
     this.store.update((s) => {
       s.connection = 'inactive';
     });
+    // One poller, however many reads, writes or feeds reported the pause.
+    if (this.pausePolling) return;
+    this.pausePolling = true;
     this.timer(() => void this.pollPause(), PAUSE_POLL_MS);
   }
 
   /** GET /v2/me stays answerable while paused: ask it until the pause is lifted, then carry on from the cursor. */
   private async pollPause(): Promise<void> {
-    if (this.left || this.store.state.connection !== 'inactive') return;
+    if (this.left || this.store.state.connection !== 'inactive') {
+      this.pausePolling = false;
+      return;
+    }
     try {
       const me = readMe((await this.get('/me', 'me')).body);
       if (me && !me.paused) {
+        this.pausePolling = false;
         this.stopped = false;
         this.attempt = 0;
         this.store.update((s) => {
@@ -389,7 +398,8 @@ export class V2Session {
         const page = readEntriesPage(r.body);
         if (!page) return;
         this.store.update((s) => {
-          for (const e of page.entries) if (applyEntry(s, this.model, e)) markLookalike(s, key, e);
+          // Only the newest page can hold a turn a pending send looks like.
+          for (const e of page.entries) if (applyEntry(s, this.model, e) && before === null) markLookalike(s, key, e);
           s.view = viewOf(s);
         });
         if (!page.older || page.entries.length === 0) return;

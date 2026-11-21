@@ -38,7 +38,7 @@ interface Harness {
   requests: { method: string; url: string; key: string | null }[];
 }
 
-function session(opts: { fetch?: typeof fetch; livenessMs?: number } = {}): Harness {
+function session(opts: { fetch?: typeof fetch; livenessMs?: number; setTimer?: (fn: () => void, ms: number) => unknown } = {}): Harness {
   const store = new Store();
   const sources: NodeEventSource[] = [];
   const requests: Harness['requests'] = [];
@@ -59,7 +59,7 @@ function session(opts: { fetch?: typeof fetch; livenessMs?: number } = {}): Harn
       return es;
     },
     // Retries run at once in tests.
-    setTimer: (fn, ms) => setTimeout(fn, Math.min(ms, 20)),
+    setTimer: opts.setTimer ?? ((fn, ms) => setTimeout(fn, Math.min(ms, 20))),
     onSessionEnded: () => (ended = true),
     livenessMs: opts.livenessMs,
   });
@@ -256,6 +256,22 @@ describe('client API v2 session', () => {
     await post('active');
     await until(() => h.store.state.connection === 'connected');
     await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === 'Sent during the pause'));
+    h.s.stop();
+  });
+
+  it('a paused tab keeps one pause poller, however many refusals report the pause', async () => {
+    let polls = 0;
+    // The liveness window differs, so only pause polls wait 60 s.
+    const h = session({ livenessMs: 400, setTimer: (fn, ms) => (ms === 60_000 ? polls++ : setTimeout(fn, Math.min(ms, 20))) });
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const [a, b] = [h.store.state.messages.get(SURVEY)!, h.store.state.messages.get(DEPLOY)!];
+    await post('inactive');
+    await until(() => h.store.state.connection === 'inactive');
+    // Two writes refused account_paused report the pause again.
+    await h.s.answer(a, 'approve', 'Approve', { control: 'approve' });
+    await h.s.answer(b, 'retry', 'Retry the release', { control: 'retry' });
+    expect(polls).toBe(1);
     h.s.stop();
   });
 
