@@ -371,7 +371,16 @@ describe('client API v2 session', () => {
   });
 
   it('uploads files with POST /v2/files, then names them on the reply', async () => {
-    const h = session();
+    const stagingIds: string[] = [];
+    const h = session({
+      fetch: (async (input, init) => {
+        const response = await fetch(input, init);
+        if (String(input).endsWith('/v2/files') && init?.method === 'POST') {
+          stagingIds.push((await response.clone().json()).file_id);
+        }
+        return response;
+      }) as typeof fetch,
+    });
     h.s.start();
     await until(() => h.store.state.connection === 'connected');
     const lisbon = h.store.state.messages.get(LISBON)!;
@@ -392,6 +401,18 @@ describe('client API v2 session', () => {
     expect(uploads).toHaveLength(2);
     expect(new Set(uploads.map((u) => u.key)).size).toBe(2);
     expect((await fakeState()).v2Uploads.map((u: { contentType: string }) => u.contentType)).toEqual(['image/png', 'application/octet-stream']);
+    expect(stagingIds).toHaveLength(2);
+    expect(turn.files.every((f) => !stagingIds.includes(f.file_id!))).toBe(true);
+    for (const id of stagingIds) {
+      expect((await fetch(`${base()}${h.s.fileHref(id)}`)).status).toBe(404);
+    }
+    const rejected = await fetch(`${base()}/v2/items/${itemId('agent:research', 'lisbon')}/replies`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
+      body: JSON.stringify({ text: '', file_ids: [turn.files[0].file_id] }),
+    });
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toMatchObject({ error: 'invalid_field', field: 'file_ids' });
     // The stored type is shown on the FileRef.
     expect(turn.files[0].content_type).toBe('image/png');
     // The file reads back from GET /v2/files/{id}, as a download named by filename*.
