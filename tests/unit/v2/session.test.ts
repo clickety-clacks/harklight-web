@@ -392,9 +392,13 @@ describe('client API v2 session', () => {
     expect(uploads).toHaveLength(2);
     expect(new Set(uploads.map((u) => u.key)).size).toBe(2);
     expect((await fakeState()).v2Uploads.map((u: { contentType: string }) => u.contentType)).toEqual(['image/png', 'application/octet-stream']);
-    // The file reads back from GET /v2/files/{id}.
+    // The stored type is shown on the FileRef.
+    expect(turn.files[0].content_type).toBe('image/png');
+    // The file reads back from GET /v2/files/{id}, as a download named by filename*.
     const got = await fetch(`${base()}${h.s.fileHref(turn.files[0].file_id!)}`);
     expect(got.status).toBe(200);
+    expect(got.headers.get('content-type')).toBe('application/octet-stream');
+    expect(got.headers.get('content-disposition')).toBe("attachment; filename*=UTF-8''small.png");
     expect((await got.arrayBuffer()).byteLength).toBe(1000);
     h.s.stop();
   });
