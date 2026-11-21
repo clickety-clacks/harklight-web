@@ -583,6 +583,21 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
+  it('an FYI is answerable until it settles: Seen is choice seen, and the fake takes a written answer too', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const fyi = [...h.store.state.messages.values()].find((m) => m.payload.title === 'Quarterly report is ready')!;
+    await h.s.answer(fyi, 'Thanks', 'Thanks', { control: 'reply', text: 'Thanks' });
+    expect(h.store.state.answers.get(keyFor('agent:build', 'quarterly'))?.state).toBe('accepted');
+    // Once settled, a second answer is refused already_answered.
+    const card = [...h.store.state.messages.values()].find((m) => m.payload.title === 'The hosting card expires next month')!;
+    await h.s.answer(card, null, null, { seen: true, control: 'seen' });
+    await h.s.answer(h.store.state.messages.get(keyFor('agent:finance', 'card-expiry'))!, null, null, { seen: true, control: 'seen' });
+    expect(h.store.state.answers.get(keyFor('agent:finance', 'card-expiry'))).toMatchObject({ state: 'refused', reason: 'closed' });
+    h.s.stop();
+  });
+
   it('logs Request-Id, status and token, and never message content', async () => {
     const h = session();
     h.s.start();
