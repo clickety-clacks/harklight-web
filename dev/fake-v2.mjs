@@ -312,9 +312,12 @@ export async function serveV2(req, res, url, w, ctx) {
   if (method === 'GET' && p === '/me') {
     return send(res, 200, {
       account: { state: w.inactive ? 'paused' : 'active' },
-      limits: { upload_cap_bytes_per_file: w.uploadCap ?? 'none', inline_decoded_bytes_per_entry: 262_144 },
-      answer_ui_limits: PUBLISHED_UI1_LIMITS,
-      retention_days: 30,
+      limits: {
+        upload_cap_bytes_per_file: w.uploadCap ?? 'none',
+        inline_decoded_bytes_per_entry: 262_144,
+        answer_ui_limits: PUBLISHED_UI1_LIMITS,
+        retention_days: 30,
+      },
       features: { server_matched_push_routing: true, priority_level_editing: true },
     });
   }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { rows } from '../../../src/state/inbox';
 import { hasUnread, initialState } from '../../../src/state/store';
 import { applyEntry, applyItem, applyRemoved, compareCodePoints, keyOfItem, Model, viewOf, wantThread } from '../../../src/v2/model';
-import { readChange, readEntry, readInboxPage, readItem, type Entry, type Item } from '../../../src/v2/wire';
+import { readChange, readEntry, readInboxPage, readItem, readMe, type Entry, type Item } from '../../../src/v2/wire';
 
 function item(over: Partial<Item> = {}): Item {
   return {
@@ -189,5 +189,16 @@ describe('client API v2 readers', () => {
     expect(String((it.message.n as unknown as { text: string }).text)).toBe('18446744073709551617');
     expect(readChange('closing', '', '{}')).toBeNull();
     expect(readChange('item', '', '{}')).toBeNull();
+  });
+
+  it('reads GET /v2/me as the contract nests it: limits hold the upload cap, inline budget and answer-screen limits', () => {
+    const me = readMe({
+      account: { state: 'paused' },
+      features: { priority_level_editing: true },
+      limits: { upload_cap_bytes_per_file: 'none', inline_decoded_bytes_per_entry: 1000, answer_ui_limits: { inputs: 128 }, retention_days: 30 },
+    });
+    expect(me).toEqual({ paused: true, uploadCap: null, inlineBudget: 1000, answerUiLimits: { inputs: 128 } });
+    // Limits beside `limits` are not the contract's shape.
+    expect(readMe({ account: { state: 'active' }, limits: { inline_decoded_bytes_per_entry: 0 }, answer_ui_limits: { inputs: 1 } })?.answerUiLimits).toBeNull();
   });
 });
