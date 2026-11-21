@@ -181,7 +181,7 @@ export function Detail(p: DetailProps) {
               Edit
             </button>
           )}
-          {open && !isSeenForm && form.kind !== 'unsupported' && barRetry && (
+          {open && !isSeenForm && barRetry && (
             <button
               type="button"
               class="tool tool--retry"
@@ -193,7 +193,7 @@ export function Detail(p: DetailProps) {
               Retry
             </button>
           )}
-          {open && !isSeenForm && form.kind !== 'unsupported' && !barRetry && (
+          {open && !isSeenForm && !barRetry && (
             <button
               type="button"
               class={barSpins ? 'tool tool--square tool--commit tool--busy' : 'tool tool--square tool--commit'}
@@ -202,11 +202,6 @@ export function Detail(p: DetailProps) {
               onClick={commit}
             >
               {barSpins ? <span class="spinner" aria-hidden="true" /> : <Icon name="check" />}
-            </button>
-          )}
-          {open && form.kind === 'unsupported' && picked === 'no_comment' && (
-            <button type="button" class="tool tool--square tool--commit" aria-label="Send answer" disabled={!canAnswer} onClick={commit}>
-              <Icon name="check" />
             </button>
           )}
           {open && isSeenForm && (
@@ -283,6 +278,9 @@ export function Detail(p: DetailProps) {
             />
           )}
 
+          {open && form.kind === 'choices' && form.notShown && (
+            <p class="msg-note">The custom answer screen for this message is not shown here. You can reply in plain text.</p>
+          )}
           {open && form.kind === 'choices' && (
             <div class="choices" role="radiogroup" aria-label="Answer">
               {choices.map((c) =>
@@ -378,22 +376,6 @@ export function Detail(p: DetailProps) {
                 ctx={{ doc: form.doc, draft: emptyDraft(), onDraft: null, files: m.firstFiles, imageUrl: p.imageUrl }}
               />
             </div>
-          )}
-          {open && form.kind === 'unsupported' && (
-            <>
-              <p class="msg-note">This message uses an answer format the web client cannot show yet. Answer it on your iPhone.</p>
-              <div class="choices" role="radiogroup" aria-label="Answer">
-                <ChoiceCard
-                  choice={{ id: 'no_comment', label: 'No comment', kind: 'value', suggested: false }}
-                  on={picked === 'no_comment'}
-                  compact={false}
-                  status={statusOf('no_comment')}
-                  disabled={!editable}
-                  onPick={() => setPicked('no_comment')}
-                  onRetry={p.onRetry}
-                />
-              </div>
-            </>
           )}
         </div>
       </div>

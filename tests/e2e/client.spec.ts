@@ -810,3 +810,26 @@ test('a policy close offers Try again, which reconnects without a reload and kee
   await expect(page.getByText('Harklight could not connect.')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Reply' })).toHaveValue('Still drafting');
 });
+
+test('a custom answer screen the web cannot draw falls back to the plain Reply, with No comment, and says so', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openInbox(page);
+  await control(page, 'send', {
+    message: {
+      sender_id: 'agent:new',
+      message_id: 'odd-screen',
+      title: 'Pick a venue',
+      message_type: 'request',
+      answer_ui: { schema: 'attention-client.ui/9', anything: true },
+    },
+  });
+  await openRow(page, 'Pick a venue');
+  await expect(page.getByText('The custom answer screen for this message is not shown here.')).toBeVisible();
+  await expect(page.getByText(/Answer it on your iPhone/)).toHaveCount(0);
+  await expect(page.getByRole('radio', { name: 'No comment' })).toBeVisible();
+  await page.getByRole('radio', { name: 'Reply' }).click();
+  await page.getByRole('textbox', { name: 'Reply' }).fill('The harbour room');
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('answered')).toContainText('The harbour room');
+  expect((await control(page, 'state')).lastAnswer.answer).toBe('The harbour room');
+});

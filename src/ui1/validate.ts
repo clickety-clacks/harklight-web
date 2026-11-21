@@ -1,7 +1,7 @@
 // The attention-client.ui/1 grammar: custom answer forms. This follows the
 // Server's admission check and the iPhone app's parser, which agree on a
-// shared conformance corpus. Any fault anywhere makes the whole form
-// unsupported; there is no partial rendering.
+// shared conformance corpus. Any fault anywhere means the form is not drawn
+// (the person gets the plain Reply instead); there is no partial rendering.
 
 import { duplicateKeys, integerValue, RawNumber, stringify, utf8Length } from '../relay/json';
 
@@ -9,6 +9,71 @@ export const UI1_SCHEMA = 'attention-client.ui/1';
 const REQUIRED = ['schema', 'requires', 'illustrations', 'inputs', 'open', 'resolved', 'submission'];
 const OPTIONAL = ['resolvedByState', 'answeredWithResult'];
 export const TERMINAL_STATES = ['answered', 'no_comment', 'cleared', 'expired', 'superseded'];
+
+/**
+ * Size and count bounds on a form. They are generous, and they are the web
+ * renderer's own sanity bound: a form over them is not drawn, and the person
+ * gets the plain Reply (see `answerForm`). The structural rules do not change.
+ */
+export interface Ui1Limits {
+  documentBytes: number;
+  requires: number;
+  illustrations: number;
+  primitivesPerIllustration: number;
+  primitivesTotal: number;
+  inputs: number;
+  actions: number;
+  sceneNodes: number;
+  sceneDepth: number;
+  resultNodes: number;
+  resultDepth: number;
+  resultPointPath: number;
+  arrayItems: number;
+  objectMembers: number;
+  identifierBytes: number;
+}
+
+/** What the web client draws: the same generous numbers the Server publishes to senders. */
+export const WEB_LIMITS: Ui1Limits = {
+  documentBytes: 1_048_576,
+  requires: 32,
+  illustrations: 256,
+  primitivesPerIllustration: 4_096,
+  primitivesTotal: 16_384,
+  inputs: 128,
+  actions: 512,
+  sceneNodes: 4_096,
+  sceneDepth: 64,
+  resultNodes: 4_096,
+  resultDepth: 64,
+  resultPointPath: 64,
+  arrayItems: 4_096,
+  objectMembers: 4_096,
+  identifierBytes: 512,
+};
+
+/** The earlier fixed bounds, which the shared conformance corpus was written against. */
+export const CORPUS_LIMITS: Ui1Limits = {
+  documentBytes: 65_536,
+  requires: 8,
+  illustrations: 64,
+  primitivesPerIllustration: 512,
+  primitivesTotal: 512,
+  inputs: 16,
+  actions: 64,
+  sceneNodes: 128,
+  sceneDepth: 16,
+  resultNodes: 128,
+  resultDepth: 16,
+  resultPointPath: 16,
+  arrayItems: 128,
+  objectMembers: 128,
+  identifierBytes: 128,
+};
+
+// The bounds in force for the validation in progress. Validation is
+// synchronous, so a module value set and restored around it is safe.
+let L: Ui1Limits = WEB_LIMITS;
 
 export class Ui1Fault extends Error {
   constructor(
@@ -61,7 +126,7 @@ function requiredString(o: Obj, key: string, parent: string, message: string): s
 
 function identifier(v: unknown, path: string): string {
   const s = string(v, path, true, 'identifier must be non-empty');
-  require(utf8Length(s) <= 128, path, 'identifier is at most 128 UTF-8 bytes');
+  require(utf8Length(s) <= L.identifierBytes, path, `identifier is at most ${L.identifierBytes} UTF-8 bytes`);
   return s;
 }
 
@@ -98,7 +163,17 @@ function rejectDuplicateKeys(v: unknown, path: string): void {
 }
 
 /** Validate a delivered form. Throws Ui1Fault on the first fault. */
-export function validateUi1(document: unknown, deliveredFileNames: string[]): void {
+export function validateUi1(document: unknown, deliveredFileNames: string[], limits: Ui1Limits = WEB_LIMITS): void {
+  const previous = L;
+  L = limits;
+  try {
+    validate(document, deliveredFileNames);
+  } finally {
+    L = previous;
+  }
+}
+
+function validate(document: unknown, deliveredFileNames: string[]): void {
   rejectDuplicateKeys(document, '$');
   const root = object(document, '$', 'document must be an object');
   exactFields(root, REQUIRED, OPTIONAL, '$', 'top-level members must match the UI/1 shape');
@@ -106,11 +181,11 @@ export function validateUi1(document: unknown, deliveredFileNames: string[]): vo
   require(schema === UI1_SCHEMA, 'schema', 'schema must be attention-client.ui/1');
 
   const bytes = utf8Length(stringify(document, { sortKeys: true }));
-  require(bytes <= 65_536, '$', `answer_ui document is ${bytes} bytes; it must be at most 65536 UTF-8 bytes`);
+  require(bytes <= L.documentBytes, '$', `answer_ui document is ${bytes} bytes; it must be at most ${L.documentBytes} UTF-8 bytes`);
 
   const requires = array(root.requires, 'requires', 'requires must be a string array');
   require(requires.length > 0, 'requires', 'requires must contain the capabilities used');
-  require(requires.length <= 8, 'requires', 'requires permits at most eight capabilities');
+  require(requires.length <= L.requires, 'requires', `requires permits at most ${L.requires} capabilities`);
   const required = requires.map((x, i) => string(x, `requires[${i}]`, true, 'each capability must be a non-empty string'));
   const seen = new Set<string>();
   required.forEach((r, i) => {
@@ -141,8 +216,8 @@ export function validateUi1(document: unknown, deliveredFileNames: string[]): vo
   string(submission.label, 'submission.label', true, 'submission label must be non-empty');
   const result = { refs: new Set<string>(), count: 0 };
   parseConstructor(submission.result, 'submission.result', 1, kinds, result);
-  require(result.count <= 128, 'submission.result', 'at most 128 result constructor nodes are allowed');
-  require(state.count <= 128, 'open', 'at most 128 scene nodes are allowed');
+  require(result.count <= L.resultNodes, 'submission.result', `at most ${L.resultNodes} result constructor nodes are allowed`);
+  require(state.count <= L.sceneNodes, 'open', `at most ${L.sceneNodes} scene nodes are allowed`);
 
   const inputIds = [...kinds.keys()];
   const openIds = [...state.openInputCounts.keys()];
@@ -183,7 +258,7 @@ export function validateUi1(document: unknown, deliveredFileNames: string[]): vo
 
 function parseIllustrations(value: unknown, files: Set<string>, names: string[]) {
   const values = array(value, 'illustrations', 'illustrations must be an array');
-  require(values.length <= 64, 'illustrations', 'at most 64 illustrations are allowed');
+  require(values.length <= L.illustrations, 'illustrations', `at most ${L.illustrations} illustrations are allowed`);
   const ids = new Set<string>();
   let total = 0;
   let image = false;
@@ -197,12 +272,12 @@ function parseIllustrations(value: unknown, files: Set<string>, names: string[])
     boundedInteger(item.width, `${path}.width`, 1, 4096, 'width');
     boundedInteger(item.height, `${path}.height`, 1, 4096, 'height');
     const primitives = array(item.primitives, `${path}.primitives`, 'primitives must be an array');
-    require(primitives.length <= 512, `${path}.primitives`, 'at most 512 primitives are allowed in one illustration');
+    require(primitives.length <= L.primitivesPerIllustration, `${path}.primitives`, `at most ${L.primitivesPerIllustration} primitives are allowed in one illustration`);
     primitives.forEach((p, i) => {
       if (parsePrimitive(p, `${path}.primitives[${i}]`, files, names)) image = true;
     });
     total += primitives.length;
-    require(total <= 512, 'illustrations', 'at most 512 primitives are allowed across illustrations');
+    require(total <= L.primitivesTotal, 'illustrations', `at most ${L.primitivesTotal} primitives are allowed across illustrations`);
     ids.add(id);
   });
   return { ids, image };
@@ -261,7 +336,7 @@ function parsePrimitive(raw: unknown, path: string, files: Set<string>, names: s
 
 function parseInputs(value: unknown, illustrationIds: Set<string>) {
   const inputs = array(value, 'inputs', 'inputs must be an array');
-  require(inputs.length <= 16, 'inputs', 'at most 16 inputs are allowed');
+  require(inputs.length <= L.inputs, 'inputs', `at most ${L.inputs} inputs are allowed`);
   const kinds = new Map<string, InputKind>();
   const refs = new Set<string>();
   inputs.forEach((raw, index) => {
@@ -275,7 +350,7 @@ function parseInputs(value: unknown, illustrationIds: Set<string>) {
       string(input.label, `${path}.label`, true, 'label must be non-empty');
       const actions = array(input.actions, `${path}.actions`, 'actions must be an array');
       require(actions.length > 0, `${path}.actions`, 'response input requires at least one action');
-      require(actions.length <= 64, `${path}.actions`, 'at most 64 actions are allowed');
+      require(actions.length <= L.actions, `${path}.actions`, `at most ${L.actions} actions are allowed`);
       parseActions(actions, `${path}.actions`, illustrationIds, refs);
     } else if (kind === 'text') {
       exactFields(input, ['kind', 'id', 'label'], [], path, 'text input members must match its exact shape');
@@ -330,11 +405,11 @@ function parseScene(
   illustrationIds: Set<string>,
   state: SceneState,
 ): void {
-  require(depth <= 16, path, 'scene depth must be at most 16');
+  require(depth <= L.sceneDepth, path, `scene depth must be at most ${L.sceneDepth}`);
   const node = object(raw, path, 'scene node must be an object');
   const kind = requiredString(node, 'kind', path, 'scene kind is required');
   state.count++;
-  require(state.count <= 128, path, 'at most 128 scene nodes are allowed');
+  require(state.count <= L.sceneNodes, path, `at most ${L.sceneNodes} scene nodes are allowed`);
   const children = (label: string) => {
     const list = array(node.children, `${path}.children`, `${label} children must be an array`);
     require(list.length > 0, `${path}.children`, `${label} requires at least one child`);
@@ -389,7 +464,7 @@ function parseScene(
       require(illustrationIds.has(id), `${path}.id`, 'illustration identifier must exist');
       string(node.label, `${path}.label`, true, 'label must be non-empty');
       const comps = array(node.path, `${path}.path`, 'result-point path must be an array');
-      require(comps.length <= 16, `${path}.path`, 'result-point path permits at most 16 components');
+      require(comps.length <= L.resultPointPath, `${path}.path`, `result-point path permits at most ${L.resultPointPath} components`);
       comps.forEach((c, i) => {
         const cp = `${path}.path[${i}]`;
         if (typeof c === 'string') return;
@@ -413,11 +488,11 @@ function parseConstructor(
   kinds: Map<string, InputKind>,
   acc: { refs: Set<string>; count: number },
 ): void {
-  require(depth <= 16, path, 'result constructor depth must be at most 16');
+  require(depth <= L.resultDepth, path, `result constructor depth must be at most ${L.resultDepth}`);
   const node = object(raw, path, 'result constructor must be an object');
   const kind = requiredString(node, 'kind', path, 'result constructor kind is required');
   acc.count++;
-  require(acc.count <= 128, path, 'at most 128 result constructor nodes are allowed');
+  require(acc.count <= L.resultNodes, path, `at most ${L.resultNodes} result constructor nodes are allowed`);
   switch (kind) {
     case 'literal':
       exactFields(node, ['kind', 'value'], [], path, 'literal constructor members must match its exact shape');
@@ -432,14 +507,14 @@ function parseConstructor(
     case 'array': {
       exactFields(node, ['kind', 'items'], [], path, 'array constructor members must match its exact shape');
       const items = array(node.items, `${path}.items`, 'array constructor items must be an array');
-      require(items.length <= 128, `${path}.items`, 'at most 128 array items are allowed');
+      require(items.length <= L.arrayItems, `${path}.items`, `at most ${L.arrayItems} array items are allowed`);
       items.forEach((it, i) => parseConstructor(it, `${path}.items[${i}]`, depth + 1, kinds, acc));
       return;
     }
     case 'object': {
       exactFields(node, ['kind', 'members'], [], path, 'object constructor members must match its exact shape');
       const members = array(node.members, `${path}.members`, 'object constructor members must be an array');
-      require(members.length <= 128, `${path}.members`, 'at most 128 object members are allowed');
+      require(members.length <= L.objectMembers, `${path}.members`, `at most ${L.objectMembers} object members are allowed`);
       const seen = new Set<string>();
       members.forEach((m, i) => {
         const mp = `${path}.members[${i}]`;

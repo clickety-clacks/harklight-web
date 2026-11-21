@@ -21,12 +21,15 @@ export interface Choice {
 export type AnswerForm =
   /** Read-only messages: Seen sends the declared Seen value. */
   | { kind: 'seen'; value: Json }
-  /** Choices and/or a text reply, sent with the checkmark. */
-  | { kind: 'choices'; choices: Choice[] }
+  /**
+   * Choices and/or a text reply, sent with the checkmark. `notShown` is set
+   * when the message carries a custom answer screen that is not drawn (the
+   * Server replaced it, or this client cannot show it): the person gets the
+   * plain Reply and is told so.
+   */
+  | { kind: 'choices'; choices: Choice[]; notShown?: boolean }
   /** A custom answer form (attention-client.ui/1) that passed the grammar. */
-  | { kind: 'ui1'; doc: JsonObject }
-  /** An answer format this client does not draw. No comment stays offered. */
-  | { kind: 'unsupported' };
+  | { kind: 'ui1'; doc: JsonObject };
 
 const ACTIONS_SCHEMA = 'attention-client.actions/1';
 
@@ -48,37 +51,48 @@ export function seenValue(payload: JsonObject): Json | null {
   return a.value as Json;
 }
 
+const PLAIN_REPLY: Choice = { id: 'reply', label: 'Reply', kind: 'text', suggested: false };
+
+/** The plain Reply a message with no screen gets, for a screen that cannot be shown. */
+function plainReply(notShown: boolean): AnswerForm {
+  return notShown ? { kind: 'choices', choices: [PLAIN_REPLY], notShown } : { kind: 'choices', choices: [PLAIN_REPLY] };
+}
+
 /**
  * How the message is answered. Custom forms are drawn only when `forms` is
- * on and the form passes the grammar against revision 1's file names.
+ * on and the form passes the grammar against revision 1's file names. A
+ * screen that cannot be drawn (unknown version, over a limit, malformed, or
+ * forms off) falls back to the plain Reply, with No comment, and says so.
  */
 export function answerForm(payload: JsonObject, forms?: { enabled: boolean; fileNames: string[] }): AnswerForm {
   const seen = seenValue(payload);
   if (seen !== null) return { kind: 'seen', value: seen };
   if (!('answer_ui' in payload)) {
-    // A message without answer controls takes a plain text reply.
-    return { kind: 'choices', choices: [{ id: 'reply', label: 'Reply', kind: 'text', suggested: false }] };
+    // A message without answer controls takes a plain text reply. One whose
+    // screen the Server dropped says so.
+    return plainReply('answer_ui_unavailable' in payload);
   }
   const ui = payload.answer_ui;
+  const degraded = 'answer_ui_unavailable' in payload;
   if (isObject(ui) && ui.schema === UI1_SCHEMA && forms?.enabled) {
     try {
       validateUi1(ui, forms.fileNames);
       return { kind: 'ui1', doc: ui };
     } catch {
-      return { kind: 'unsupported' };
+      return plainReply(true);
     }
   }
   if (!isObject(ui) || ui.schema !== ACTIONS_SCHEMA || !Array.isArray(ui.actions)) {
-    return { kind: 'unsupported' };
+    return plainReply(true);
   }
   const suggestedValue = isObject(payload.default) ? payload.default.value : undefined;
   const choices: Choice[] = [];
   const seenIds = new Set<string>();
   for (const a of ui.actions) {
-    if (!isObject(a)) return { kind: 'unsupported' };
+    if (!isObject(a)) return plainReply(true);
     const id = str(a.id);
     const label = str(a.label);
-    if (!id || !label || seenIds.has(id)) return { kind: 'unsupported' };
+    if (!id || !label || seenIds.has(id)) return plainReply(true);
     seenIds.add(id);
     if (a.kind === 'value' && 'value' in a) {
       choices.push({
@@ -92,11 +106,11 @@ export function answerForm(payload: JsonObject, forms?: { enabled: boolean; file
     } else if (a.kind === 'text') {
       choices.push({ id, label, kind: 'text', description: str(a.description), suggested: false });
     } else {
-      return { kind: 'unsupported' };
+      return plainReply(true);
     }
   }
-  if (choices.length === 0) return { kind: 'unsupported' };
-  return { kind: 'choices', choices };
+  if (choices.length === 0) return plainReply(true);
+  return degraded ? { kind: 'choices', choices, notShown: true } : { kind: 'choices', choices };
 }
 
 export { sameJson } from '../relay/json';

@@ -53,8 +53,19 @@ describe('answer form', () => {
       ['r', 'text', false],
     ]);
   });
-  it('treats other answer formats as unsupported', () => {
-    expect(answerForm({ answer_ui: { schema: 'attention-client.ui/1' } }).kind).toBe('unsupported');
+  const plain = { kind: 'choices', notShown: true, choices: [{ id: 'reply', label: 'Reply', kind: 'text', suggested: false }] };
+  it('offers the plain Reply, and says the screen is not shown, for an answer format it cannot draw', () => {
+    expect(answerForm({ answer_ui: { schema: 'attention-client.ui/1' } })).toEqual(plain);
+    expect(answerForm({ answer_ui: { schema: 'attention-client.ui/9' } })).toEqual(plain);
+    expect(answerForm({ answer_ui: { schema: 'attention-client.actions/1', actions: [{ id: 'a' }] } })).toEqual(plain);
+  });
+  it('says so when the Server replaced the screen with the plain Reply', () => {
+    const f = answerForm({
+      answer_ui: { schema: 'attention-client.actions/1', actions: [{ id: 'reply', label: 'Reply', kind: 'text' }] },
+      answer_ui_unavailable: 'answer_ui (attention-client.ui/1) at $: too big',
+    });
+    expect(f).toEqual({ kind: 'choices', notShown: true, choices: [{ id: 'reply', label: 'Reply', kind: 'text', suggested: false, description: undefined }] });
+    expect(answerForm({ answer_ui_unavailable: 'dropped' })).toEqual(plain);
   });
 });
 
