@@ -478,10 +478,9 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
       if (!a) return [400, { error: 'invalid_field', field: 'choice', retryable: false }];
       value = a.id === 'seen' && actions.length === 1 ? null : a.value;
     } else if (body.comment !== undefined) {
-      // A plain written answer is taken on every answerable item, whatever its
-      // answer screen; an item with no open request (an FYI) is not answerable.
-      const fyi = item.payload.message_type === 'fyi' || (actions.length === 1 && actions[0].id === 'seen');
-      if (typeof body.comment !== 'string' || fyi) return [400, { error: 'invalid_field', field: 'comment', retryable: false }];
+      // A plain written answer is taken on every answerable item (terminal is
+      // null), whatever its answer screen, an FYI included.
+      if (typeof body.comment !== 'string') return [400, { error: 'invalid_field', field: 'comment', retryable: false }];
       value = body.comment;
       text = body.comment;
     } else if (body.result !== undefined) {
