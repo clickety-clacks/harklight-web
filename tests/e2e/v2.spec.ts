@@ -123,3 +123,12 @@ test('a chat file goes up with POST /v2/files under its own name', async ({ page
   // It downloads from GET /v2/files/{id}.
   await expect(turn.getByRole('link', { name: 'Download' })).toHaveAttribute('href', /^\/v2\/files\//);
 });
+
+test('a custom form’s pictures show with chat files off: they arrive as files, but belong to the message', async ({ page }) => {
+  await control(page, 'attachments', { on: false });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await openInbox(page);
+  await openRow(page, 'Which cover for the November issue?');
+  await expect(page.locator('svg image')).toHaveCount(1);
+  await expect(page.locator('.u-img-missing')).toHaveCount(0);
+});
