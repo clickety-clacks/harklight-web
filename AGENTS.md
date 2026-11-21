@@ -3,8 +3,8 @@
 This repository is the Harklight web client: the browser app where a signed-in
 Harklight customer reads and answers their Harklight messages. It covers: inbox,
 open a message, answer or reply (including choices and Seen), chat with files,
-live updates, settings and sign out. It talks to Harklight Server only through
-the browser messaging contract.
+live updates, settings and sign out. It talks to Harklight Server using the
+Web release's supported client protocol.
 
 ## How this project ships
 
@@ -56,6 +56,9 @@ Releases go through CI and need no human approval.
   the release is tagged. Tag that `main` commit as `vMAJOR.MINOR.PATCH`. The
   deployment installs a commit's archive after checking its SHA-256. Don't ask
   for approval before tagging or deploying.
+- Include compatibility in every release's notes. Name the protocol generation
+  (0.1 for the original browser protocol, 0.2 for client API v2) and list the
+  compatible Harklight Server, App, Web and Agent versions or version ranges.
 - Any green `main` commit whose changes have all been reviewed clean may go
   live to customers, tagged or not; that is how tested fixes go live right
   away. Tags mark releases. They don't gate deploys.
