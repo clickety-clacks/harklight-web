@@ -31,14 +31,21 @@ alone (for example, exclude it from any `rsync --delete`).
 
 ## Server paths the page uses
 
-These go to Harklight Server, same origin, with the browser sign-in cookie:
+These go to Harklight Server, same origin, with the browser sign-in cookie. A
+signed-out browser must get `401` JSON on `/v2`, never a redirect. The origin
+must serve `/v2` over HTTP/2, so one feed per open tab never runs into the
+browser's per-origin connection limit, and any proxy on the feed path must not
+buffer or compress `text/event-stream` and must keep a read timeout above the
+feed's 25 s heartbeat.
 
 | Path | Use |
 |---|---|
-| `GET /browser/relay?recipient=<uuid>` | WebSocket upgrade, no subprotocol |
-| `POST /browser/v1?recipient=<uuid>` | `file_limits`, `discard_uploads` (JSON) |
-| `POST /browser/v1/upload?recipient=<uuid>` | one raw file body, `application/octet-stream`, `Content-Length` equal to the file size, no multipart; up to the Server's published per-file cap |
-| `GET /browser/v1/files/<upload id>` | file download |
+| `GET /v2/inbox`, `GET /v2/items/<id>`, `GET /v2/items/<id>/entries` | inbox and conversation reads |
+| `GET /v2/changes?after=<rev>` | the change feed: one `EventSource` (`text/event-stream`), and the JSON batch form after a feed fails |
+| `GET /v2/me` | file limits and the published answer-screen limits |
+| `POST /v2/items/<id>/seen`, `/answer`, `/replies`; `PUT /v2/items/<id>/read-position` | the person's actions, each with an `Idempotency-Key` |
+| `POST /v2/files` | one raw file body with its `Content-Type`, `Content-Length` and `Content-Disposition: attachment; filename*=UTF-8''<name>` |
+| `GET /v2/files/<file id>` | file download |
 | `POST /sign-out` | sign-out form (`confirm=sign_out`) |
 | `GET /api/profile` | the account's display name, `{"display_name": ...}` (`accountInfoPath`) |
 
@@ -53,8 +60,7 @@ the control that leads there.
 
 | Key | Default |
 |---|---|
-| `relayPath` | `/browser/relay` |
-| `filesPath` | `/browser/v1` |
+| `apiPath` | `/v2` (Harklight client API v2) |
 | `signOutPath` | `/sign-out` |
 | `sessionEndedPath` | `/devices` (a Server page that sends a signed-out browser to hosted sign-in) |
 | `accountUrl` | `/account/` |

@@ -6,8 +6,9 @@ files, live updates, settings and sign out. It works in light and dark, at
 desktop, tablet and phone widths.
 
 The client is a static site (Preact and TypeScript, built with Vite). It is
-served from the hosted Harklight origin and talks to Harklight Server over one
-same-origin WebSocket and a few file routes, using the browser sign-in cookie.
+served from the hosted Harklight origin and talks to Harklight Server through
+client API v2 (protocol 0.2) on the same origin (`fetch` reads and writes, and one
+`EventSource` change feed), using the browser sign-in cookie.
 It holds no credentials of its own.
 
 ## Develop
@@ -15,14 +16,14 @@ It holds no credentials of its own.
 ```sh
 npm ci
 npm run dev        # http://127.0.0.1:5173/inbox against a local fake Server
-npm test           # unit tests, including the relay session against the fake
+npm test           # unit tests, including the v2 session against the fake
 npm run build      # static files in dist/
 npm run test:e2e   # browser tests against the built site and the fake
 ```
 
-`dev/fake-server.mjs` is a stand-in for Harklight Server's browser door, with
-sample messages. It follows the browser messaging contract closely enough to
-develop and test against; it is not a Server.
+`dev/fake-server.mjs` is a stand-in for Harklight Server's client API v2, with
+sample messages. It follows the API's field contract closely enough to develop
+and test against; it is not a Server.
 
 ## Configuration
 

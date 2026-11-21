@@ -3,9 +3,6 @@ import { expect, test, type Page } from '@playwright/test';
 const control = (page: Page, what: string, body: unknown = {}) =>
   page.request.post(`/__fake/${what}`, { data: body }).then((r) => r.json());
 
-/** The suite runs twice: on the relay, and with flags.clientApiV2 on client API v2. */
-const onV2 = () => test.info().project.name.endsWith('-v2');
-
 test.beforeEach(async ({ page }) => {
   await control(page, 'reset');
 });
@@ -32,8 +29,6 @@ test('lists the inbox and opens a message, reporting the open', async ({ page })
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await expect(page.getByTestId('row')).toHaveCount(8);
-  // The browser door takes no subprotocol and the client offers none (B-1).
-  expect((await control(page, 'state')).subprotocol).toBe(null);
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
   await expect.poll(async () => (await control(page, 'state')).opens).toBe(1);
@@ -71,13 +66,13 @@ test('writes a reply in the one-card reply field', async ({ page }) => {
   expect((await control(page, 'state')).lastAnswer.answer).toBe('Hold it, I will look after lunch');
 });
 
-test('marks an information message Seen with JSON null', async ({ page }) => {
+test('marks an information message Seen with the Seen choice', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Quarterly report is ready');
   await page.locator('.seen-under').click();
   await expect(page.getByTestId('seen-done')).toBeVisible();
-  expect((await control(page, 'state')).lastAnswer.answer).toBe(null);
+  expect((await control(page, 'state')).answerFrames.at(-1).body.choice).toBe('seen');
 });
 
 test('chats with the agent and sees the reply live', async ({ page }) => {
@@ -94,7 +89,7 @@ test('chats with the agent and sees the reply live', async ({ page }) => {
   await expect(page.locator('.turn--me', { hasText: 'Is breakfast included?' })).toContainText('Delivered');
 });
 
-test('sends files with a chat message: small inline, large uploaded', async ({ page }) => {
+test('uploads both small and large files for a chat message', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
@@ -108,16 +103,9 @@ test('sends files with a chat message: small inline, large uploaded', async ({ p
   await expect.poll(async () => (await control(page, 'state')).lastDiscussion?.text).toBe('Two files');
   await expect(page.locator('.turn--me', { hasText: 'Two files' }).locator('.file')).toHaveCount(2);
   const files = (await control(page, 'state')).lastDiscussion.files;
-  if (onV2()) {
-    // Client API v2 has no inline tier: every file goes up with POST /v2/files, named.
-    expect(files.map((f: { name: string }) => f.name)).toEqual(['note.txt', 'plan.pdf']);
-    expect((await control(page, 'state')).v2Uploads).toHaveLength(2);
-    return;
-  }
-  expect(files.map((f: { name: string; tier: string }) => [f.name, f.tier])).toEqual([
-    ['note.txt', 'inline'],
-    ['plan.pdf', 'upload'],
-  ]);
+  // Every file goes up with POST /v2/files, under its name.
+  expect(files.map((f: { name: string }) => f.name)).toEqual(['note.txt', 'plan.pdf']);
+  expect((await control(page, 'state')).v2Uploads).toHaveLength(2);
 });
 
 test('sends a chat turn with a file and no text', async ({ page }) => {
@@ -416,14 +404,14 @@ test('a dropped connection shows reconnecting and recovers', async ({ page }) =>
 
 test('with the web client off for customers, the page opens no connection; #preview turns it on in this browser', async ({ page }) => {
   await control(page, 'web-client', { on: false });
-  let sockets = 0;
-  page.on('websocket', () => sockets++);
+  let reads = 0;
+  page.on('request', (r) => new URL(r.url()).pathname.startsWith('/v2/') && reads++);
   await page.goto('/inbox');
   await expect(page.getByRole('heading', { name: 'Web messaging is coming soon' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Go to your devices' })).toHaveAttribute('href', '/devices');
   await page.waitForTimeout(300);
-  expect(sockets).toBe(0);
-  expect((await control(page, 'state')).connections).toBe(0);
+  expect(reads).toBe(0);
+  expect((await control(page, 'state')).feeds).toBe(0);
 
   await page.goto('/inbox#preview');
   await expect(page.getByTestId('row').first()).toBeVisible();
@@ -780,7 +768,7 @@ test('an answer refused because the message changed shows the controls again wit
   await expect(page.getByTestId('refused-reason')).toHaveCount(0);
 });
 
-test('a reload connects again on a new recipient instead of being refused', async ({ page }) => {
+test('a reload connects again', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await page.reload();
@@ -806,16 +794,17 @@ test('Seen spins while sending, comes back as Retry Seen on failure, and confirm
   await expect(page.getByTestId('seen-done')).toBeVisible();
 });
 
-test('a policy close offers Try again, which reconnects without a reload and keeps the draft', async ({ page }) => {
-  test.skip(onV2(), 'A policy close (1008) is a relay WebSocket close; client API v2 has no socket.');
+test('a failure a retry will not fix offers Try again, which reconnects without a reload and keeps the draft', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Production deploy failed');
   await page.getByRole('radio', { name: 'Reply' }).click();
   await page.getByRole('textbox', { name: 'Reply' }).fill('Still drafting');
-  await control(page, 'policy-close');
+  // The feed drops and every read is refused (400): not something a retry fixes.
+  await control(page, 'refuse-reads');
   await expect(page.getByText('Harklight could not connect.')).toBeVisible();
   await expect(page.getByText(/Reload the page/)).toHaveCount(0);
+  await control(page, 'refuse-reads', { on: false });
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('Harklight could not connect.')).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: 'Reply' })).toHaveValue('Still drafting');

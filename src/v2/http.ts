@@ -2,7 +2,7 @@
 // authorizes it, writes carry an Idempotency-Key, and every failure is turned
 // into one shape (status, token, Request-Id) and recorded in the error log.
 
-import { parse, stringify } from '../relay/json';
+import { parse, stringify } from '../state/json';
 import type { ErrorLog } from './errorLog';
 import { ERROR_TOKENS, type ErrorToken } from './wire';
 

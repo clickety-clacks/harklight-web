@@ -2,7 +2,7 @@
 // answer controls and its status. Pure functions over the payload the Server
 // delivered, so they are easy to test.
 
-import { sameJson, stringify } from '../relay/json';
+import { sameJson, stringify } from './json';
 import { UI1_SCHEMA, validateUi1, type Ui1Limits } from '../ui1/validate';
 import type { HeldMessage, Json, JsonObject } from './types';
 
@@ -61,17 +61,15 @@ function plainReply(notShown: boolean): AnswerForm {
 
 /**
  * How the message is answered. Custom forms are drawn only when `forms` is
- * on and the form passes the grammar against revision 1's file names. A
+ * on and the form passes the grammar against the item's file names. A
  * screen that cannot be drawn (unknown version, over a limit, malformed, or
  * forms off) falls back to the plain Reply, with No comment, and says so.
  */
 export function answerForm(
   payload: JsonObject,
   forms?: { enabled: boolean; fileNames: string[]; limits?: Ui1Limits },
-  opts: { plainReply?: boolean } = {},
 ): AnswerForm {
   const form = baseForm(payload, forms);
-  if (!opts.plainReply) return form;
   // Client API v2 takes a plain written answer on every answerable message,
   // including one with a custom screen, so it is always offered.
   if (form.kind === 'ui1') return { ...form, reply: plainReplyChoice([]) };
@@ -137,7 +135,7 @@ function baseForm(payload: JsonObject, forms?: { enabled: boolean; fileNames: st
   return degraded ? { kind: 'choices', choices, notShown: true } : { kind: 'choices', choices };
 }
 
-export { sameJson } from '../relay/json';
+export { sameJson } from './json';
 
 /**
  * The five message types of the design. The wire has `message_type` (request
@@ -243,50 +241,22 @@ export function priorityOf(score: number | null): Priority {
  * choice this tab sent. */
 export function answeredText(m: HeldMessage, localLabel: string | null): string | null {
   const o = m.terminal?.outcome;
-  // Client API v2: the kind alone says what was answered; nothing is inferred
-  // from the shape of the value or the text.
-  if (m.v2 && o) {
-    switch (o.kind) {
-      case 'seen':
-      case 'no_comment':
-        return null;
-      case 'reply':
-        return o.text || null;
-      case 'choice':
-        return o.choice?.label ?? localLabel;
-      case 'default': {
-        if (o.text) return o.text;
-        const form = answerForm(m.payload);
-        const c = form.kind === 'choices' && o.value !== undefined ? form.choices.find((c) => c.kind === 'value' && sameJson(c.value as Json, o.value as Json)) : undefined;
-        return c?.label ?? (o.value !== undefined ? jsonText(o.value) : null);
-      }
-      case 'result':
-        // This tab's own answer shows its form summary; another device's shows the value.
-        return localLabel ?? jsonText(o.value ?? null);
-    }
-  }
-  if (o) {
-    if (o.kind === 'reply' && o.text !== undefined) {
-      // A string choice value reads like typed text on the wire; show its label.
-      const form = answerForm(m.payload);
-      if (form.kind === 'choices') {
-        const c = form.choices.find((c) => c.kind === 'value' && c.value === o.text);
-        if (c) return c.label;
-      }
+  if (!o) return localLabel;
+  switch (o.kind) {
+    case 'seen':
+    case 'no_comment':
+      return null;
+    case 'reply':
       return o.text || null;
-    }
-    if (o.kind === 'default') {
+    case 'choice':
+      return o.choice?.label ?? localLabel;
+    case 'default': {
       if (o.text) return o.text;
       const form = answerForm(m.payload);
-      if (form.kind === 'choices' && o.value !== undefined) {
-        const c = form.choices.find((c) => c.kind === 'value' && sameJson(c.value as Json, o.value as Json));
-        if (c) return c.label;
-      }
-      return null;
+      const c = form.kind === 'choices' && o.value !== undefined ? form.choices.find((c) => c.kind === 'value' && sameJson(c.value as Json, o.value as Json)) : undefined;
+      return c?.label ?? (o.value !== undefined ? jsonText(o.value) : null);
     }
-    // Client API v2 names the chosen action, so another device's choice shows too.
-    if (o.kind === 'choice') return o.choice?.label ?? localLabel;
-    if (o.kind === 'seen' || o.kind === 'no_comment') return null;
+    case 'result':
+      return localLabel ?? jsonText(o.value ?? null);
   }
-  return localLabel;
 }

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { imageUrlFor, formPictureType } from '../../../src/ui/images';
-import { DEFAULT_CONFIG } from '../../../src/config';
 
 describe('client API v2 pictures', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -27,8 +26,8 @@ describe('client API v2 pictures', () => {
     });
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: (b: Blob) => (blobs.push(b.type), 'blob:x') }));
     const href = (id: string) => `/v2/files/${id}`;
-    expect(await imageUrlFor({ name: 'a.png', file_id: 'f-png', content_type: 'image/png' }, DEFAULT_CONFIG, href)).toBe('blob:x');
-    expect(await imageUrlFor({ name: 'b.svg', file_id: 'f-svg', content_type: 'image/svg+xml' }, DEFAULT_CONFIG, href)).toBeNull();
+    expect(await imageUrlFor({ name: 'a.png', file_id: 'f-png', content_type: 'image/png' }, href)).toBe('blob:x');
+    expect(await imageUrlFor({ name: 'b.svg', file_id: 'f-svg', content_type: 'image/svg+xml' }, href)).toBeNull();
     expect(fetched).toEqual(['/v2/files/f-png']);
     expect(blobs).toEqual(['image/png']);
   });

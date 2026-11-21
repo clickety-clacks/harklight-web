@@ -104,7 +104,7 @@ for (const [layout, w, h] of WIDTHS) {
       sender_id: 'agent:research',
       message_id: 'lisbon',
       text: 'Here is the floor plan for the Avenida room.',
-      files: [{ name: 'avenida-floor-plan.pdf', tier: 'inline', size: 412_000, sha256: '0'.repeat(64), data_base64: 'JVBERi0xLjQK' }],
+      files: [{ name: 'avenida-floor-plan.pdf', fixtureBytesBase64: 'JVBERi0xLjQK' }],
     });
     ({ ctx, p } = await page(w, h, mode));
     await open(p, 'Which hotel should I book for Lisbon?');

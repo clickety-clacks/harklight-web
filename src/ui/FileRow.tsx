@@ -11,9 +11,7 @@ export function FileRow(p: {
 }) {
   const f = p.file;
   let href: string | null = null;
-  const id = f.file_id ?? f.upload_id;
-  if (p.download && id) href = p.fileHref(id);
-  if (p.download && f.data_base64 !== undefined) href = `data:application/octet-stream;base64,${f.data_base64}`;
+  if (p.download && f.file_id) href = p.fileHref(f.file_id);
   return (
     <div class="file">
       <Icon name="folder" />

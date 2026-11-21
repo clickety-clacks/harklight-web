@@ -1,5 +1,5 @@
-// The tab's client API v2 session. It replaces the relay session behind the
-// same store and the same actions the UI calls:
+// The tab's session with Harklight Server over client API v2, behind the
+// store and the actions the UI calls:
 //
 // - Snapshot Reader: GET /v2/inbox, /v2/items/{id} and /entries, by fetch.
 // - Sync: one EventSource on GET /v2/changes. The cursor is the rev of the
@@ -14,7 +14,7 @@
 // feed reconnects.
 
 import type { Config } from '../config';
-import { parse } from '../relay/json';
+import { parse } from '../state/json';
 import type { LocalAnswer, Store } from '../state/store';
 import type { ChatSend, HeldMessage, Json } from '../state/types';
 import { parseUi1Limits } from '../ui1/validate';
@@ -320,7 +320,6 @@ export class V2Session {
         for (const p of pages) for (const item of p.items) applyItem(s, this.model, item);
         s.view = viewOf(s);
         s.loaded = true;
-        s.readSupport = true;
         s.chatAvailable = true;
         s.morePages = !full && first.next_page !== undefined;
       });

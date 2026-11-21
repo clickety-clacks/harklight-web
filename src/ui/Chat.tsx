@@ -105,13 +105,8 @@ export function Chat(p: ChatProps) {
   }, [turns.length, p.onReplyVisible]);
 
   const delivered = (t: Turn) => p.thread?.delivered.has(t.id) ?? false;
-  // Client API v2: the person can always write here; chat availability and
-  // the agent's listening state are only told, never a block.
-  const v2 = p.message.v2 !== undefined;
-  // Only a message with a conversation (Chat.available) has a composer.
-  const hasChat = p.message.chat;
   const availability = p.message.v2?.availability ?? p.thread?.availability ?? null;
-  const away = v2 && (availability === 'not_listening' || availability === 'gone');
+  const away = availability === 'not_listening' || availability === 'gone';
   const shown = turns.filter((t) => t.kind === 'discussion' || t.kind === 'reply');
   const empty = shown.length === 0 && pending.length === 0;
 
@@ -148,13 +143,13 @@ export function Chat(p: ChatProps) {
       </header>
       <div class="turns" ref={list}>
         {!p.available && <p class="chat-empty">Chat is not available yet.</p>}
-        {p.available && !hasChat && (
+        {p.available && !p.open && (
           <p class="chat-empty">
             <Icon name="chat" />
             {p.sender} did not open a chat for this message.
           </p>
         )}
-        {p.available && hasChat && empty && p.open && (
+        {p.available && empty && p.open && (
           <p class="chat-empty">
             <Icon name="chat" />
             Ask {p.sender} about this message.
@@ -232,7 +227,7 @@ export function Chat(p: ChatProps) {
           {p.sender} isn't listening right now. What you send is kept and delivered when it's back.
         </p>
       )}
-      {p.available && hasChat && p.open && (
+      {p.available && p.open && (
         <div class="composer-wrap">
           {files.length > 0 && (
             <div class="pending-files">

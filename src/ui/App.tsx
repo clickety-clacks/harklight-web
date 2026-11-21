@@ -192,7 +192,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     else if (a.kind === 'ui1') void session.answer(message, a.answer as Json, a.summary, { control: 'form', draft: a.draft });
     else void session.answer(message, a.text, a.text, { control: a.choice.id, text: a.text });
   };
-  // Seen sends JSON null, as the browser contract fixes (D-3).
+  // The session sends the Seen action as a v2 choice.
   const onSeen = () => message && void session.answer(message, null, null, { seen: true, control: 'seen' });
   const onRetry = () => selected && session.retryAnswer(selected);
   const onEdit = () => selected && session.editFailedAnswer(selected);
@@ -216,7 +216,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const chatVisible = !!message && chatWanted && !dropOnNarrow;
   const sender = message ? senderLabel(message) : '';
   const fileHref = (id: string) => session.fileHref(id);
-  const imageUrl = (f: WireFile) => imageUrlFor(f, config, fileHref);
+  const imageUrl = (f: WireFile) => imageUrlFor(f, fileHref);
   const canWrite = session.canWrite(s);
 
   const list = (
@@ -315,7 +315,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         void session.chat(message, text, files);
       }}
       onRetry={(op) => session.retryChat(op)}
-      onDiscard={message.v2 ? (op) => session.discardChat(op) : undefined}
+      onDiscard={(op) => session.discardChat(op)}
       onRemovePendingFile={session.removeChatFile ? (op, file) => session.removeChatFile?.(op, file) : undefined}
       onReplyVisible={(seq) => session.markRead(selected!, seq)}
       fileHref={fileHref}

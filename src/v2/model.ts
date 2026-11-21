@@ -3,10 +3,9 @@
 // if its `rev` is newer than the one held (spec section 1). Removed items
 // leave a tombstone, gated the same way.
 //
-// The store keeps its existing shape, so the UI reads v2 items as it reads
-// relay messages: a message key is the item's sender plus its item_id.
+// A message key is the item's sender plus its item_id.
 
-import { priorityOf, seenValue } from '../state/message';
+import { priorityOf } from '../state/message';
 import type { State } from '../state/store';
 import type { AnswerOutcome, HeldMessage, Terminal as HeldTerminal, Thread, Turn, WireFile } from '../state/types';
 import { keyOf, splitKey } from '../state/types';
@@ -39,10 +38,10 @@ export function toWireFile(f: FileRef): WireFile {
 }
 
 /** Today's terminal state from the item's. The answer is Terminal.answer, as the person sees it. */
-function terminalOf(t: Terminal | null | undefined, rev: number, payload: HeldMessage['payload']): HeldTerminal | null {
+function terminalOf(t: Terminal | null | undefined, rev: number): HeldTerminal | null {
   if (!t) return null;
   if (t.state === 'retracted') return { state: 'cleared', seq: rev, retracted: true, outcome: null };
-  let outcome: AnswerOutcome | null = t.answer
+  const outcome: AnswerOutcome | null = t.answer
     ? {
         kind: t.answer.kind,
         text: t.answer.text,
@@ -50,9 +49,6 @@ function terminalOf(t: Terminal | null | undefined, rev: number, payload: HeldMe
         ...(t.answer.kind === 'choice' && t.answer.id !== undefined ? { choice: { id: t.answer.id, label: t.answer.label ?? t.answer.id } } : {}),
       }
     : null;
-  // A message whose only answer is Seen, answered with no answer named, was
-  // answered Seen: it keeps its Seen check in the Inbox, as today.
-  if (!outcome && t.state === 'answered' && seenValue(payload) !== null) outcome = { kind: 'seen' };
   if (t.state !== 'answered') return { state: t.state, seq: rev, retracted: false, outcome };
   if (outcome?.kind === 'no_comment') return { state: 'no_comment', seq: rev, retracted: false, outcome };
   return { state: 'answered', seq: rev, retracted: false, outcome };
@@ -67,7 +63,7 @@ function toHeld(item: Item): HeldMessage {
     revision: item.request_revision,
     // Arrival order, newest highest, where the store sorts by it.
     acceptedSeq: item.created_at_ms ?? item.rev,
-    terminal: terminalOf(item.terminal, item.rev, item.message),
+    terminal: terminalOf(item.terminal, item.rev),
     files,
     // Item.files holds every file the current answer screen names, so
     // custom forms are checked against it alone.
@@ -232,7 +228,6 @@ export function viewOf(s: State): ServerView {
           conversationSeq: seq,
           openAt: seq,
           unseen: v.unreadReplies!,
-          score: v.replyScore,
           historical: false,
           priority: markOf(v.replyLevel, v.replyScore),
         },
@@ -246,7 +241,7 @@ export function viewOf(s: State): ServerView {
     .filter((r) => r.item.kind === 'message')
     .map((r) => {
       const v = s.messages.get(r.key)!.v2!;
-      return { key: r.key, score: v.score, thread: v.thread, priority: markOf(v.level, v.score) };
+      return { key: r.key, thread: v.thread, priority: markOf(v.level, v.score) };
     });
   // Free order (the groups and their headings) applies only when the Server
   // sends groups and they come in today's order.

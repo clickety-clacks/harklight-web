@@ -1,9 +1,8 @@
-// Client API v2 for the fake Server, written from the accepted field contract
-// (docs/client-api-v2.md in the Server repository). It serves the same world
-// as the relay door: items and entries are derived from the world's messages
-// and events, and every difference since the last look becomes one change in
-// the person's change log, numbered by rev. So every test control works for
-// both protocols. It is not a server implementation.
+// Client API v2 for the fake Server, written from the field contract
+// (docs/client-api-v2.md in the Server repository). Items and entries are
+// derived from the world's messages and events, and every difference since
+// the last look becomes one change in the person's change log, numbered by
+// rev. It is not a server implementation.
 
 import { createHash, randomUUID } from 'node:crypto';
 
@@ -66,18 +65,14 @@ function v2State(w) {
 
 function fileRef(w, f) {
   const v = v2State(w);
-  if (f.data_base64 !== undefined) {
-    const bytes = Buffer.from(f.data_base64, 'base64');
+  if (f.fixtureBytesBase64 !== undefined) {
+    const bytes = Buffer.from(f.fixtureBytesBase64, 'base64');
     const id = `f_${sha(bytes).slice(0, 32)}`;
     if (!v.inlineFiles.has(id)) v.inlineFiles.set(id, { bytes, name: f.name });
     return { file_id: id, name: f.name, size: bytes.length, sha256: sha(bytes) };
   }
-  if (f.file_id) {
-    // The type a file was uploaded with is stored and shown (FileRef.content_type).
-    const ct = v.downloadableUploads.get(f.file_id)?.contentType;
-    return { file_id: f.file_id, name: f.name, size: f.size, sha256: f.sha256, ...(ct ? { content_type: ct } : {}) };
-  }
-  return { file_id: f.upload_id, name: f.name, size: f.size, sha256: f.sha256 };
+  const content_type = v.downloadableUploads.get(f.file_id)?.contentType;
+  return { file_id: f.file_id, name: f.name, size: f.size, sha256: f.sha256, ...(content_type ? { content_type } : {}) };
 }
 
 /** The fake's priority level: the message's urgency. */
@@ -90,7 +85,7 @@ function score(m) {
 }
 
 /**
- * Rank from the same placement the relay door's view draws (w.placement):
+ * Rank from the world's placement (w.placement):
  * an item's key is its row's place, its section current or resolved, and an
  * unread chat-reply row gets its own key in the same space.
  */
@@ -321,7 +316,7 @@ function findItem(w, id) {
   return [...w.messages.values()].find((m) => itemIdOf(m) === id);
 }
 
-/** Serve one /v2 request. `ctx` carries the world's mutators from the relay fake. */
+/** Serve one /v2 request. `ctx` carries the world's mutators from fake-server.mjs. */
 export async function serveV2(req, res, url, w, ctx) {
   res.requestId = `rq_${randomUUID()}`;
   const v = v2State(w);
@@ -389,7 +384,7 @@ export async function serveV2(req, res, url, w, ctx) {
   }
   if (method === 'DELETE' && p.startsWith('/files/')) {
     const handle = decodeURIComponent(p.slice('/files/'.length));
-    if (!w.uploads.get(handle)?.v2) return fail(res, 404, 'not_found');
+    if (!w.uploads.has(handle)) return fail(res, 404, 'not_found');
     if (v.downloadableUploads.has(`fu${handle}`)) return fail(res, 409, 'already_closed');
     w.uploads.delete(handle);
     res.writeHead(204, { 'request-id': res.requestId });
@@ -465,7 +460,7 @@ export async function serveV2(req, res, url, w, ctx) {
       if (!Array.isArray(ids)) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
       if (body.text === '' && ids.length === 0) return [400, { error: 'invalid_field', field: 'text', retryable: false }];
       const uploads = ids.map((id) => w.uploads.get(id));
-      if (uploads.some((up) => !up?.v2)) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
+      if (uploads.some((up) => !up)) return [400, { error: 'invalid_field', field: 'file_ids', retryable: false }];
       const files = uploads.map((up) => {
         const file_id = `fu${up.id}`;
         v.downloadableUploads.set(file_id, up);
@@ -485,7 +480,7 @@ export async function serveV2(req, res, url, w, ctx) {
 /** Answer validation and effect, as the contract's section 5 states it. */
 function answer(req, res, w, raw, body, item, k, ctx, done) {
   const idemKey = req.headers['idempotency-key'] ?? null;
-  // What the request answers, in the relay's terms (answerFrames[].answer), for tests that check both.
+  // What the request answers (answerFrames[].answer), for tests.
   const actions = Array.isArray(item.payload.answer_ui?.actions) ? item.payload.answer_ui.actions : [];
   const chosen = actions.find((x) => x.id === body.choice);
   const answer = 'comment' in body ? body.comment : 'result' in body ? body.result : chosen ? (chosen.id === 'seen' && actions.length === 1 ? null : chosen.value) : null;
@@ -621,7 +616,7 @@ async function upload(req, res, w) {
   const name = fileNameOf(req.headers['content-disposition']);
   if (!name) return fail(res, 400, 'invalid_field', { field: 'name' });
   const id = `f_${randomUUID()}`;
-  const up = { id, name, size: bytes.length, sha256: sha(bytes), bytes, v2: true, contentType: req.headers['content-type'] };
+  const up = { id, name, size: bytes.length, sha256: sha(bytes), bytes, contentType: req.headers['content-type'] };
   w.uploads.set(id, up);
   const body = { file_id: id, name, sha256: up.sha256, size: up.size };
   v.idem.set(k, { digest, status: 201, body });
@@ -765,7 +760,7 @@ export function v2Control(w, what, body) {
   }
 }
 
-/** End feeds whose sign-in ended, as the relay door does. */
+/** End feeds whose sign-in ended or whose account was paused. */
 export function v2Tick(w) {
   const v = v2State(w);
   if (!w.sessionLive) for (const f of [...v.feeds]) f.close('revoked');

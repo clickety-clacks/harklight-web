@@ -240,7 +240,7 @@ export function formFixture(now) {
           submission: { label: 'Send', result: { kind: 'input', id: 'cover' } },
         },
       },
-      files: [{ name: 'cover-a.png', tier: 'inline', size: 104, sha256: 'bd5b8be61a1301a927de593c92723a13647345f96d55ce493b2141d4ce80ee38', data_base64: COVER_PNG }],
+      files: [{ name: 'cover-a.png', fixtureBytesBase64: COVER_PNG }],
     },
   ];
 }

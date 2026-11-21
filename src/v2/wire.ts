@@ -3,7 +3,7 @@
 // they do not know; these readers take only what the web client uses and
 // drop anything malformed rather than guessing.
 
-import { parse, RawNumber } from '../relay/json';
+import { parse, RawNumber } from '../state/json';
 import type { Json, JsonObject } from '../state/types';
 
 export interface FileRef {
@@ -382,7 +382,7 @@ export function readChange(kind: string, lastEventId: string, data: string): Cha
   if (!Number.isSafeInteger(rev) || rev < 1) return null;
   let parsed: unknown;
   try {
-    // Message content keeps numbers exactly as written (relay/json).
+    // Message content keeps numbers exactly as written (state/json).
     parsed = parse(data);
   } catch {
     return null;

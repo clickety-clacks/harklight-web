@@ -2,7 +2,7 @@
 // illustrations and its inputs, as the iPhone app does.
 
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { integerValue } from '../relay/json';
+import { integerValue } from '../state/json';
 import type { WireFile } from '../state/types';
 import { actionTextKey, toPoint, type Action, type Draft, type Input, type Point } from './form';
 
@@ -322,7 +322,7 @@ function ImagePrimitive({ prim, ctx }: { prim: Obj; ctx: FormContext }) {
     return () => {
       live = false;
     };
-  }, [file?.name, file?.upload_id]);
+  }, [file?.name, file?.file_id]);
   const x = num(prim.x);
   const y = num(prim.y);
   const w = num(prim.width);

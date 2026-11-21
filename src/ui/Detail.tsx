@@ -57,7 +57,7 @@ export interface DetailProps {
 export function Detail(p: DetailProps) {
   const m = p.message;
   const type = messageType(m.payload);
-  const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name), limits: p.ui1Limits }, { plainReply: !!m.v2 });
+  const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name), limits: p.ui1Limits });
   const sender = senderLabel(m);
   // A failed or sending written answer reopens as it was sent, so its text
   // and its Retry survive leaving the message and coming back.
