@@ -1,8 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4179;
+// E2E_PORT moves both fake Servers, so two checkouts can run the suite at once.
+const PORT = Number(process.env.E2E_PORT ?? 4179);
 /** The same suite with the client on client API v2 (flags.clientApiV2). */
-const V2_PORT = 4180;
+const V2_PORT = PORT + 1;
 const SERVER = 'node dev/fake-server.mjs --upload-cap 2000000';
 
 export default defineConfig({

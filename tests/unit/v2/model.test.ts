@@ -199,6 +199,10 @@ describe('client API v2 thread groups', () => {
     applyItem(s, m, open('it_3', 'c', 'agent:a', 't'));
     s.view = viewOf(s);
     expect(entries(s, 'inbox').map((x) => x.type)).toEqual(['message', 'message', 'message']);
+    // Positive control in the same fixture: once the two agent:a items are adjacent, they group.
+    applyItem(s, m, { ...open('it_2', 'd', 'agent:b', 't'), rev: 2 });
+    s.view = viewOf(s);
+    expect(entries(s, 'inbox').map((x) => x.type)).toEqual(['thread', 'message']);
   });
 });
 
