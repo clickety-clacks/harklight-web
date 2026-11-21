@@ -166,3 +166,10 @@ test('the urgent mark comes from Rank.level, and another device\'s choice shows 
   await openRow(page, 'Approve the survey questions?');
   await expect(page.getByTestId('answered')).toContainText('Approve');
 });
+
+test('a message with no agent conversation has no composer (Chat.available false)', async ({ page }) => {
+  await openInbox(page);
+  await openRow(page, 'The hosting card expires next month');
+  await expect(page.locator('.chat-col')).toContainText('did not open a chat');
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveCount(0);
+});

@@ -119,11 +119,11 @@ function terminalOf(w, m) {
   const state = ['answered', 'cleared', 'expired', 'superseded'].includes(t.state) ? t.state : 'answered';
   // Terminal.answer is the person-facing answer outcome, carried as it is.
   const o = t.terminal_kind === 'no_comment' ? { kind: 'no_comment' } : t.answer_outcome;
-  const answer = o && ['seen', 'reply', 'default', 'no_comment', 'choice'].includes(o.kind)
+  const answer = o && ['seen', 'reply', 'default', 'no_comment', 'choice', 'result'].includes(o.kind)
     ? {
         kind: o.kind,
         ...(typeof o.text === 'string' ? { text: o.text } : {}),
-        ...(o.kind === 'default' && 'value' in o ? { value: o.value } : {}),
+        ...((o.kind === 'default' || o.kind === 'result') && 'value' in o ? { value: o.value } : {}),
         ...(o.kind === 'choice' ? { id: o.id, label: o.label } : {}),
       }
     : null;
@@ -437,6 +437,8 @@ export async function serveV2(req, res, url, w, ctx) {
   if (method === 'POST' && sub === '/replies') {
     return idempotent(req, res, w, raw, () => {
       if (w.refuseInactive) return [403, { error: 'account_paused', retryable: false }];
+      // An item with no agent conversation takes no reply (Chat.available false).
+      if (!item.session_handle) return [400, { error: 'unsupported', retryable: false }];
       const extra = Object.keys(body).filter((x) => x !== 'text' && x !== 'file_ids');
       if (extra.length || typeof body.text !== 'string') return [400, { error: 'invalid_field', field: 'text', retryable: false }];
       const ids = body.file_ids ?? [];
@@ -466,7 +468,7 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
   // What the request answers, in the relay's terms (answerFrames[].answer), for tests that check both.
   const actions = Array.isArray(item.payload.answer_ui?.actions) ? item.payload.answer_ui.actions : [];
   const chosen = actions.find((x) => x.id === body.choice);
-  const answer = body.comment ?? body.result ?? (chosen ? (chosen.id === 'seen' && actions.length === 1 ? null : chosen.value) : null);
+  const answer = 'comment' in body ? body.comment : 'result' in body ? body.result : chosen ? (chosen.id === 'seen' && actions.length === 1 ? null : chosen.value) : null;
   // The client resends a 503 by itself, with the same key, twice before it
   // shows the failure (Retry-After 0 here). Those resends are kept apart from
   // the person's own sends, so tests count what the person did.
@@ -476,7 +478,8 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
   const record = () => (auto ? (w.answerResends = w.answerResends ?? []) : (w.answerFrames = w.answerFrames ?? [])).push({ op_id: idemKey, answer, body });
   const run = () => {
     const extra = Object.keys(body).filter((x) => !['request_revision', 'choice', 'comment', 'result'].includes(x));
-    const given = ['choice', 'comment', 'result'].filter((x) => body[x] !== undefined);
+    // Presence counts: "result": null is a result whose value is null.
+    const given = ['choice', 'comment', 'result'].filter((x) => x in body);
     if (extra.length || !Number.isInteger(body.request_revision) || given.length > 1) return [400, { error: 'invalid_field', retryable: false }];
     if (w.refuseAnswers) {
       const token = { closed: 'already_answered', retracted: 'already_retracted', stale_revision: 'stale_request' }[w.refuseAnswers] ?? w.refuseAnswers;
@@ -489,30 +492,40 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
     const actions = ui && ui.schema === 'attention-client.actions/1' && Array.isArray(ui.actions) ? ui.actions : [];
     let value;
     let chosen = null;
+    let isResult = false;
     let text;
-    if (body.choice !== undefined) {
+    if ('choice' in body) {
       const a = actions.find((x) => x.id === body.choice && x.kind === 'value');
       if (!a) return [400, { error: 'invalid_field', field: 'choice', retryable: false }];
       value = a.id === 'seen' && actions.length === 1 ? null : a.value;
       chosen = value === null ? null : a;
-    } else if (body.comment !== undefined) {
+    } else if ('comment' in body) {
       // A plain written answer is taken on every answerable item (terminal is
       // null), whatever its answer screen, an FYI included.
       if (typeof body.comment !== 'string') return [400, { error: 'invalid_field', field: 'comment', retryable: false }];
       value = body.comment;
       text = body.comment;
-    } else if (body.result !== undefined) {
-      if (!ui || ui.schema !== 'attention-client.ui/1' || typeof body.result !== 'object' || body.result === null)
-        return [400, { error: 'invalid_field', field: 'result', retryable: false }];
+    } else if ('result' in body) {
+      // Any JSON value, stored unchanged; only a ui/1 item takes one.
+      if (!ui || ui.schema !== 'attention-client.ui/1') return [400, { error: 'invalid_field', field: 'result', retryable: false }];
       value = body.result;
+      isResult = true;
     } else {
       ctx.terminate(k, { state: 'answered', terminal_kind: 'no_comment', by: 'answer_no_comment', answer_outcome: { kind: 'no_comment' } });
       w.lastAnswer = { key: k, answer: null, noComment: true };
       return [200, done()];
     }
     // A value action's answer names the action (kind choice); a written one is a reply.
-    const outcome =
-      value === null ? { kind: 'seen' } : chosen ? { kind: 'choice', id: chosen.id, label: chosen.label } : text !== undefined ? { kind: 'reply', text } : undefined;
+    // The kind follows what was answered, never the value's shape.
+    const outcome = isResult
+      ? { kind: 'result', value }
+      : 'choice' in body
+        ? chosen
+          ? { kind: 'choice', id: chosen.id, label: chosen.label }
+          : { kind: 'seen' }
+        : text !== undefined
+          ? { kind: 'reply', text }
+          : undefined;
     ctx.terminate(k, { state: 'answered', by: 'answer', ...(outcome ? { answer_outcome: outcome } : {}) });
     w.lastAnswer = { key: k, answer: value };
     return [200, done()];

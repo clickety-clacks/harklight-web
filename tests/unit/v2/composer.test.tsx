@@ -69,7 +69,6 @@ const STATES: [string, HeldMessage][] = [
   ['expired', msg({ state: 'expired', seq: 2, retracted: false, outcome: null })],
   ['retracted but listed', msg({ state: 'cleared', seq: 2, retracted: true, outcome: null })],
   ['agent not listening', msg(null, { availability: 'not_listening' })],
-  ['no chat on the item', msg(null, { availability: null }, false)],
 ];
 
 describe('client API v2 chat composer', () => {
@@ -84,6 +83,21 @@ describe('client API v2 chat composer', () => {
       expect(el.textContent).not.toContain('did not open a chat');
     });
   }
+
+  it('has no composer when the item has no conversation (Chat.available false)', () => {
+    const m = msg(null, { availability: null }, false);
+    expect(chatOpen(undefined, m)).toBe(false);
+    const el = mount(m);
+    expect(el.querySelector('textarea')).toBeNull();
+    expect(el.textContent).toContain('did not open a chat');
+  });
+
+  it('says a reply refused as unsupported was not possible, with no Retry', () => {
+    const m = msg(null);
+    const el = mount(m, { sends: [{ op_id: 'o1', key: 'agent:a\u0000it_1', revision: 1, text: 'Hi', files: [], state: 'closed', reason: 'unsupported' }] });
+    expect(el.textContent).toContain('Not sent. This message has no chat.');
+    expect(el.textContent).not.toContain('Retry');
+  });
 
   it('tells the person when the agent is not listening, without blocking', () => {
     const el = mount(msg(null, { availability: 'not_listening' }));
@@ -101,14 +115,9 @@ describe('client API v2 chat composer', () => {
     expect(s.canWrite({ connection: 'inactive', loaded: true })).toBe(false);
   });
 
-  it('leaves the relay rule alone: a relay message with no chat offers none', () => {
-    const relay: HeldMessage = { ...msg(null, {}, false), v2: undefined };
-    expect(chatOpen(undefined, relay)).toBe(false);
-    expect(chatOpen(undefined, msg(null, {}, false))).toBe(true);
-  });
 });
 
-import { answerForm } from '../../../src/state/message';
+import { answerForm, answeredText } from '../../../src/state/message';
 
 describe('client API v2 answers: a plain written answer is always offered', () => {
   const actions = (list: unknown[]) => ({ message_type: 'request', answer_ui: { schema: 'attention-client.actions/1', actions: list } });
@@ -128,5 +137,24 @@ describe('client API v2 answers: a plain written answer is always offered', () =
   it('never offers a written answer on an information message (Seen)', () => {
     const f = answerForm(actions([{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }]) as never, undefined, { plainReply: true });
     expect(f.kind).toBe('seen');
+  });
+});
+
+describe('client API v2 answered card: the kind alone decides', () => {
+  const ui1 = { schema: 'attention-client.ui/1' };
+  const answered = (outcome: Terminal['outcome'], payload: Record<string, unknown> = {}) =>
+    ({ ...msg({ state: 'answered', seq: 2, retracted: false, outcome }), payload } as HeldMessage);
+  it('shows reply text, the choice label, and nothing for Seen or no comment', () => {
+    expect(answeredText(answered({ kind: 'reply', text: 'approve' }, { answer_ui: { schema: 'attention-client.actions/1', actions: [{ id: 'a', label: 'Approve', kind: 'value', value: 'approve' }] } }), null)).toBe('approve');
+    expect(answeredText(answered({ kind: 'choice', choice: { id: 'a', label: 'Approve' } }), null)).toBe('Approve');
+    expect(answeredText(answered({ kind: 'seen' }), 'x')).toBeNull();
+    expect(answeredText(answered({ kind: 'no_comment' }), 'x')).toBeNull();
+  });
+  it('renders a result of any JSON type, including null, 0, false and empty string', () => {
+    for (const [value, text] of [[null, 'null'], [0, '0'], [false, 'false'], ['', ''], [{ cover: 'B' }, '{"cover":"B"}'], [[1, 2], '[1,2]']] as const) {
+      expect(answeredText(answered({ kind: 'result', value: value as never }, { answer_ui: ui1 }), null)).toBe(text);
+    }
+    // This tab's own answer shows its form summary.
+    expect(answeredText(answered({ kind: 'result', value: { cover: 'B' } }, { answer_ui: ui1 }), 'Use cover B')).toBe('Use cover B');
   });
 });

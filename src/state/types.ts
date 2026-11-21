@@ -33,7 +33,7 @@ export function splitKey(key: string): MessageKey {
 export type LifecycleState = 'answered' | 'no_comment' | 'cleared' | 'expired' | 'superseded';
 
 export interface AnswerOutcome {
-  kind: 'seen' | 'reply' | 'no_comment' | 'default' | 'choice';
+  kind: 'seen' | 'reply' | 'no_comment' | 'default' | 'choice' | 'result';
   text?: string;
   value?: Json;
   /** kind choice (client API v2): the matched answer action. */

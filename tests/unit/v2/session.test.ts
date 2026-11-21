@@ -629,6 +629,37 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
+  it('a reply on an item with no conversation is refused as unsupported, shown, and never retried', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const card = [...h.store.state.messages.values()].find((m) => m.payload.title === 'The hosting card expires next month')!;
+    expect(card.chat).toBe(false);
+    await h.s.chat(card, 'Hello?', []);
+    expect(h.store.state.chatSends[0]).toMatchObject({ state: 'closed', reason: 'unsupported' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(h.requests.filter((r) => r.url.endsWith('/replies'))).toHaveLength(1);
+    h.s.stop();
+  });
+
+  it('sends a custom form result of any JSON value with the key present (null, 0, false, empty string)', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const values = [null, 0, false, ''];
+    for (const [i, v] of values.entries()) {
+      await post('send', { message: { sender_id: 'agent:form', message_id: `f${i}`, title: `Form ${i}`, message_type: 'request', answer_ui: { schema: 'attention-client.ui/1' } } });
+      await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === `Form ${i}`));
+      const m = [...h.store.state.messages.values()].find((x) => x.payload.title === `Form ${i}`)!;
+      await h.s.answer(m, v, 'summary', { control: 'form' });
+      await until(() => h.store.state.messages.get(keyFor('agent:form', `f${i}`))!.terminal !== null);
+      expect(h.store.state.messages.get(keyFor('agent:form', `f${i}`))!.terminal?.outcome).toMatchObject({ kind: 'result', value: v });
+    }
+    const bodies = (await fakeState()).answerFrames.map((f: { body: Record<string, unknown> }) => f.body);
+    expect(bodies.map((b: Record<string, unknown>) => ['result' in b, b.result])).toEqual(values.map((v) => [true, v]));
+    h.s.stop();
+  });
+
   it('logs Request-Id, status and token, and never message content', async () => {
     const h = session();
     h.s.start();
