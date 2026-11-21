@@ -4,3 +4,8 @@ unchanged from Harklight Server's tests (SHA-256
 `c616ceac8904ae4d12d66894a31971eeab8111d7d91bbe771489b49e6566f040`). The web
 client gives the same verdicts when validating at the earlier fixed bounds
 (`CORPUS_LIMITS`); its own bounds are the generous `WEB_LIMITS`.
+
+`cover-2x2.avif` is a generated image used to verify that Chromium decodes
+the UI/1 illustration from its typed Blob. The browser tests cover the
+stored AVIF type and the filename fallback for a migrated file. These tests
+exercise AVIF decoding. HEIC decoding depends on browser support.

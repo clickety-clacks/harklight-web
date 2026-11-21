@@ -3,7 +3,7 @@
 // they do not know; these readers take only what the web client uses and
 // drop anything malformed rather than guessing.
 
-import { parse } from '../relay/json';
+import { parse, RawNumber } from '../relay/json';
 import type { Json, JsonObject } from '../state/types';
 
 export interface FileRef {
@@ -63,7 +63,7 @@ export interface Item {
     reply_group?: 'earlier_chat_replies' | 'earlier_chat_replies_unknown';
     reply_rank_key?: string;
     /** The reply row's priority: the highest level among its unseen replies. */
-    reply_priority?: { level: Level };
+    reply_priority?: { level: Level; score?: number };
   };
   /** When the item first reached the person (display only). */
   created_at_ms?: number;
@@ -88,6 +88,12 @@ export interface Item {
  * A `result` entry is a result fact of the origin; the web reads it but does not draw it, as today. */
 export type EntryKind = 'reply' | 'lifecycle' | 'revision' | 'availability' | 'result';
 
+export interface OriginResult {
+  status: 'received' | 'applied' | 'refused';
+  result_ref?: string;
+  revision: number;
+}
+
 export interface Entry {
   entry_id: string;
   item_id: string;
@@ -105,6 +111,7 @@ export interface Entry {
   terminal?: Terminal;
   availability?: { state: AvailabilityState };
   delivery?: { delivered?: boolean; acted?: boolean };
+  result?: OriginResult;
 }
 
 export interface InboxPage {
@@ -173,6 +180,19 @@ function obj(v: unknown): O | null {
 
 function int(v: unknown, min: number): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= min ? v : null;
+}
+
+function readScore(v: unknown): number | undefined {
+  const value = v instanceof RawNumber ? Number(v.text) : v;
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readResult(v: unknown): OriginResult | undefined {
+  const result = obj(v);
+  const revision = int(result?.revision, 1);
+  const status = result?.status;
+  if (revision === null || (status !== 'received' && status !== 'applied' && status !== 'refused')) return undefined;
+  return { status, revision, ...(typeof result?.result_ref === 'string' ? { result_ref: result.result_ref } : {}) };
 }
 
 function id(v: unknown): string | null {
@@ -248,6 +268,10 @@ export function readItem(v: unknown): Item | null {
   const rank = obj(o.rank);
   if (!item_id || rev === null || request_revision === null || !message || typeof o.sender !== 'string') return null;
   if (!chat || !rank || typeof rank.key !== 'string') return null;
+  const replyPriority = obj(chat.reply_priority);
+  const replyLevel = readLevel(replyPriority?.level);
+  const replyScore = readScore(replyPriority?.score);
+  const rankScore = readScore(rank.score);
   return {
     item_id,
     rev,
@@ -265,7 +289,7 @@ export function readItem(v: unknown): Item | null {
       ...(int(chat.unread_replies, 0) !== null ? { unread_replies: chat.unread_replies as number } : {}),
       ...(chat.reply_group === 'earlier_chat_replies' || chat.reply_group === 'earlier_chat_replies_unknown' ? { reply_group: chat.reply_group } : {}),
       ...(typeof chat.reply_rank_key === 'string' ? { reply_rank_key: chat.reply_rank_key } : {}),
-      ...(readLevel(obj(chat.reply_priority)?.level) ? { reply_priority: { level: readLevel(obj(chat.reply_priority)!.level)! } } : {}),
+      ...(replyLevel ? { reply_priority: { level: replyLevel, ...(replyScore !== undefined ? { score: replyScore } : {}) } } : {}),
     },
     ...(int(o.created_at_ms, 0) !== null ? { created_at_ms: o.created_at_ms as number } : {}),
     ...(typeof o.thread === 'string' && o.thread !== '' ? { thread: o.thread } : {}),
@@ -273,7 +297,7 @@ export function readItem(v: unknown): Item | null {
     terminal: readTerminal(o.terminal),
     rank: {
       key: rank.key,
-      ...(typeof rank.score === 'number' && Number.isFinite(rank.score) ? { score: rank.score } : {}),
+      ...(rankScore !== undefined ? { score: rankScore } : {}),
       ...(rank.section === 'current' || rank.section === 'resolved' ? { section: rank.section } : {}),
       ...(rank.group === 'common' || rank.group === 'earlier_messages' ? { group: rank.group } : {}),
       ...(readLevel(rank.level) ? { level: readLevel(rank.level)! } : {}),
@@ -294,7 +318,9 @@ export function readEntry(v: unknown): Entry | null {
   if (!author) return null;
   const state = o.state === 'active' || o.state === 'withdrawn' || o.state === 'retracted' ? o.state : undefined;
   const delivery = obj(o.delivery);
+  const result = o.kind === 'result' ? readResult(o.result) : undefined;
   return {
+    ...(result ? { result } : {}),
     entry_id,
     item_id,
     rev,

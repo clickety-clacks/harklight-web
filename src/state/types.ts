@@ -104,12 +104,14 @@ export interface V2Item {
   thread: string | null;
   /** The item's priority level (Rank.level) and its reply row's (Chat.reply_priority.level). */
   level: 'now' | 'high' | 'normal' | 'low' | null;
+  replyScore: number | null;
   replyLevel: 'now' | 'high' | 'normal' | 'low' | null;
 }
 
 export type TurnAuthor = 'person' | 'origin' | 'agent' | 'server';
 
 export interface Turn {
+  result?: import('../v2/wire').OriginResult;
   /** event_id when known, else a local id. */
   id: string;
   seq: number | null;

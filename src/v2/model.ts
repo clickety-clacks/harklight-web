@@ -90,6 +90,7 @@ function toHeld(item: Item): HeldMessage {
       replyRankKey: item.chat.reply_rank_key ?? null,
       thread: item.thread ?? null,
       level: item.rank.level ?? null,
+      replyScore: item.chat.reply_priority?.score ?? null,
       replyLevel: item.chat.reply_priority?.level ?? null,
     },
   };
@@ -143,6 +144,7 @@ function toTurn(e: Entry): Turn {
     ...(e.in_reply_to ? { in_reply_to: e.in_reply_to } : {}),
     rev: e.rev,
     ...(e.state ? { state: e.state } : {}),
+    ...(e.result ? { result: e.result } : {}),
   };
 }
 
@@ -230,9 +232,9 @@ export function viewOf(s: State): ServerView {
           conversationSeq: seq,
           openAt: seq,
           unseen: v.unreadReplies!,
-          score: v.score,
+          score: v.replyScore,
           historical: false,
-          priority: markOf(v.replyLevel),
+          priority: markOf(v.replyLevel, v.replyScore),
         },
       });
     }

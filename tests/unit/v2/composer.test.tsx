@@ -25,6 +25,7 @@ function v2(over: Partial<V2Item> = {}): V2Item {
     replyRankKey: null,
     thread: null,
     level: null,
+    replyScore: null,
     replyLevel: null,
     ...over,
   };
