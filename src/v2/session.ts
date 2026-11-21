@@ -17,6 +17,7 @@ import type { Config } from '../config';
 import { parse } from '../relay/json';
 import type { LocalAnswer, Store } from '../state/store';
 import type { ChatSend, HeldMessage, Json } from '../state/types';
+import { parseUi1Limits } from '../ui1/validate';
 import { ErrorLog } from './errorLog';
 import { ApiError, call, NetworkError, newKey, seg, type ApiDeps, type Response2 } from './http';
 import { applyEntry, applyItem, applyRemoved, itemIdOf, keyOfItem, Model, viewOf, wantThread } from './model';
@@ -82,6 +83,19 @@ export interface FrozenWrite {
 }
 
 class Ended extends Error {}
+
+/**
+ * The feed can bring the person's own chat turn before the reply's response
+ * arrives. That turn settles the oldest pending send it matches, so the chat
+ * never shows it twice; the response, when it comes, finds nothing left.
+ */
+function settleSend(s: import('../state/store').State, key: string | undefined, e: import('./wire').Entry): void {
+  if (!key || e.kind !== 'reply' || e.author !== 'person') return;
+  const i = s.chatSends.findIndex(
+    (c) => c.key === key && (c.state === 'sending' || c.state === 'sent') && c.text === (e.text ?? '') && c.files.length === (e.files?.length ?? 0),
+  );
+  if (i >= 0) s.chatSends = s.chatSends.filter((_, j) => j !== i);
+}
 
 export class V2Session {
   readonly log: ErrorLog;
@@ -285,7 +299,9 @@ export class V2Session {
       const me = readMe((await this.get('/me', 'me')).body);
       if (!me) return;
       this.store.update((s) => {
-        s.fileLimits = { inline: me.inlineBudget, cap: me.uploadCap };
+        // The answer-screen limits the Server publishes; the web's own generous set otherwise.
+        const ui1 = parseUi1Limits(me.answerUiLimits);
+        s.fileLimits = { inline: me.inlineBudget, cap: me.uploadCap, ...(ui1 ? { ui1 } : {}) };
       });
     } catch {
       // The upload's own answer still says when a file is too large.
@@ -330,7 +346,7 @@ export class V2Session {
         const page = readEntriesPage(r.body);
         if (!page) return;
         this.store.update((s) => {
-          for (const e of page.entries) applyEntry(s, this.model, e);
+          for (const e of page.entries) if (applyEntry(s, this.model, e)) settleSend(s, key, e);
           s.view = viewOf(s);
         });
         if (!page.older || page.entries.length === 0) return;
@@ -372,7 +388,7 @@ export class V2Session {
     if (!w) return;
     this.store.update((s) => {
       if (w.item) applyItem(s, this.model, w.item);
-      if (w.entry) applyEntry(s, this.model, w.entry);
+      if (w.entry && applyEntry(s, this.model, w.entry)) settleSend(s, this.model.keyFor(w.entry.item_id), w.entry);
       s.view = viewOf(s);
     });
   }
@@ -488,7 +504,7 @@ export class V2Session {
           if (typeof id === 'string') applyRemoved(s, this.model, id, c.rev);
         } else if (c.kind === 'entry') {
           const e = readEntry(c.data);
-          if (e) applyEntry(s, this.model, e);
+          if (e && applyEntry(s, this.model, e)) settleSend(s, this.model.keyFor(e.item_id), e);
         }
         // counts and settings: nothing the web client draws.
       }
