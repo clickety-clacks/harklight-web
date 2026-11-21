@@ -9,6 +9,8 @@ import { RelaySession } from '../../src/relay/session';
 import type { SocketLike } from '../../src/relay/connection';
 import { Store } from '../../src/state/store';
 import { keyOf } from '../../src/state/types';
+import { fetchFileLimits } from '../../src/relay/files';
+import { WEB_LIMITS } from '../../src/ui1/validate';
 
 let server: { port: number; close: () => Promise<void> };
 const base = () => `http://127.0.0.1:${server.port}`;
@@ -248,6 +250,14 @@ describe('relay session', () => {
     await until(() => store2.state.connection === 'connected');
     await post('inactive');
     await until(() => store2.state.connection === 'inactive');
+  });
+});
+
+describe('file limits', () => {
+  it('carry the custom-screen bounds the Server publishes', async () => {
+    const limits = await fetchFileLimits({ base: '/browser/v1', fetch: (path, init) => fetch(`${base()}${String(path)}`, init) }, '00000000-0000-4000-8000-000000000000');
+    expect(limits.ui1).toEqual(WEB_LIMITS);
+    expect(typeof limits.inline).toBe('number');
   });
 });
 

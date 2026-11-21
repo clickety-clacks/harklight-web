@@ -635,7 +635,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
     if (req.method !== 'POST') return json(res, 405, {});
     if (url.pathname === '/browser/v1/upload') {
       const len = Number(req.headers['content-length'] ?? 0);
-      if (len > UPLOAD_CAP) return json(res, 413, { v: 1, type: 'error', reason: 'upload_cap_exceeded', upload_cap_bytes_per_file: UPLOAD_CAP, answer_ui_limits: ANSWER_UI_LIMITS });
+      if (len > UPLOAD_CAP) return json(res, 413, { v: 1, type: 'error', reason: 'upload_cap_exceeded', upload_cap_bytes_per_file: UPLOAD_CAP });
       const bytes = await readBody(req);
       const name = Buffer.from(String(req.headers['x-harklight-file-name']), 'base64url').toString('utf8');
       const op = String(req.headers['x-harklight-op-id']);
@@ -647,7 +647,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       return json(res, 200, { v: 1, type: 'ok', upload_id: id, name, size: up.size, sha256: up.sha256, duplicate: false });
     }
     const body = JSON.parse((await readBody(req)).toString() || '{}');
-    if (body.type === 'file_limits') return json(res, 200, { v: 1, type: 'ok', inline_decoded_bytes_per_entry: INLINE_LIMIT, upload_cap_bytes_per_file: UPLOAD_CAP });
+    if (body.type === 'file_limits') return json(res, 200, { v: 1, type: 'ok', inline_decoded_bytes_per_entry: INLINE_LIMIT, upload_cap_bytes_per_file: UPLOAD_CAP, answer_ui_limits: ANSWER_UI_LIMITS });
     if (body.type === 'discard_uploads') {
       let n = 0;
       for (const [id, u] of world.uploads) if (u.recipient === recipient && !u.referenced) (world.uploads.delete(id), n++);
