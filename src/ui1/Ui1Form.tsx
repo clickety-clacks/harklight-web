@@ -322,7 +322,7 @@ function ImagePrimitive({ prim, ctx }: { prim: Obj; ctx: FormContext }) {
     return () => {
       live = false;
     };
-  }, [file?.name, file?.file_id]);
+  }, [file?.name, file?.file_id, ctx.imageUrl]);
   const x = num(prim.x);
   const y = num(prim.y);
   const w = num(prim.width);

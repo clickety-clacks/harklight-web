@@ -24,31 +24,28 @@ export function formPictureType(f: Pick<WireFile, 'name' | 'content_type'>): str
   return t && FORM_PICTURE_TYPES.has(t) ? t : null;
 }
 
-const cache = new Map<string, Promise<string | null>>();
+const cache = new Map<string, { retry: number; url: Promise<string | null> }>();
 
 /**
  * A URL the page can draw for a picture a custom answer form names. Files are
  * served as downloads, so they are read as bytes and shown from memory.
  */
-export function imageUrlFor(f: WireFile, fileHref: (id: string) => string): Promise<string | null> {
+export function imageUrlFor(f: WireFile, pictureBytes: (id: string) => Promise<ArrayBuffer>, retry = 0): Promise<string | null> {
   const key = f.file_id ?? `${f.name}\u0000${f.sha256 ?? ''}`;
-  let p = cache.get(key);
-  if (!p) {
-    p = load(f, fileHref);
-    cache.set(key, p);
-  }
-  return p;
+  const held = cache.get(key);
+  if (held?.retry === retry) return held.url;
+  const url = held ? held.url.then((previous) => previous ?? load(f, pictureBytes)) : load(f, pictureBytes);
+  cache.set(key, { retry, url });
+  return url;
 }
 
-async function load(f: WireFile, fileHref: (id: string) => string): Promise<string | null> {
+async function load(f: WireFile, pictureBytes: (id: string) => Promise<ArrayBuffer>): Promise<string | null> {
   try {
     // Form pictures display independently of chat files.
     if (f.file_id) {
       const type = formPictureType(f);
       if (!type) return null;
-      const res = await fetch(fileHref(f.file_id), { credentials: 'same-origin', redirect: 'manual' });
-      if (!res.ok) return null;
-      return URL.createObjectURL(new Blob([await res.arrayBuffer()], { type }));
+      return URL.createObjectURL(new Blob([await pictureBytes(f.file_id)], { type }));
     }
   } catch {
     // Shown as a picture that could not be shown.

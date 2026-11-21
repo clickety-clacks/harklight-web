@@ -36,6 +36,7 @@ export interface LocalAnswer {
 export interface State {
   connection: ConnectionState;
   internalError: ErrorDetails | null;
+  pictureRetry: number;
   displayName: string | null;
   messages: Map<string, HeldMessage>;
   threads: Map<string, Thread>;
@@ -55,6 +56,7 @@ export function initialState(): State {
   return {
     connection: 'connecting',
     internalError: null,
+    pictureRetry: 0,
     displayName: null,
     messages: new Map(),
     threads: new Map(),

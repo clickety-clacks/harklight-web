@@ -116,6 +116,7 @@ export class V2Session {
   private retry: (() => void) | null = null;
   private recovering = false;
   private feedFault = false;
+  private internalFaults = new Map<string, ApiError>();
   private failedEntryReads = new Set<string>();
   private seenSent = new Set<string>();
   private readsInFlight = new Set<string>();
@@ -141,6 +142,7 @@ export class V2Session {
       base: `${deps.origin ?? ''}${deps.config.apiPath}`,
       fetch: deps.fetch,
       log: this.log,
+      internalFaults: this.internalFaults,
       onInternalError: (details) => this.store.update((s) => {
         if (!this.feedFault || details.op === 'changes') s.internalError = details;
       }),
@@ -169,6 +171,13 @@ export class V2Session {
     return s.loaded && (s.connection === 'connected' || s.connection === 'reconnecting' || s.connection === 'connecting');
   }
 
+  async pictureBytes(id: string): Promise<ArrayBuffer> {
+    const result = await call(this.api, `/files/${seg(id)}`, {
+      op: 'file_preview', responseBytes: true, automatic: true,
+    });
+    return result.body as ArrayBuffer;
+  }
+
   /** Where a file is read from. */
   fileHref(fileId: string): string {
     return `${this.deps.config.apiPath}/files/${seg(fileId)}`;
@@ -191,17 +200,10 @@ export class V2Session {
   /** Try now instead of waiting, for example when the network comes back. */
   nudge(foreground = false): void {
     if (foreground && this.feedFault) return this.tryAgain();
+    if (foreground && !this.stopped && this.internalFaults.size > 0) this.retryAutomaticRequests();
     if (foreground && this.store.state.connection === 'inactive' && !this.pausePolling && !this.left) {
       this.pausePolling = true;
       void this.pollPause();
-    }
-    if (foreground && !this.stopped) {
-      for (const key of this.failedEntryReads) {
-        const full = this.entriesLoading.get(key)?.full;
-        this.entriesLoading.delete(key);
-        if (this.store.state.messages.has(key)) void this.loadEntries(key, { full });
-      }
-      this.failedEntryReads.clear();
     }
     if (this.stopped || !this.retry) return;
     const run = this.retry;
@@ -212,10 +214,16 @@ export class V2Session {
 
   /** After a failure a retry will not fix: start again, keeping what the tab holds. */
   tryAgain(): void {
-    if (this.stopped || this.store.state.connection !== 'failed') return;
+    if (this.stopped) return;
+    if (this.store.state.connection !== 'failed') {
+      const op = this.store.state.internalError?.op;
+      if (op) this.retryAutomaticRequests(op);
+      return;
+    }
     this.attempt = 0;
     if (this.feedFault) {
       this.feedFault = false;
+      this.internalFaults.clear();
       this.store.update((s) => {
         s.internalError = null;
         s.connection = s.loaded ? 'reconnecting' : 'connecting';
@@ -225,6 +233,31 @@ export class V2Session {
     // it and now is skipped; only a tab that never loaded starts afresh.
     if (this.store.state.loaded) void this.recover();
     else void this.baseline(false);
+  }
+
+  private retryAutomaticRequests(op?: string): void {
+    const operations = new Set<string>();
+    for (const key of this.internalFaults.keys()) {
+      const operation = key.slice(0, key.indexOf(':'));
+      if (op && operation !== op) continue;
+      operations.add(operation);
+      this.internalFaults.delete(key);
+    }
+    if (operations.size === 0) return;
+    this.store.update((s) => {
+      if (s.internalError && operations.has(s.internalError.op)) s.internalError = null;
+      if (operations.has('file_preview')) s.pictureRetry++;
+    });
+    if (operations.has('inbox')) void this.loadMore();
+    if (operations.has('entries')) {
+      for (const key of this.failedEntryReads) {
+        const full = this.entriesLoading.get(key)?.full;
+        this.entriesLoading.delete(key);
+        if (this.store.state.messages.has(key)) void this.loadEntries(key, { full });
+      }
+      this.failedEntryReads.clear();
+    }
+    if (operations.has('me')) void this.readMe();
   }
 
   private later(run: () => void): void {
@@ -323,7 +356,7 @@ export class V2Session {
   // ---------- snapshot ----------
 
   private async get(path: string, op: string): Promise<Response2> {
-    return call(this.api, path, { op });
+    return call(this.api, path, { op, automatic: true });
   }
 
   private async inboxPage(page: string | null): Promise<InboxPage> {
@@ -715,6 +748,7 @@ export class V2Session {
         return await call(this.api, w.path, {
           op: w.op,
           method: w.method,
+          automatic: w.op === 'seen' || w.op === 'read_position',
           ...(file ? { bytes: file.bytes, fileName: file.name } : { json: w.body }),
           idempotencyKey: w.key,
         });

@@ -197,6 +197,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const onRetry = () => selected && session.retryAnswer(selected);
   const onEdit = () => selected && session.editFailedAnswer(selected);
 
+  const imageUrl = useCallback((f: WireFile) => imageUrlFor(f, (id) => session.pictureBytes(id), s.pictureRetry), [session, s.pictureRetry]);
+
   // A paused account keeps whatever the tab already holds readable; only when
   // nothing was ever loaded is there nothing to show but the notice.
   if (s.connection === 'inactive' && !s.loaded) return <AccountNotice config={config} />;
@@ -216,7 +218,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const chatVisible = !!message && chatWanted && !dropOnNarrow;
   const sender = message ? senderLabel(message) : '';
   const fileHref = (id: string) => session.fileHref(id);
-  const imageUrl = (f: WireFile) => imageUrlFor(f, fileHref);
   const canWrite = session.canWrite(s);
 
   const list = (
@@ -446,16 +447,17 @@ function ConnectionBanner({ state, config, onTryAgain }: { state: State; config:
       `Operation: ${op}`,
       `Error: ${token}`,
       ...(status === null ? [] : [`HTTP status: ${status}`]),
-      `Request-Id: ${requestId ?? 'unavailable'}`,
+      `Request-Id: ${requestId ?? (op === 'feed' ? 'unavailable (SSE closing carries none)' : 'unavailable')}`,
     ].join('\n');
     const failed = state.connection === 'failed';
+    const canRetry = failed || ['inbox', 'entries', 'read_position', 'file_preview'].includes(op);
     return (
       <div class="banner banner--bad" role="alert">
         {failed && state.loaded ? 'Live updates paused.' : 'Harklight Server could not finish the request.'}{' '}
         <button type="button" class="tool tool--inline" onClick={() => void navigator.clipboard.writeText(details).catch(() => undefined)}>
           Copy details
         </button>{' '}
-        {failed && <button type="button" class="tool tool--inline" onClick={onTryAgain}>Try again</button>}
+        {canRetry && <button type="button" class="tool tool--inline" onClick={onTryAgain}>Try again</button>}
       </div>
     );
   }
