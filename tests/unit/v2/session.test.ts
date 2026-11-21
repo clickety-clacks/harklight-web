@@ -38,7 +38,7 @@ interface Harness {
   requests: { method: string; url: string; key: string | null }[];
 }
 
-function session(opts: { fetch?: typeof fetch } = {}): Harness {
+function session(opts: { fetch?: typeof fetch; livenessMs?: number } = {}): Harness {
   const store = new Store();
   const sources: NodeEventSource[] = [];
   const requests: Harness['requests'] = [];
@@ -61,6 +61,7 @@ function session(opts: { fetch?: typeof fetch } = {}): Harness {
     // Retries run at once in tests.
     setTimer: (fn, ms) => setTimeout(fn, Math.min(ms, 20)),
     onSessionEnded: () => (ended = true),
+    livenessMs: opts.livenessMs,
   });
   return { s, store, sources, ended: () => ended, requests };
 }
@@ -338,6 +339,8 @@ describe('client API v2 session', () => {
     ]);
     const turn = h.store.state.threads.get(LISBON)!.turns.find((t) => t.text === 'Two files')!;
     expect(turn.files.map((f) => f.size)).toEqual([1000, 300_000]);
+    // Each upload names its file (Content-Disposition filename*).
+    expect(turn.files.map((f) => f.name)).toEqual(['small.png', 'large.bin']);
     expect(turn.files.every((f) => typeof f.file_id === 'string')).toBe(true);
     const uploads = h.requests.filter((r) => r.url.endsWith('/v2/files'));
     expect(uploads).toHaveLength(2);
@@ -415,6 +418,71 @@ describe('client API v2 session', () => {
     h.s.start();
     await until(() => h.store.state.connection === 'inactive');
     expect(h.sources).toHaveLength(0);
+    h.s.stop();
+  });
+
+  it('a paused account keeps what the tab holds readable and stops sending (403 account_paused)', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await post('inactive');
+    await until(() => h.store.state.connection === 'inactive');
+    expect(h.store.state.messages.size).toBe(6);
+    expect(live(h)).toHaveLength(0);
+    expect(h.s.log.list().some((r) => r.closing === 'account_paused')).toBe(true);
+    expect(h.s.canWrite(h.store.state)).toBe(false);
+    h.s.stop();
+  });
+
+  it('a feed silent past the liveness window is reopened from the cursor; heartbeats keep it alive', async () => {
+    await post('heartbeat', { ms: 50 });
+    const h = session({ livenessMs: 400 });
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await new Promise((r) => setTimeout(r, 700));
+    expect(h.sources).toHaveLength(1);
+    await post('mute-feeds');
+    await until(() => h.sources.length === 2 && h.store.state.connection === 'connected');
+    expect(h.sources[0].readyState).toBe(2);
+    expect(h.s.log.list().some((r) => r.closing === 'silent')).toBe(true);
+    await post('send', { message: { sender_id: 'agent:after', message_id: 'a1', title: 'After the silence' } });
+    await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === 'After the silence'));
+    h.s.stop();
+  });
+
+  it('shows an answer given on another device from Terminal.answer', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await post('answer-elsewhere', { title: 'Production deploy failed', text: 'From the phone' });
+    await until(() => h.store.state.messages.get(DEPLOY)!.terminal !== null);
+    expect(h.store.state.messages.get(DEPLOY)!.terminal?.outcome).toMatchObject({ kind: 'reply', text: 'From the phone' });
+    h.s.stop();
+  });
+
+  it('draws unread agent replies as inbox rows, with their text', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const row = () => h.store.state.view?.listItems?.find((i) => i.kind === 'reply' && i.key === LISBON);
+    await until(() => !!row() && (row() as { conversationSeq: number }).conversationSeq > 0);
+    const seq = (row() as { conversationSeq: number }).conversationSeq;
+    expect(h.store.state.threads.get(LISBON)!.turns.find((t) => t.seq === seq)?.text).toBe('Yes. Every room has a desk and wired internet.');
+    h.s.stop();
+  });
+
+  it('draws today\'s sections: free order with finished items under History, and reads file limits from /v2/me', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected' && h.store.state.fileLimits !== null);
+    expect(h.store.state.fileLimits).toEqual({ inline: 262_144, cap: 20_000_000 });
+    const { entries } = await import('../../../src/state/inbox');
+    expect(h.store.state.view!.freeOrder).toBe(true);
+    const list = entries(h.store.state, 'inbox');
+    const history = list.findIndex((e) => e.type === 'heading' && e.title === 'History');
+    expect(history).toBeGreaterThan(0);
+    const after = list.slice(history + 1).filter((e) => e.type === 'message').map((e) => String((e as { message: { payload: Record<string, unknown> } }).message.payload.title));
+    expect(after).toContain('Your week ahead');
     h.s.stop();
   });
 

@@ -96,7 +96,7 @@ export function parseView(r: Record<string, unknown>): ServerView {
 
 /** Free order applies only when every item has a section, sections never go
  * backwards, and each group holds its own kind of item. */
-function freeOrderValid(version: number | null, items: ListItem[]): boolean {
+export function freeOrderValid(version: number | null, items: ListItem[]): boolean {
   if (version !== 1) return false;
   let last = -1;
   for (const it of items) {

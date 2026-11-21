@@ -51,7 +51,9 @@ export function createWorld(now = Date.now(), forms = false) {
     displayName: 'Dana Reyes',
   };
   for (const m of [...(forms ? formFixture(now) : []), ...fixture(now)]) addMessage(w, m.message, m);
-  // Client API v2 sees the same world: its change log starts here, from rev 1.
+  // Client API v2 sees the same world: its change log starts here, from rev 1,
+  // and its inbox order and sections are the relay view's placement.
+  w.placement = () => listItemsOf(w);
   syncV2(w);
   return w;
 }

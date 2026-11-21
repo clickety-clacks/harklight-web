@@ -6,12 +6,11 @@
 // The store keeps its existing shape, so the UI reads v2 items as it reads
 // relay messages: a message key is the item's sender plus its item_id.
 
-import { seenValue } from '../state/message';
 import type { State } from '../state/store';
 import type { AnswerOutcome, HeldMessage, Terminal as HeldTerminal, Thread, Turn, WireFile } from '../state/types';
 import { keyOf, splitKey } from '../state/types';
-import type { ServerView } from '../state/view';
-import type { Entry, FileRef, Item } from './wire';
+import { freeOrderValid, type FreeSection, type ListItem, type ServerView } from '../state/view';
+import type { Entry, FileRef, Item, Terminal } from './wire';
 
 /** Bookkeeping the store does not draw: tombstones and which threads are wanted. */
 export class Model {
@@ -38,48 +37,29 @@ export function toWireFile(f: FileRef): WireFile {
   return { name: f.name, size: f.size, sha256: f.sha256, file_id: f.file_id, ...(f.content_type ? { content_type: f.content_type } : {}) };
 }
 
-/** The answer the person or another of their devices gave, as an answer entry carries it. */
-function answerText(t: Thread | undefined): string | undefined {
-  if (!t) return undefined;
-  for (let i = t.turns.length - 1; i >= 0; i--) {
-    const turn = t.turns[i];
-    if (turn.kind === 'answer' && turn.text !== '') return turn.text;
-  }
-  return undefined;
-}
-
-function terminalOf(
-  t: { state: string; no_comment: boolean } | null,
-  payload: HeldMessage['payload'],
-  rev: number,
-  thread: Thread | undefined,
-): HeldTerminal | null {
+/** Today's terminal state from the item's. The answer is Terminal.answer, as the person sees it. */
+function terminalOf(t: Terminal | null | undefined, rev: number): HeldTerminal | null {
   if (!t) return null;
   if (t.state === 'retracted') return { state: 'cleared', seq: rev, retracted: true, outcome: null };
-  if (t.state !== 'answered') return { state: t.state as HeldTerminal['state'], seq: rev, retracted: false, outcome: null };
-  if (t.no_comment) return { state: 'no_comment', seq: rev, retracted: false, outcome: { kind: 'no_comment' } };
-  let outcome: AnswerOutcome | null = null;
-  // A message whose only answer is Seen was answered Seen.
-  if (seenValue(payload) !== null) outcome = { kind: 'seen' };
-  else {
-    const text = answerText(thread);
-    if (text !== undefined) outcome = { kind: 'reply', text };
-  }
+  const outcome: AnswerOutcome | null = t.answer ? { kind: t.answer.kind, text: t.answer.text, value: t.answer.value } : null;
+  if (t.state !== 'answered') return { state: t.state, seq: rev, retracted: false, outcome };
+  if (outcome?.kind === 'no_comment') return { state: 'no_comment', seq: rev, retracted: false, outcome };
   return { state: 'answered', seq: rev, retracted: false, outcome };
 }
 
-function toHeld(item: Item, thread: Thread | undefined): HeldMessage {
+function toHeld(item: Item): HeldMessage {
   const files = item.files.map(toWireFile);
-  const wireTerminal = item.terminal ? { state: item.terminal.state, no_comment: item.terminal.no_comment === true } : null;
   return {
     sender_id: item.sender,
     message_id: item.item_id,
     payload: item.message,
     revision: item.request_revision,
-    acceptedSeq: item.rev,
-    terminal: terminalOf(wireTerminal, item.message, item.rev, thread),
+    // Arrival order, newest highest, where the store sorts by it.
+    acceptedSeq: item.created_at_ms ?? item.rev,
+    terminal: terminalOf(item.terminal, item.rev),
     files,
-    // The contract carries the current revision's files only; custom forms are checked against them until revision 1's files are available.
+    // Item.files holds every file the current answer screen names, so
+    // custom forms are checked against it alone.
     firstFiles: files,
     chat: item.chat.available,
     v2: {
@@ -92,7 +72,11 @@ function toHeld(item: Item, thread: Thread | undefined): HeldMessage {
       lastOriginReply: item.chat.last_origin_reply ?? null,
       availability: item.availability?.state ?? null,
       as: item.as ?? null,
-      terminal: wireTerminal,
+      unreadReplies: item.chat.unread_replies ?? null,
+      section: item.rank.section ?? null,
+      group: item.rank.group ?? null,
+      replyGroup: item.chat.reply_group ?? null,
+      replyRankKey: item.chat.reply_rank_key ?? null,
     },
   };
 }
@@ -109,7 +93,7 @@ export function applyItem(s: State, model: Model, item: Item): boolean {
   if (prev?.v2 && prev.v2.rev >= item.rev) return false;
   model.keys.set(item.item_id, key);
   const thread = s.threads.get(key);
-  const held = toHeld(item, thread);
+  const held = toHeld(item);
   s.messages.set(key, held);
   if (thread) {
     const retracted = item.terminal?.state === 'retracted';
@@ -185,15 +169,7 @@ export function applyEntry(s: State, model: Model, e: Entry): boolean {
   if (e.delivery?.delivered || e.delivery?.acted) t.delivered.add(e.entry_id);
   if (e.kind === 'availability' && e.availability) t.availability = e.availability.state;
   s.threads.set(key, t);
-  if (e.kind === 'answer') refreshAnswered(s, key);
   return true;
-}
-
-/** An answer entry can name the answer the item's terminal state does not carry. */
-function refreshAnswered(s: State, key: string): void {
-  const m = s.messages.get(key);
-  if (!m?.v2) return;
-  s.messages.set(key, { ...m, terminal: terminalOf(m.v2.terminal, m.payload, m.v2.rev, s.threads.get(key)) });
 }
 
 // ---------- inbox order ----------
@@ -210,21 +186,57 @@ export function compareCodePoints(a: string, b: string): number {
   return a.length - b.length;
 }
 
-/** The inbox order as the store's view: every item, ascending by rank key. */
+/**
+ * The inbox as the store's view: every item, ascending by rank key, with
+ * today's sections. History is drawn for resolved items and the free-order
+ * groups where they change. An item with unread agent chat replies also gets
+ * a reply row, sorted by its own key in the same space (else just before the
+ * item), drawn from Chat.unread_replies and the newest origin reply.
+ */
 export function viewOf(s: State): ServerView {
   const held = [...s.messages.entries()].filter(([, m]) => m.v2);
-  held.sort(([ka, a], [kb, b]) => compareCodePoints(a.v2!.rankKey, b.v2!.rankKey) || compareCodePoints(ka, kb));
-  return {
-    entries: held.map(([key, m]) => ({ key, score: m.v2!.score, thread: null })),
-    listItems: held.map(([key]) => ({ kind: 'message' as const, key, section: null })),
-    freeOrder: false,
-  };
+  type Row = { sort: string; tie: number; key: string; item: ListItem };
+  const rows: Row[] = [];
+  let grouped = false;
+  for (const [key, m] of held) {
+    const v = m.v2!;
+    if (v.group) grouped = true;
+    const section: FreeSection = { state: v.section === 'resolved' ? 'history' : 'active', group: v.group ?? 'common' };
+    rows.push({ sort: v.rankKey, tie: 1, key, item: { kind: 'message', key, section } });
+    if ((v.unreadReplies ?? 0) > 0 && v.lastOriginReply) {
+      const seq = s.threads.get(key)?.turns.find((t) => t.id === v.lastOriginReply)?.seq ?? 0;
+      rows.push({
+        sort: v.replyRankKey ?? v.rankKey,
+        tie: 0,
+        key,
+        item: {
+          kind: 'reply',
+          key,
+          section: { state: 'active', group: v.replyGroup ?? 'common' },
+          conversationSeq: seq,
+          openAt: seq,
+          unseen: v.unreadReplies!,
+          score: v.score,
+          historical: false,
+        },
+      });
+    }
+  }
+  rows.sort((a, b) => compareCodePoints(a.sort, b.sort) || a.tie - b.tie || compareCodePoints(a.key, b.key));
+  const listItems = rows.map((r) => r.item);
+  const entries = rows.filter((r) => r.item.kind === 'message').map((r) => ({ key: r.key, score: s.messages.get(r.key)!.v2!.score, thread: null }));
+  // Free order (the groups and their headings) applies only when the Server
+  // sends groups and they come in today's order.
+  return { entries, listItems, freeOrder: grouped && freeOrderValid(1, listItems) };
 }
 
 /** Unread chat: the newest agent reply is past the read position. */
 export function v2Unread(m: HeldMessage, t: Thread | undefined): boolean {
   const v = m.v2;
-  if (!v || !v.lastOriginReply) return false;
+  if (!v) return false;
+  // The Server's count wins when it sends one.
+  if (v.unreadReplies !== null) return v.unreadReplies > 0;
+  if (!v.lastOriginReply) return false;
   if (v.readPosition === v.lastOriginReply) return false;
   if (v.readPosition && t) {
     const read = t.turns.find((x) => x.id === v.readPosition)?.seq;

@@ -28,8 +28,9 @@ export type AnswerForm =
    * plain Reply and is told so.
    */
   | { kind: 'choices'; choices: Choice[]; notShown?: boolean }
-  /** A custom answer form (attention-client.ui/1) that passed the grammar. */
-  | { kind: 'ui1'; doc: JsonObject };
+  /** A custom answer form (attention-client.ui/1) that passed the grammar,
+   * with a plain written reply beside it where the Server takes one. */
+  | { kind: 'ui1'; doc: JsonObject; reply?: Choice };
 
 const ACTIONS_SCHEMA = 'attention-client.actions/1';
 
@@ -64,7 +65,30 @@ function plainReply(notShown: boolean): AnswerForm {
  * screen that cannot be drawn (unknown version, over a limit, malformed, or
  * forms off) falls back to the plain Reply, with No comment, and says so.
  */
-export function answerForm(payload: JsonObject, forms?: { enabled: boolean; fileNames: string[]; limits?: Ui1Limits }): AnswerForm {
+export function answerForm(
+  payload: JsonObject,
+  forms?: { enabled: boolean; fileNames: string[]; limits?: Ui1Limits },
+  opts: { plainReply?: boolean } = {},
+): AnswerForm {
+  const form = baseForm(payload, forms);
+  if (!opts.plainReply) return form;
+  // Client API v2 takes a plain written answer on every answerable message,
+  // including one with a custom screen, so it is always offered.
+  if (form.kind === 'ui1') return { ...form, reply: plainReplyChoice([]) };
+  if (form.kind === 'choices' && !form.choices.some((c) => c.kind === 'text')) {
+    return { ...form, choices: [...form.choices, plainReplyChoice(form.choices)] };
+  }
+  return form;
+}
+
+/** A written reply choice, under an id no action of the message uses. */
+function plainReplyChoice(taken: Choice[]): Choice {
+  let id = 'reply';
+  while (taken.some((c) => c.id === id)) id = `_${id}`;
+  return { id, label: 'Reply', kind: 'text', suggested: false };
+}
+
+function baseForm(payload: JsonObject, forms?: { enabled: boolean; fileNames: string[]; limits?: Ui1Limits }): AnswerForm {
   const seen = seenValue(payload);
   if (seen !== null) return { kind: 'seen', value: seen };
   if (!('answer_ui' in payload)) {

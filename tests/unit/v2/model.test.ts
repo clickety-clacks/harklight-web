@@ -126,23 +126,39 @@ describe('client API v2 model', () => {
     applyItem(s, m, item({ terminal: { state: 'retracted', at_ms: 1 } }));
     expect(s.messages.get(K)!.terminal).toMatchObject({ retracted: true });
     expect(rows(s, 'inbox').map((r) => r.key)).toEqual([K]);
-    applyItem(s, m, item({ rev: 2, terminal: { state: 'answered', at_ms: 1, no_comment: true } }));
+    applyItem(s, m, item({ rev: 2, terminal: { state: 'answered', at_ms: 1, answer: { kind: 'no_comment' } } }));
     expect(s.messages.get(K)!.terminal?.state).toBe('no_comment');
     const seenUi = { schema: 'attention-client.actions/1', actions: [{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }] };
-    applyItem(s, m, item({ rev: 3, message: { title: 'FYI', answer_ui: seenUi }, terminal: { state: 'answered', at_ms: 1 } }));
+    applyItem(s, m, item({ rev: 3, message: { title: 'FYI', answer_ui: seenUi }, terminal: { state: 'answered', at_ms: 1, answer: { kind: 'seen' } } }));
     expect(s.messages.get(K)!.terminal?.outcome?.kind).toBe('seen');
     applyItem(s, m, item({ rev: 4, terminal: { state: 'superseded', at_ms: 1 } }));
     expect(rows(s, 'inbox')).toHaveLength(0);
   });
 
-  it('an answer entry names the answer the terminal state does not carry', () => {
+  it('shows the answer from Terminal.answer, given here or on another device', () => {
     const s = initialState();
     const m = new Model();
-    applyItem(s, m, item({ terminal: { state: 'answered', at_ms: 1 } }));
-    wantThread(s, K);
+    applyItem(s, m, item({ terminal: { state: 'answered', at_ms: 1, answer: { kind: 'reply', text: 'Ship it' }, by_this_person: true } }));
+    expect(s.messages.get(K)!.terminal).toMatchObject({ state: 'answered', outcome: { kind: 'reply', text: 'Ship it' } });
+    applyItem(s, m, item({ rev: 2, terminal: { state: 'answered', at_ms: 1, answer: { kind: 'default', value: { decision: 'revise' } } } }));
+    expect(s.messages.get(K)!.terminal?.outcome).toEqual({ kind: 'default', text: undefined, value: { decision: 'revise' } });
+    applyItem(s, m, item({ rev: 3, terminal: { state: 'answered', at_ms: 1 } }));
     expect(s.messages.get(K)!.terminal?.outcome).toBeNull();
-    applyEntry(s, m, entry({ entry_id: 'en_9', kind: 'answer', author: 'person', text: 'Ship it', position: 4 }));
-    expect(s.messages.get(K)!.terminal?.outcome).toEqual({ kind: 'reply', text: 'Ship it' });
+  });
+
+  it('draws an unread agent reply row just before its item, from Chat.unread_replies', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ item_id: 'it_a', rank: { key: 'a' } }));
+    applyItem(s, m, item({ item_id: 'it_b', rank: { key: 'b' }, chat: { available: true, started: true, last_origin_reply: 'en_4', read_position: null, unread_replies: 2 } }));
+    const kb = keyOfItem({ sender: 'agent:a', item_id: 'it_b' });
+    wantThread(s, kb);
+    applyEntry(s, m, entry({ item_id: 'it_b', entry_id: 'en_4', position: 4, text: 'Booked it' }));
+    s.view = viewOf(s);
+    expect(s.view.listItems!.map((i) => `${i.kind}:${i.key.split('\u0000')[1]}`)).toEqual(['message:it_a', 'reply:it_b', 'message:it_b']);
+    const reply = s.view.listItems![1];
+    expect(reply.kind === 'reply' && [reply.unseen, reply.conversationSeq]).toEqual([2, 4]);
+    expect(hasUnread(s, kb)).toBe(true);
   });
 
   it('orders the inbox by rank key, by code point', () => {

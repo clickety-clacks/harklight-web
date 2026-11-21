@@ -29,6 +29,7 @@ import {
   readFileCreated,
   readInboxPage,
   readItem,
+  readMe,
   readWriteResult,
   type Change,
   type InboxPage,
@@ -58,6 +59,8 @@ export interface V2Deps {
   origin?: string;
   setTimer?: (fn: () => void, ms: number) => unknown;
   log?: ErrorLog;
+  /** A feed silent this long (no change, no heartbeat) is treated as dead. Default 60 s. */
+  livenessMs?: number;
 }
 
 /** Retry delays: from 1 s, doubling, capped at 60 s (spec section 6.1). */
@@ -181,6 +184,10 @@ export class V2Session {
     this.deps.onSessionEnded();
   }
 
+  /**
+   * The account is paused (403 account_paused): what the tab holds stays
+   * readable, nothing is sent, and the notice says messages are paused.
+   */
   private inactive(): void {
     this.stopped = true;
     this.closeFeed();
@@ -195,8 +202,7 @@ export class V2Session {
     if (e instanceof Ended) return;
     if (e instanceof ApiError) {
       if (e.status === 401) return this.ended();
-      // Assumed to be how /v2 answers an account that cannot use messaging; the contract does not yet say.
-      if (e.status === 403) return this.inactive();
+      if (e.token === 'account_paused') return this.inactive();
       if (!e.retryable && e.status !== 410) {
         this.store.update((s) => {
           s.connection = 'failed';
@@ -265,9 +271,24 @@ export class V2Session {
       // page's rev, so the feed delivers it.
       this.cursor = first.rev;
       if (full) for (const key of this.store.state.threads.keys()) void this.loadEntries(key, true);
+      this.loadReplyThreads();
       this.openFeed();
+      if (!this.store.state.fileLimits) void this.readMe();
     } catch (e) {
       this.readFailed(e, () => void this.baseline(full));
+    }
+  }
+
+  /** File limits for the chat's pre-check; 413 stays the authority. */
+  private async readMe(): Promise<void> {
+    try {
+      const me = readMe((await this.get('/me', 'me')).body);
+      if (!me) return;
+      this.store.update((s) => {
+        s.fileLimits = { inline: me.inlineBudget, cap: me.uploadCap };
+      });
+    } catch {
+      // The upload's own answer still says when a file is too large.
     }
   }
 
@@ -310,6 +331,7 @@ export class V2Session {
         if (!page) return;
         this.store.update((s) => {
           for (const e of page.entries) applyEntry(s, this.model, e);
+          s.view = viewOf(s);
         });
         if (!page.older || page.entries.length === 0) return;
         before = page.entries.reduce((a, b) => (b.position < a.position ? b : a)).entry_id;
@@ -329,6 +351,13 @@ export class V2Session {
       if (item) this.applyItems([item]);
     } catch {
       // The feed brings the change anyway.
+    }
+  }
+
+  /** Unread agent replies show as inbox rows with their text: read those conversations. */
+  private loadReplyThreads(): void {
+    for (const [key, m] of this.store.state.messages) {
+      if ((m.v2?.unreadReplies ?? 0) > 0 && !this.entriesLoading.has(key)) void this.loadEntries(key);
     }
   }
 
@@ -361,8 +390,10 @@ export class V2Session {
     this.closeFeed();
     const es = this.deps.eventSource(`${this.api.base}/changes?after=${this.cursor}`);
     this.feed = es;
+    this.watchLiveness(es);
     es.onopen = () => {
       if (es !== this.feed) return;
+      this.heard = Date.now();
       this.attempt = 0;
       this.store.update((s) => {
         s.connection = 'connected';
@@ -390,10 +421,15 @@ export class V2Session {
     for (const kind of CHANGE_KINDS) {
       es.addEventListener(kind, (ev) => {
         if (es !== this.feed) return;
+        this.heard = Date.now();
         const c = readChange(kind, ev.lastEventId, ev.data);
         if (c) this.applyChanges([c]);
       });
     }
+    // The heartbeat carries no id: it only shows the feed is alive.
+    es.addEventListener('heartbeat', () => {
+      if (es === this.feed) this.heard = Date.now();
+    });
     es.addEventListener('closing', (ev) => {
       if (es !== this.feed) return;
       let reason = 'unknown';
@@ -408,10 +444,34 @@ export class V2Session {
       this.store.update((s) => {
         s.connection = 'reconnecting';
       });
+      if (reason === 'account_paused') return this.inactive();
       // Revoked: the next request finds the sign-in ended (401). A shutdown: try again.
       if (reason === 'revoked') void this.recover();
       else this.later(() => void this.recover());
     });
+  }
+
+  private heard = 0;
+
+  /**
+   * The Server sends a heartbeat event at least every 25 s. A feed that says
+   * nothing for the liveness window is dead even if the browser has not
+   * noticed: it is closed and reopened from the cursor.
+   */
+  private watchLiveness(es: EventSourceLike): void {
+    const window = this.deps.livenessMs ?? 60_000;
+    this.heard = Date.now();
+    const check = () => {
+      if (es !== this.feed || this.stopped) return;
+      const quiet = Date.now() - this.heard;
+      if (quiet < window) return void this.timer(check, window - quiet);
+      this.log.record({ op: 'feed', status: null, token: 'network', requestId: null, closing: 'silent' });
+      this.store.update((s) => {
+        s.connection = 'reconnecting';
+      });
+      this.openFeed();
+    };
+    this.timer(check, window);
   }
 
   private applyChanges(changes: Change[]): void {
@@ -434,6 +494,7 @@ export class V2Session {
       }
       s.view = viewOf(s);
     });
+    this.loadReplyThreads();
   }
 
   /**
@@ -490,19 +551,23 @@ export class V2Session {
   }
 
   /** Send a frozen write, resending after 503 as Retry-After says. */
-  private async write(w: FrozenWrite, bytes?: Blob): Promise<Response2> {
+  private async write(w: FrozenWrite, file?: { bytes: Blob; name: string }): Promise<Response2> {
     for (let busy = 0; ; busy++) {
       try {
         return await call(this.api, w.path, {
           op: w.op,
           method: w.method,
-          ...(bytes ? { bytes } : { json: w.body }),
+          ...(file ? { bytes: file.bytes, fileName: file.name } : { json: w.body }),
           idempotencyKey: w.key,
         });
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           this.ended();
           throw new Ended();
+        }
+        if (e instanceof ApiError && e.token === 'account_paused') {
+          this.inactive();
+          throw e;
         }
         if (e instanceof ApiError && e.retryable && busy < BUSY_RESENDS) {
           await new Promise<void>((r) => this.timer(r, Math.min(e.retryAfterMs ?? 1000, 60_000)));
@@ -618,6 +683,10 @@ export class V2Session {
           void this.refreshItem(key);
           return;
         }
+        if (e.token === 'account_paused') {
+          this.setAnswer(key, { state: 'inactive', reason: 'inactive_account', resend: undefined }, w);
+          return;
+        }
         if (e.token === 'idempotency_conflict') {
           // A client defect: recorded, and never resent under a new key.
           this.setAnswer(key, { state: 'failed', reason: e.token, resend: undefined }, w);
@@ -676,7 +745,7 @@ export class V2Session {
           let k = files.keys.get(f.id);
           if (!k) files.keys.set(f.id, (k = newKey()));
           const up: FrozenWrite = { type: 'v2', op: 'file', method: 'POST', path: '/files', body: null, key: k };
-          const r = await this.write(up, f.file);
+          const r = await this.write(up, { bytes: f.file, name: f.name });
           const created = readFileCreated(r.body);
           if (!created) throw new ApiError(r.status, 'unknown', r.requestId, false, null, null);
           files.ids.set(f.id, created.file_id);
@@ -699,7 +768,7 @@ export class V2Session {
           return;
         }
         if (!(e instanceof ApiError)) throw e;
-        const reason = e.token === 'payload_too_large' ? 'upload_cap_exceeded' : e.token;
+        const reason = e.token === 'payload_too_large' ? 'upload_cap_exceeded' : e.token === 'account_paused' ? 'inactive_account' : e.token;
         this.updateSend(send.op_id, { state: 'failed', reason });
       }
     });

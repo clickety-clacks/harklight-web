@@ -17,10 +17,18 @@ export interface FileRef {
 export type AvailabilityState = 'listening' | 'not_listening' | 'gone' | 'unsupported';
 export type TerminalState = 'answered' | 'cleared' | 'expired' | 'superseded' | 'retracted';
 
+/** The answer as the person sees it (today's answer outcome). `value` only for `default`. */
+export interface Answer {
+  kind: 'seen' | 'reply' | 'default' | 'no_comment';
+  text?: string;
+  value?: Json;
+}
+
 export interface Terminal {
   state: TerminalState;
   at_ms: number;
-  no_comment?: boolean;
+  answer?: Answer;
+  /** By any client of this person. */
   by_this_person?: boolean;
 }
 
@@ -33,13 +41,34 @@ export interface Item {
   files: FileRef[];
   seen: boolean;
   as?: 'message' | 'knock';
-  chat: { available: boolean; started: boolean; read_position?: string | null; last_origin_reply?: string | null };
+  chat: {
+    available: boolean;
+    started: boolean;
+    read_position?: string | null;
+    last_origin_reply?: string | null;
+    /** Agent replies after the read position, counted by the Server. */
+    unread_replies?: number;
+    /** While there are unread replies: the reply row's free-order group and its sort key, in Rank.key's space. */
+    reply_group?: 'earlier_chat_replies' | 'earlier_chat_replies_unknown';
+    reply_rank_key?: string;
+  };
+  /** When the item first reached the person. */
+  created_at_ms?: number;
   availability?: { state: AvailabilityState; last_detached_at_ms?: number };
   terminal?: Terminal | null;
-  rank: { key: string; score?: number; due_at_ms?: number };
+  rank: {
+    key: string;
+    score?: number;
+    due_at_ms?: number;
+    /** History is drawn for `resolved`. */
+    section?: 'current' | 'resolved';
+    /** For current items while the inbox is in free order; `common` has no heading. */
+    group?: 'common' | 'earlier_messages';
+  };
 }
 
-export type EntryKind = 'reply' | 'answer' | 'lifecycle' | 'revision' | 'availability' | 'receipt';
+/** Answers live on Item.terminal and receipts on Entry.delivery, so neither is an entry kind. */
+export type EntryKind = 'reply' | 'lifecycle' | 'revision' | 'availability';
 
 export interface Entry {
   entry_id: string;
@@ -48,7 +77,8 @@ export interface Entry {
   position: number;
   kind: EntryKind;
   author: 'person' | 'origin' | 'server';
-  at_ms: number;
+  /** Absent on entries from before the cut-over. */
+  at_ms?: number;
   request_revision: number;
   text?: string;
   files?: FileRef[];
@@ -79,6 +109,7 @@ export interface WriteResult {
 
 export interface FileCreated {
   file_id: string;
+  name?: string;
   sha256: string;
   size: number;
 }
@@ -108,6 +139,7 @@ export const ERROR_TOKENS = [
   'storage_unavailable',
   'payload_too_large',
   'unsupported',
+  'account_paused',
 ] as const;
 
 export type ErrorToken = (typeof ERROR_TOKENS)[number];
@@ -134,7 +166,18 @@ function optId(v: unknown): string | null {
 
 const AVAILABILITY: AvailabilityState[] = ['listening', 'not_listening', 'gone', 'unsupported'];
 const TERMINAL: TerminalState[] = ['answered', 'cleared', 'expired', 'superseded', 'retracted'];
-const ENTRY_KINDS: EntryKind[] = ['reply', 'answer', 'lifecycle', 'revision', 'availability', 'receipt'];
+const ENTRY_KINDS: EntryKind[] = ['reply', 'lifecycle', 'revision', 'availability'];
+const ANSWER_KINDS: Answer['kind'][] = ['seen', 'reply', 'default', 'no_comment'];
+
+function readAnswer(v: unknown): Answer | undefined {
+  const o = obj(v);
+  if (!o || !ANSWER_KINDS.includes(o.kind as Answer['kind'])) return undefined;
+  return {
+    kind: o.kind as Answer['kind'],
+    ...(typeof o.text === 'string' ? { text: o.text } : {}),
+    ...('value' in o && o.value !== undefined ? { value: o.value as Json } : {}),
+  };
+}
 
 export function readFileRef(v: unknown): FileRef | null {
   const o = obj(v);
@@ -159,10 +202,11 @@ function readFiles(v: unknown): FileRef[] {
 export function readTerminal(v: unknown): Terminal | null {
   const o = obj(v);
   if (!o || !TERMINAL.includes(o.state as TerminalState)) return null;
+  const answer = readAnswer(o.answer);
   return {
     state: o.state as TerminalState,
     at_ms: int(o.at_ms, 0) ?? 0,
-    no_comment: o.no_comment === true,
+    ...(answer ? { answer } : {}),
     by_this_person: o.by_this_person === true,
   };
 }
@@ -197,10 +241,19 @@ export function readItem(v: unknown): Item | null {
       started: chat.started === true,
       read_position: optId(chat.read_position),
       last_origin_reply: optId(chat.last_origin_reply),
+      ...(int(chat.unread_replies, 0) !== null ? { unread_replies: chat.unread_replies as number } : {}),
+      ...(chat.reply_group === 'earlier_chat_replies' || chat.reply_group === 'earlier_chat_replies_unknown' ? { reply_group: chat.reply_group } : {}),
+      ...(typeof chat.reply_rank_key === 'string' ? { reply_rank_key: chat.reply_rank_key } : {}),
     },
+    ...(int(o.created_at_ms, 0) !== null ? { created_at_ms: o.created_at_ms as number } : {}),
     availability: readAvailability(o.availability),
     terminal: readTerminal(o.terminal),
-    rank: { key: rank.key, ...(typeof rank.score === 'number' && Number.isFinite(rank.score) ? { score: rank.score } : {}) },
+    rank: {
+      key: rank.key,
+      ...(typeof rank.score === 'number' && Number.isFinite(rank.score) ? { score: rank.score } : {}),
+      ...(rank.section === 'current' || rank.section === 'resolved' ? { section: rank.section } : {}),
+      ...(rank.group === 'common' || rank.group === 'earlier_messages' ? { group: rank.group } : {}),
+    },
   };
 }
 
@@ -224,7 +277,7 @@ export function readEntry(v: unknown): Entry | null {
     position,
     kind: o.kind as EntryKind,
     author,
-    at_ms: int(o.at_ms, 0) ?? 0,
+    ...(int(o.at_ms, 0) !== null ? { at_ms: o.at_ms as number } : {}),
     request_revision: int(o.request_revision, 1) ?? 1,
     ...(typeof o.text === 'string' ? { text: o.text } : {}),
     files: readFiles(o.files),
@@ -268,7 +321,7 @@ export function readFileCreated(v: unknown): FileCreated | null {
   const file_id = id(o?.file_id);
   const size = int(o?.size, 0);
   if (!o || !file_id || size === null || typeof o.sha256 !== 'string') return null;
-  return { file_id, sha256: o.sha256, size };
+  return { file_id, sha256: o.sha256, size, ...(typeof o.name === 'string' ? { name: o.name } : {}) };
 }
 
 /** One feed event: `id` is the change's rev, `event` its kind. */
@@ -293,6 +346,33 @@ export function readBatchChange(v: unknown): Change | null {
   const rev = int(o?.rev, 1);
   if (!o || rev === null || !CHANGE_KINDS.includes(o.kind as ChangeKind)) return null;
   return { rev, kind: o.kind as ChangeKind, data: o.data };
+}
+
+/** What GET /v2/me says about this person's account and limits. */
+export interface Me {
+  paused: boolean;
+  /** Per-file upload cap in bytes, or null for none. */
+  uploadCap: number | null;
+  inlineBudget: number;
+  answerUiLimits: Record<string, number> | null;
+}
+
+export function readMe(v: unknown): Me | null {
+  const o = obj(v);
+  const limits = obj(o?.limits);
+  if (!o || !limits) return null;
+  const cap = limits.upload_cap_bytes_per_file;
+  // answer_ui_limits sits beside `limits` in the Server's contract doc and
+  // inside it in an earlier ruling; either is read.
+  const ui = obj(o.answer_ui_limits) ?? obj(limits.answer_ui_limits);
+  const caps: Record<string, number> = {};
+  for (const [k, n] of Object.entries(ui ?? {})) if (int(n, 0) !== null) caps[k] = n as number;
+  return {
+    paused: obj(o.account)?.state === 'paused',
+    uploadCap: int(cap, 0),
+    inlineBudget: int(limits.inline_decoded_bytes_per_entry, 0) ?? 0,
+    answerUiLimits: ui ? caps : null,
+  };
 }
 
 export type { Json };
