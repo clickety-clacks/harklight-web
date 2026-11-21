@@ -42,7 +42,7 @@ export interface Response2 {
 export interface CallOptions {
   /** For the error log: what the request is for. */
   op: string;
-  method?: 'GET' | 'POST' | 'PUT';
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** A JSON body, or raw bytes for POST /v2/files. */
   json?: unknown;
   bytes?: Blob;
@@ -116,6 +116,9 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
   }
   const e = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
   const token = ERROR_TOKENS.includes(e.error as ErrorToken) ? (e.error as ErrorToken) : 'unknown';
+  if (o.method === 'DELETE' && res.status === 409 && token === 'already_closed') {
+    return { status: res.status, body: parsed, requestId, replayed: false };
+  }
   const id = requestId ?? (typeof e.request_id === 'string' ? e.request_id : null);
   deps.log.record({ op: o.op, status: res.status, token, requestId: id });
   // A 5xx with no contract body comes from something in front of the Server

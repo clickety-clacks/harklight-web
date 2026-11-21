@@ -315,6 +315,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         void session.chat(message, text, files);
       }}
       onRetry={(op) => session.retryChat(op)}
+      onDiscard={message.v2 ? (op) => session.discardChat(op) : undefined}
+      onRemovePendingFile={session.removeChatFile ? (op, file) => session.removeChatFile?.(op, file) : undefined}
       onReplyVisible={(seq) => session.markRead(selected!, seq)}
       fileHref={fileHref}
     />

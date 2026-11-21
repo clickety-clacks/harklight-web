@@ -20,6 +20,8 @@ export interface ClientSession {
   editFailedAnswer(key: string): void;
   chat(m: HeldMessage, text: string, files: ChatSend['files']): Promise<void>;
   retryChat(opId: string): void;
+  discardChat(opId: string): void;
+  removeChatFile?(opId: string, fileId: string): void;
   markRead(key: string, seq: number): void;
   /** Whether answers and chat can be sent now. */
   canWrite(s: State): boolean;

@@ -387,6 +387,14 @@ export async function serveV2(req, res, url, w, ctx) {
     });
     return res.end(bytes);
   }
+  if (method === 'DELETE' && p.startsWith('/files/')) {
+    const handle = decodeURIComponent(p.slice('/files/'.length));
+    if (!w.uploads.get(handle)?.v2) return fail(res, 404, 'not_found');
+    if (v.downloadableUploads.has(`fu${handle}`)) return fail(res, 409, 'already_closed');
+    w.uploads.delete(handle);
+    res.writeHead(204, { 'request-id': res.requestId });
+    return res.end();
+  }
   if (method === 'POST' && p === '/files') {
     if (!UUID4.test(String(req.headers['idempotency-key'] ?? ''))) return fail(res, 400, 'invalid_field', { field: 'Idempotency-Key' });
     return upload(req, res, w);
