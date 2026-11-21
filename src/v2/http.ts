@@ -3,7 +3,7 @@
 // into one shape (status, token, Request-Id) and recorded in the error log.
 
 import { parse, stringify } from '../state/json';
-import type { ErrorLog } from './errorLog';
+import type { ErrorDetails, ErrorLog } from './errorLog';
 import { ERROR_TOKENS, type ErrorToken } from './wire';
 
 export interface ApiDeps {
@@ -11,6 +11,9 @@ export interface ApiDeps {
   base: string;
   fetch: typeof fetch;
   log: ErrorLog;
+  onInternalError?: (key: string, details: ErrorDetails) => void;
+  onSuccess?: (key: string) => void;
+  internalFaults?: Map<string, ApiError>;
 }
 
 /** A response arrived and it was not a success. */
@@ -49,6 +52,8 @@ export interface CallOptions {
   idempotencyKey?: string;
   /** For POST /v2/files: the file's name, sent as Content-Disposition. */
   fileName?: string;
+  responseBytes?: boolean;
+  automatic?: boolean;
 }
 
 /** RFC 5987 ext-value: UTF-8, percent-encoded outside attr-char. */
@@ -64,7 +69,10 @@ function retryAfter(res: Response): number | null {
 }
 
 export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise<Response2> {
-  const headers: Record<string, string> = { accept: 'application/json' };
+  const faultKey = `${o.op}:${o.method ?? 'GET'}:${path}`;
+  const previous = o.automatic ? deps.internalFaults?.get(faultKey) : undefined;
+  if (previous) throw previous;
+  const headers: Record<string, string> = { accept: o.responseBytes ? 'application/octet-stream, application/json' : 'application/json' };
   let body: BodyInit | undefined;
   if (o.json !== undefined) {
     headers['content-type'] = 'application/json';
@@ -98,6 +106,11 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
   }
   let text: string;
   try {
+    if (res.ok && o.responseBytes) {
+      const body = await res.arrayBuffer();
+      deps.onSuccess?.(faultKey);
+      return { status: res.status, body, requestId, replayed: false };
+    }
     text = await res.text();
   } catch {
     deps.log.record({ op: o.op, status: res.status, token: 'network', requestId });
@@ -112,6 +125,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
     }
   }
   if (res.ok) {
+    deps.onSuccess?.(faultKey);
     return { status: res.status, body: parsed, requestId, replayed: res.headers.get('idempotent-replayed') === 'true' };
   }
   const e = (parsed && typeof parsed === 'object' ? parsed : {}) as Record<string, unknown>;
@@ -120,11 +134,17 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
     return { status: res.status, body: parsed, requestId, replayed: false };
   }
   const id = requestId ?? (typeof e.request_id === 'string' ? e.request_id : null);
-  deps.log.record({ op: o.op, status: res.status, token, requestId: id });
+  const details = { op: o.op, status: res.status, token, requestId: id };
+  deps.log.record(details);
   // A 5xx with no contract body comes from something in front of the Server
   // (a proxy while it restarts): treated like no response, retried.
-  const retryable = typeof e.retryable === 'boolean' ? e.retryable : res.status >= 500;
-  throw new ApiError(res.status, token, id, retryable, retryAfter(res), typeof e.field === 'string' ? e.field : null);
+  const retryable = token !== 'internal_error' && (typeof e.retryable === 'boolean' ? e.retryable : res.status >= 500);
+  const error = new ApiError(res.status, token, id, retryable, token === 'internal_error' ? null : retryAfter(res), typeof e.field === 'string' ? e.field : null);
+  if (token === 'internal_error') {
+    if (o.automatic) deps.internalFaults?.set(faultKey, error);
+    deps.onInternalError?.(faultKey, details);
+  }
+  throw error;
 }
 
 /** A fresh UUIDv4 for an Idempotency-Key, minted once at the person's intent. */

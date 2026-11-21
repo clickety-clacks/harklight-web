@@ -20,15 +20,14 @@ describe('client API v2 pictures', () => {
   it('fetches the bytes and builds a typed Blob; a type not on the list is never fetched', async () => {
     const fetched: string[] = [];
     const blobs: string[] = [];
-    vi.stubGlobal('fetch', async (url: string) => {
-      fetched.push(url);
-      return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'application/octet-stream' } });
-    });
+    const read = async (id: string) => {
+      fetched.push(id);
+      return new Uint8Array([1, 2, 3]).buffer;
+    };
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: (b: Blob) => (blobs.push(b.type), 'blob:x') }));
-    const href = (id: string) => `/v2/files/${id}`;
-    expect(await imageUrlFor({ name: 'a.png', file_id: 'f-png', content_type: 'image/png' }, href)).toBe('blob:x');
-    expect(await imageUrlFor({ name: 'b.svg', file_id: 'f-svg', content_type: 'image/svg+xml' }, href)).toBeNull();
-    expect(fetched).toEqual(['/v2/files/f-png']);
+    expect(await imageUrlFor({ name: 'a.png', file_id: 'f-png', content_type: 'image/png' }, read)).toBe('blob:x');
+    expect(await imageUrlFor({ name: 'b.svg', file_id: 'f-svg', content_type: 'image/svg+xml' }, read)).toBeNull();
+    expect(fetched).toEqual(['f-png']);
     expect(blobs).toEqual(['image/png']);
   });
 });

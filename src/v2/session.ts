@@ -18,7 +18,7 @@ import { parse } from '../state/json';
 import type { LocalAnswer, Store } from '../state/store';
 import type { ChatSend, HeldMessage, Json } from '../state/types';
 import { parseUi1Limits } from '../ui1/validate';
-import { ErrorLog } from './errorLog';
+import { ErrorLog, type ErrorDetails } from './errorLog';
 import { ApiError, call, NetworkError, newKey, seg, type ApiDeps, type Response2 } from './http';
 import { applyEntry, applyItem, applyRemoved, itemIdOf, keyOfItem, Model, viewOf, wantThread } from './model';
 import {
@@ -115,6 +115,10 @@ export class V2Session {
   private attempt = 0;
   private retry: (() => void) | null = null;
   private recovering = false;
+  private feedFault = false;
+  private internalFaults = new Map<string, ApiError>();
+  private requestErrors = new Map<string, ErrorDetails>();
+  private failedEntryReads = new Set<string>();
   private seenSent = new Set<string>();
   private readsInFlight = new Set<string>();
   /** Conversations read or being read: whole (`full`) or just the newest page, for a reply row. */
@@ -135,7 +139,31 @@ export class V2Session {
 
   constructor(private deps: V2Deps) {
     this.log = deps.log ?? new ErrorLog();
-    this.api = { base: `${deps.origin ?? ''}${deps.config.apiPath}`, fetch: deps.fetch, log: this.log };
+    this.api = {
+      base: `${deps.origin ?? ''}${deps.config.apiPath}`,
+      fetch: deps.fetch,
+      log: this.log,
+      internalFaults: this.internalFaults,
+      onInternalError: (key, details) => {
+        this.requestErrors.delete(key);
+        this.requestErrors.set(key, details);
+        if (!this.feedFault || details.op === 'changes') {
+          this.store.update((s) => { s.internalError = details; });
+        }
+      },
+      onSuccess: (key) => {
+        this.internalFaults.delete(key);
+        const previous = this.requestErrors.get(key);
+        this.requestErrors.delete(key);
+        if (previous && this.store.state.internalError === previous && !this.feedFault) {
+          this.store.update((s) => { s.internalError = this.latestRequestError(); });
+        }
+      },
+    };
+  }
+
+  private latestRequestError(): ErrorDetails | null {
+    return [...this.requestErrors.values()].at(-1) ?? null;
   }
 
   private get store(): Store {
@@ -153,6 +181,13 @@ export class V2Session {
    */
   canWrite(s: { connection: string; loaded: boolean }): boolean {
     return s.loaded && (s.connection === 'connected' || s.connection === 'reconnecting' || s.connection === 'connecting');
+  }
+
+  async pictureBytes(id: string): Promise<ArrayBuffer> {
+    const result = await call(this.api, `/files/${seg(id)}`, {
+      op: 'file_preview', responseBytes: true, automatic: true,
+    });
+    return result.body as ArrayBuffer;
   }
 
   /** Where a file is read from. */
@@ -175,7 +210,13 @@ export class V2Session {
   }
 
   /** Try now instead of waiting, for example when the network comes back. */
-  nudge(): void {
+  nudge(foreground = false): void {
+    if (foreground && this.feedFault) return this.tryAgain();
+    if (foreground && !this.stopped && this.internalFaults.size > 0) this.retryAutomaticRequests();
+    if (foreground && this.store.state.connection === 'inactive' && !this.pausePolling && !this.left) {
+      this.pausePolling = true;
+      void this.pollPause();
+    }
     if (this.stopped || !this.retry) return;
     const run = this.retry;
     this.retry = null;
@@ -185,12 +226,49 @@ export class V2Session {
 
   /** After a failure a retry will not fix: start again, keeping what the tab holds. */
   tryAgain(): void {
-    if (this.stopped || this.store.state.connection !== 'failed') return;
+    if (this.stopped) return;
+    if (this.store.state.connection !== 'failed') {
+      const op = this.store.state.internalError?.op;
+      if (op) this.retryAutomaticRequests(op);
+      return;
+    }
     this.attempt = 0;
+    if (this.feedFault) {
+      this.feedFault = false;
+      this.internalFaults.clear();
+      this.store.update((s) => {
+        s.internalError = null;
+        s.connection = s.loaded ? 'reconnecting' : 'connecting';
+      });
+    }
     // Resume from the cursor when the tab holds an inbox, so nothing between
     // it and now is skipped; only a tab that never loaded starts afresh.
     if (this.store.state.loaded) void this.recover();
     else void this.baseline(false);
+  }
+
+  private retryAutomaticRequests(op?: string): void {
+    const operations = new Set<string>();
+    for (const key of this.internalFaults.keys()) {
+      const operation = key.slice(0, key.indexOf(':'));
+      if (op && operation !== op) continue;
+      operations.add(operation);
+      this.internalFaults.delete(key);
+    }
+    if (operations.size === 0) return;
+    this.store.update((s) => {
+      if (operations.has('file_preview')) s.pictureRetry++;
+    });
+    if (operations.has('inbox')) void this.loadMore();
+    if (operations.has('entries')) {
+      for (const key of this.failedEntryReads) {
+        const full = this.entriesLoading.get(key)?.full;
+        this.entriesLoading.delete(key);
+        if (this.store.state.messages.has(key)) void this.loadEntries(key, { full });
+      }
+      this.failedEntryReads.clear();
+    }
+    if (operations.has('me')) void this.readMe();
   }
 
   private later(run: () => void): void {
@@ -249,10 +327,20 @@ export class V2Session {
         else void this.baseline(false);
         return;
       }
-    } catch {
-      // Asked again later.
+    } catch (e) {
+      if (e instanceof ApiError && e.token === 'internal_error') {
+        this.pausePolling = false;
+        return;
+      }
     }
     this.timer(() => void this.pollPause(), PAUSE_POLL_MS);
+  }
+
+  private pauseForFeedError(): void {
+    this.feedFault = true;
+    this.retry = null;
+    this.closeFeed();
+    this.store.update((s) => { s.connection = 'failed'; });
   }
 
   /** A read failed: what the tab does next. */
@@ -262,6 +350,7 @@ export class V2Session {
     if (e instanceof ApiError) {
       if (e.status === 401) return this.ended();
       if (e.token === 'account_paused') return this.inactive();
+      if (e.token === 'internal_error') return this.pauseForFeedError();
       if (!e.retryable && e.status !== 410) {
         this.store.update((s) => {
           s.connection = 'failed';
@@ -278,7 +367,7 @@ export class V2Session {
   // ---------- snapshot ----------
 
   private async get(path: string, op: string): Promise<Response2> {
-    return call(this.api, path, { op });
+    return call(this.api, path, { op, automatic: true });
   }
 
   private async inboxPage(page: string | null): Promise<InboxPage> {
@@ -315,6 +404,7 @@ export class V2Session {
         }
         this.entriesGeneration++;
         this.entriesLoading.clear();
+        this.failedEntryReads.clear();
       }
       this.store.update((s) => {
         if (full) {
@@ -412,6 +502,7 @@ export class V2Session {
         if (generation !== this.entriesGeneration) return;
         const page = readEntriesPage(r.body);
         if (!page) return;
+        this.failedEntryReads.delete(key);
         this.store.update((s) => {
           // Only the newest page can hold a turn a pending send looks like.
           for (const e of page.entries) if (applyEntry(s, this.model, e) && before === null) markLookalike(s, key, e);
@@ -422,6 +513,10 @@ export class V2Session {
       }
     })().catch((e) => {
       if (generation !== this.entriesGeneration) return;
+      if (e instanceof ApiError && e.token === 'internal_error') {
+        this.failedEntryReads.add(key);
+        return;
+      }
       this.entriesLoading.delete(key);
       if (e instanceof ApiError && e.status === 401) this.ended();
     });
@@ -471,7 +566,7 @@ export class V2Session {
   }
 
   private openFeed(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.feedFault) return;
     this.closeFeed();
     const es = this.deps.eventSource(`${this.api.base}/changes?after=${this.cursor}`);
     this.feed = es;
@@ -482,6 +577,7 @@ export class V2Session {
       this.attempt = 0;
       this.store.update((s) => {
         s.connection = 'connected';
+        s.internalError = this.latestRequestError();
       });
       this.flushWaiting();
     };
@@ -526,6 +622,12 @@ export class V2Session {
       }
       // A closing event has no id: it never moves the cursor. Native
       // EventSource hides response headers, including the Server Request-Id.
+      if (reason === 'internal_error') {
+        const details = { op: 'feed', status: null, token: reason, requestId: null };
+        this.log.record(details);
+        this.store.update((s) => { s.internalError = details; });
+        return this.pauseForFeedError();
+      }
       this.log.record({ op: 'feed', status: null, token: 'closing', requestId: null, closing: reason });
       this.closeFeed();
       // The sign-in ended, as a 401 says.
@@ -602,7 +704,7 @@ export class V2Session {
    * full). Otherwise its changes are applied and the feed reopens after them.
    */
   private async recover(): Promise<void> {
-    if (this.stopped || this.recovering) return;
+    if (this.stopped || this.feedFault || this.recovering) return;
     this.recovering = true;
     try {
       const r = await this.get(`/changes?after=${this.cursor}`, 'changes');
@@ -658,6 +760,7 @@ export class V2Session {
         return await call(this.api, w.path, {
           op: w.op,
           method: w.method,
+          automatic: w.op === 'seen' || w.op === 'read_position',
           ...(file ? { bytes: file.bytes, fileName: file.name } : { json: w.body }),
           idempotencyKey: w.key,
         });

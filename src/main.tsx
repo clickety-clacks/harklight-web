@@ -48,7 +48,7 @@ async function main() {
   }
   window.addEventListener('online', () => session.nudge());
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') session.nudge();
+    if (document.visibilityState === 'visible') session.nudge(true);
   });
   session.start();
   render(<App config={config} store={store} session={session} />, document.getElementById('app')!);

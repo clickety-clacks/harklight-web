@@ -26,4 +26,5 @@ export interface ClientSession {
   canWrite(s: State): boolean;
   /** Where a file is downloaded from, by the id the message carries. */
   fileHref(id: string): string;
+  pictureBytes(id: string): Promise<ArrayBuffer>;
 }

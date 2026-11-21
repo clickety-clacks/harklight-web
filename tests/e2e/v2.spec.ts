@@ -98,6 +98,143 @@ test('signing out elsewhere ends the feed (revoked) and the tab leaves for sign-
   await expect(page).toHaveURL(/\/devices$/);
 });
 
+test('an internal feed error pauses live updates and copies safe details from a failed recovery', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openInbox(page);
+  await expect.poll(async () => (await control(page, 'state')).feeds).toBe(1);
+  await control(page, 'closing', { reason: 'internal_error' });
+  const banner = page.getByRole('alert').filter({ hasText: 'Live updates paused.' });
+  await expect(banner).toBeVisible();
+  await control(page, 'internal-error', { path: '/changes' });
+  const batch = page.waitForResponse((res) => new URL(res.url()).pathname === '/v2/changes' && res.status() === 500);
+  await banner.getByRole('button', { name: 'Try again' }).click();
+  const requestId = (await batch).headers()['request-id'];
+  expect(requestId).toBeTruthy();
+  await expect(banner).toBeVisible();
+  await banner.getByRole('button', { name: 'Copy details' }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+    `Operation: changes\nError: internal_error\nHTTP status: 500\nRequest-Id: ${requestId}`,
+  );
+  await control(page, 'internal-error', { on: false });
+  await banner.getByRole('button', { name: 'Try again' }).click();
+  await expect(banner).toHaveCount(0);
+  await expect.poll(async () => (await control(page, 'state')).feeds).toBe(1);
+});
+
+test('a failed older inbox page is not fetched again by the short-list effect', async ({ page }) => {
+  await control(page, 'bulk', { count: 25 });
+  let attempts = 0;
+  let refuse = true;
+  await page.route('**/v2/inbox?page=*', (route) => {
+    attempts++;
+    return refuse && attempts <= 4
+      ? route.fulfill({ status: 500, json: { error: 'internal_error', retryable: false } })
+      : route.continue();
+  });
+  await openInbox(page);
+  await page.getByRole('tab', { name: 'Replied' }).click();
+  await expect(page.getByRole('button', { name: 'Copy details' })).toBeVisible();
+  await expect.poll(() => attempts).toBeGreaterThan(0);
+  await page.waitForTimeout(250);
+  expect(attempts).toBe(1);
+  refuse = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect.poll(() => attempts).toBe(2);
+});
+
+test('a failed visible reply read-position write is not repeated by the observer', async ({ page }) => {
+  const attempted: string[] = [];
+  let refuse = true;
+  await page.route('**/v2/items/*/read-position', (route) => {
+    attempted.push(route.request().postDataJSON().entry_id);
+    return refuse && attempted.length <= 4
+      ? route.fulfill({ status: 500, json: { error: 'internal_error', retryable: false } })
+      : route.continue();
+  });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.getByRole('button', { name: 'Copy details' })).toBeVisible();
+  await expect.poll(() => attempted.length).toBeGreaterThan(0);
+  await page.waitForTimeout(250);
+  expect(attempted).toHaveLength(1);
+  refuse = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect.poll(() => attempted.filter((entry) => entry === attempted[0]).length).toBe(2);
+});
+
+test('a failed UI/1 picture GET is logged and exposes its Request-Id without repeating', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  let attempts = 0;
+  let refuse = true;
+  await page.route('**/v2/files/*', (route) => {
+    attempts++;
+    if (!refuse) return route.continue();
+    return route.fulfill({ status: 500, headers: { 'Request-Id': 'rq_picture' }, json: { error: 'internal_error', retryable: false } });
+  });
+  await openInbox(page);
+  await openRow(page, 'Which cover for the November issue?');
+  await expect(page.locator('.u-img-missing')).toBeVisible();
+  await page.getByRole('button', { name: 'Copy details' }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(
+    'Operation: file_preview\nError: internal_error\nHTTP status: 500\nRequest-Id: rq_picture',
+  );
+  expect(attempts).toBe(1);
+  refuse = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.locator('svg image')).toHaveAttribute('href', /^blob:/);
+  expect(attempts).toBe(2);
+});
+
+test('a successful UI/1 picture does not clear another picture’s failure', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  let failFirst = true;
+  let firstReads = 0;
+  let secondReads = 0;
+  let releaseSecond!: () => void;
+  const secondReady = new Promise<void>((resolve) => { releaseSecond = resolve; });
+  await page.route('**/v2/inbox*', async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    const item = body.items.find((it: { message: { title: string } }) => it.message.title === 'Which cover for the November issue?');
+    if (item) {
+      item.seen = true;
+      const first = item.files[0];
+      item.files.push({ ...first, file_id: 'second-picture', name: 'cover-b.avif', content_type: 'image/avif' });
+      item.message.answer_ui.illustrations[1].primitives.push({ kind: 'image', x: 0, y: 0, width: 400, height: 240, file: 'cover-b.avif' });
+      await page.route(`**/v2/files/${first.file_id}`, (get) => {
+        firstReads++;
+        return failFirst
+          ? get.fulfill({ status: 500, headers: { 'Request-Id': 'rq_first_picture' }, json: { error: 'internal_error', retryable: false } })
+          : get.continue();
+      });
+    }
+    await route.fulfill({ response, json: body });
+  });
+  await page.route('**/v2/files/second-picture', async (route) => {
+    secondReads++;
+    await secondReady;
+    await route.fulfill({ path: 'tests/fixtures/cover-2x2.avif', contentType: 'application/octet-stream' });
+  });
+  await openInbox(page);
+  await openRow(page, 'Which cover for the November issue?');
+  const copy = page.getByRole('button', { name: 'Copy details' });
+  try {
+    await expect(copy).toBeVisible();
+  } finally {
+    releaseSecond();
+  }
+  await expect(page.locator('svg image')).toHaveCount(1);
+  await expect(page.locator('.u-img-missing')).toHaveCount(1);
+  await copy.click({ timeout: 1500 });
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('Request-Id: rq_first_picture');
+  expect([firstReads, secondReads]).toEqual([1, 1]);
+  failFirst = false;
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.locator('svg image')).toHaveCount(2);
+  await expect(copy).toHaveCount(0);
+  expect([firstReads, secondReads]).toEqual([2, 1]);
+});
+
 test('a paused account keeps the inbox readable and says messages are paused', async ({ page }) => {
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
