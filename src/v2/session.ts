@@ -845,6 +845,11 @@ export class V2Session {
           return;
         }
         if (!(e instanceof ApiError)) throw e;
+        if (e.token === 'unsupported') {
+          // The item has no conversation: not possible, and never retried.
+          this.updateSend(send.op_id, { state: 'closed', reason: 'unsupported', lookalike: undefined });
+          return;
+        }
         const reason = e.token === 'payload_too_large' ? 'upload_cap_exceeded' : e.token === 'account_paused' ? 'inactive_account' : e.token;
         this.updateSend(send.op_id, { state: 'failed', reason, lookalike: undefined });
       }

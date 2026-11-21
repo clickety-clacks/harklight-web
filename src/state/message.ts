@@ -2,7 +2,7 @@
 // answer controls and its status. Pure functions over the payload the Server
 // delivered, so they are easy to test.
 
-import { sameJson } from '../relay/json';
+import { sameJson, stringify } from '../relay/json';
 import { UI1_SCHEMA, validateUi1, type Ui1Limits } from '../ui1/validate';
 import type { HeldMessage, Json, JsonObject } from './types';
 
@@ -224,6 +224,11 @@ export function belongsToReplied(m: HeldMessage, localAnswered: boolean): boolea
   return t.state === 'answered' || t.state === 'no_comment';
 }
 
+/** A JSON value as one line of text: a string as itself, anything else as JSON. */
+function jsonText(v: Json): string {
+  return typeof v === 'string' ? v : stringify(v);
+}
+
 export type Priority = 'urgent' | 'high' | null;
 
 /** Priority comes from the priority view's score, as on the phone. */
@@ -238,6 +243,28 @@ export function priorityOf(score: number | null): Priority {
  * choice this tab sent. */
 export function answeredText(m: HeldMessage, localLabel: string | null): string | null {
   const o = m.terminal?.outcome;
+  // Client API v2: the kind alone says what was answered; nothing is inferred
+  // from the shape of the value or the text.
+  if (m.v2 && o) {
+    switch (o.kind) {
+      case 'seen':
+      case 'no_comment':
+        return null;
+      case 'reply':
+        return o.text || null;
+      case 'choice':
+        return o.choice?.label ?? localLabel;
+      case 'default': {
+        if (o.text) return o.text;
+        const form = answerForm(m.payload);
+        const c = form.kind === 'choices' && o.value !== undefined ? form.choices.find((c) => c.kind === 'value' && sameJson(c.value as Json, o.value as Json)) : undefined;
+        return c?.label ?? (o.value !== undefined ? jsonText(o.value) : null);
+      }
+      case 'result':
+        // This tab's own answer shows its form summary; another device's shows the value.
+        return localLabel ?? jsonText(o.value ?? null);
+    }
+  }
   if (o) {
     if (o.kind === 'reply' && o.text !== undefined) {
       // A string choice value reads like typed text on the wire; show its label.

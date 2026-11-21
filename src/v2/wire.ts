@@ -19,7 +19,7 @@ export type TerminalState = 'answered' | 'cleared' | 'expired' | 'superseded' | 
 
 /** The answer as the person sees it (today's answer outcome). `value` only for `default`. */
 export interface Answer {
-  kind: 'seen' | 'reply' | 'default' | 'no_comment' | 'choice';
+  kind: 'seen' | 'reply' | 'default' | 'no_comment' | 'choice' | 'result';
   text?: string;
   value?: Json;
   /** kind choice: the matched answer_ui action. */
@@ -185,7 +185,7 @@ function optId(v: unknown): string | null {
 const AVAILABILITY: AvailabilityState[] = ['listening', 'not_listening', 'gone', 'unsupported'];
 const TERMINAL: TerminalState[] = ['answered', 'cleared', 'expired', 'superseded', 'retracted'];
 const ENTRY_KINDS: EntryKind[] = ['reply', 'lifecycle', 'revision', 'availability', 'result'];
-const ANSWER_KINDS: Answer['kind'][] = ['seen', 'reply', 'default', 'no_comment', 'choice'];
+const ANSWER_KINDS: Answer['kind'][] = ['seen', 'reply', 'default', 'no_comment', 'choice', 'result'];
 
 function readAnswer(v: unknown): Answer | undefined {
   const o = obj(v);

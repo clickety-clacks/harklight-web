@@ -106,7 +106,8 @@ export function Chat(p: ChatProps) {
   // Client API v2: the person can always write here; chat availability and
   // the agent's listening state are only told, never a block.
   const v2 = p.message.v2 !== undefined;
-  const hasChat = p.message.chat || v2;
+  // Only a message with a conversation (Chat.available) has a composer.
+  const hasChat = p.message.chat;
   const availability = p.message.v2?.availability ?? p.thread?.availability ?? null;
   const away = v2 && (availability === 'not_listening' || availability === 'gone');
   const shown = turns.filter((t) => t.kind === 'discussion' || t.kind === 'reply');
@@ -195,7 +196,7 @@ export function Chat(p: ChatProps) {
             <span class={s.state === 'failed' ? 'turn-st turn-st--bad' : 'turn-st'}>
               {s.state === 'sending' && 'Sending'}
               {s.state === 'sent' && 'Sent'}
-              {s.state === 'closed' && 'Not sent. This chat is closed.'}
+              {s.state === 'closed' && (s.reason === 'unsupported' ? 'Not sent. This message has no chat.' : 'Not sent. This chat is closed.')}
               {s.state === 'failed' && (
                 <>
                   <Icon name="warn" />
