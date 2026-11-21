@@ -33,7 +33,6 @@ function v2State(w) {
       positions: new Map(), // entry id -> position
       nextPosition: new Map(), // item id -> next position
       entryIds: new Map(), // world event -> entry id
-      answerText: new Map(), // lifecycle seq -> answer text
       idem: new Map(), // Idempotency-Key -> {digest, status, body}
       inlineFiles: new Map(), // file id -> {bytes, name}
       feeds: new Set(),
@@ -62,12 +61,21 @@ function score(m) {
   return m.payload.urgency === 'now' ? 0.95 : m.payload.urgency === 'high' ? 0.75 : 0.4;
 }
 
-function rankOf(m) {
-  // Waiting first, most urgent first, newest first; then finished, newest first.
-  const k = m.terminal
-    ? `1${pad(1e9 - m.acceptedSeq)}`
-    : `0${pad(1000 - score(m) * 1000, 4)}${pad(1e9 - m.acceptedSeq)}`;
-  return { key: k, score: score(m) };
+/**
+ * Rank from the same placement the relay door's view draws (w.placement):
+ * an item's key is its row's place, its section current or resolved, and an
+ * unread chat-reply row gets its own key in the same space.
+ */
+function placementOf(w, m) {
+  const list = w.placement ? w.placement() : [];
+  const at = (kind) => list.findIndex((it) => it.kind === kind && it.sender_id === m.sender_id && it.message_id === m.message_id);
+  const row = list[at('message')];
+  const reply = at('reply');
+  const resolved = row?.free_section?.state === 'history' || (!row && !!m.terminal);
+  return {
+    rank: { key: pad(at('message') + 1, 6), score: score(m), section: resolved ? 'resolved' : 'current', ...(resolved ? {} : { group: 'common' }) },
+    replyKey: reply >= 0 && list[reply].unseen_count > 0 ? pad(reply + 1, 6) : null,
+  };
 }
 
 /** When each terminal state was first seen, so it reads the same every time. */
@@ -80,7 +88,12 @@ function terminalOf(w, m) {
   const at_ms = terminalAt.get(t);
   if (t.terminal_reason === 'retracted') return { state: 'retracted', at_ms };
   const state = ['answered', 'cleared', 'expired', 'superseded'].includes(t.state) ? t.state : 'answered';
-  return { state, at_ms, no_comment: t.terminal_kind === 'no_comment', by_this_person: t.by === 'answer' || t.by === 'answer_no_comment' };
+  // Terminal.answer is the person-facing answer outcome, carried as it is.
+  const o = t.terminal_kind === 'no_comment' ? { kind: 'no_comment' } : t.answer_outcome;
+  const answer = o && ['seen', 'reply', 'default', 'no_comment'].includes(o.kind)
+    ? { kind: o.kind, ...(typeof o.text === 'string' ? { text: o.text } : {}), ...(o.kind === 'default' && 'value' in o ? { value: o.value } : {}) }
+    : null;
+  return { state, at_ms, ...(answer ? { answer } : {}), by_this_person: state === 'answered' };
 }
 
 function convOf(w, m) {
@@ -140,26 +153,26 @@ function entriesOf(w, m) {
       ...(person ? { delivery: { delivered: delivered.has(e.event_id), acted: false } } : {}),
     });
   }
-  const v = v2State(w);
+  // A lifecycle entry is only the retraction fact; answers live on Item.terminal.
   for (const ev of w.events) {
-    if (ev.type !== 'lifecycle' || ev.sender_id !== m.sender_id || ev.message_id !== m.message_id) continue;
+    if (ev.type !== 'lifecycle' || ev.terminal_reason !== 'retracted' || ev.sender_id !== m.sender_id || ev.message_id !== m.message_id) continue;
     const entry_id = entryIdFor(w, ev);
-    const person = ev.state === 'answered';
-    const text = v.answerText.get(ev.seq) ?? (ev.answer_outcome?.kind === 'reply' ? ev.answer_outcome.text : undefined);
     out.push({
       entry_id,
       item_id: itemId,
       position: positionFor(w, itemId, entry_id),
       at_ms: ev.at ?? 0,
       request_revision: m.revision,
-      kind: ev.state === 'answered' ? 'answer' : 'lifecycle',
-      author: person ? 'person' : 'origin',
-      ...(text !== undefined ? { text } : {}),
-      terminal: terminalOf(w, { terminal: ev }),
+      kind: 'lifecycle',
+      author: 'origin',
+      terminal: { state: 'retracted', at_ms: ev.at ?? 0 },
     });
   }
   return out.sort((a, b) => a.position - b.position);
 }
+
+/** When each message first reached the person. */
+const firstSeen = new WeakMap();
 
 function itemOf(w, m) {
   const conv = convOf(w, m);
@@ -167,6 +180,9 @@ function itemOf(w, m) {
   const replies = entries.filter((e) => e.kind === 'reply' && e.author === 'origin');
   const readSeq = w.readPositions.get(key(m.sender_id, m.message_id));
   const readEv = readSeq === undefined ? null : conv.find((e) => e.conversation_seq === readSeq);
+  const placed = placementOf(w, m);
+  const unread = conv.filter((e) => e.kind === 'reply' && e.conversation_seq > (readSeq ?? 0)).length;
+  if (!firstSeen.has(m)) firstSeen.set(m, Date.now());
   return {
     item_id: itemIdOf(m),
     sender: m.sender_id,
@@ -180,10 +196,13 @@ function itemOf(w, m) {
       started: conv.some((e) => e.kind === 'discussion' || e.kind === 'reply'),
       read_position: readEv ? entryIdFor(w, readEv) : null,
       last_origin_reply: replies.length ? replies[replies.length - 1].entry_id : null,
+      unread_replies: unread,
+      ...(unread > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey } : {}),
     },
+    created_at_ms: firstSeen.get(m),
     ...(m.session_handle ? { availability: { state: m.availability ?? 'listening' } } : {}),
     terminal: terminalOf(w, m),
-    rank: rankOf(m),
+    rank: placed.rank,
   };
 }
 
@@ -258,8 +277,8 @@ export async function serveV2(req, res, url, w, ctx) {
   const method = req.method;
   // A signed-out browser gets 401 JSON on every /v2 path, never a redirect.
   if (!w.sessionLive) return fail(res, 401, 'unauthorized');
-  // How /v2 answers an account that cannot use messaging is not in the contract yet; 403 is assumed.
-  if (w.inactive) return fail(res, 403, 'forbidden');
+  // A paused account: 403 account_paused on every /v2 request but GET /v2/me.
+  if (w.inactive && p !== '/me') return fail(res, 403, 'account_paused');
   if (p.startsWith('/devices/me')) return fail(res, 403, 'forbidden');
   if (method !== 'GET') {
     const origin = req.headers.origin;
@@ -268,6 +287,15 @@ export async function serveV2(req, res, url, w, ctx) {
   syncV2(w);
 
   if (method === 'GET' && p === '/changes') return changes(req, res, url, w);
+  if (method === 'GET' && p === '/me') {
+    return send(res, 200, {
+      account: { state: w.inactive ? 'paused' : 'active' },
+      limits: { upload_cap_bytes_per_file: w.uploadCap ?? 'none', inline_decoded_bytes_per_entry: 262_144 },
+      answer_ui_limits: {},
+      retention_days: 30,
+      features: { server_matched_push_routing: true, priority_level_editing: true },
+    });
+  }
   if (method === 'GET' && p === '/inbox') {
     const items = [...w.messages.values()].map((m) => withRev(w, itemIdOf(m), itemOf(w, m)));
     items.sort((a, b) => (a.rank.key < b.rank.key ? -1 : a.rank.key > b.rank.key ? 1 : 0));
@@ -302,13 +330,19 @@ export async function serveV2(req, res, url, w, ctx) {
     return upload(req, res, w);
   }
 
-  const m = /^\/items\/([^/]+)(\/[a-z-]+)?$/.exec(p);
+  const m = /^\/items\/([^/]+)(\/[a-z-]+(?:\/[0-9]+)?)?$/.exec(p);
   if (!m) return fail(res, 404, 'not_found');
   const item = findItem(w, decodeURIComponent(m[1]));
   if (!item) return fail(res, 404, 'not_found');
   const k = key(item.sender_id, item.message_id);
   const sub = m[2] ?? '';
   if (method === 'GET' && sub === '') return send(res, 200, { rev: v.rev, item: withRev(w, itemIdOf(item), itemOf(w, item)) });
+  const revision = /^\/revisions\/([0-9]+)$/.exec(sub);
+  if (method === 'GET' && revision) {
+    // The fake keeps one revision of each message.
+    if (Number(revision[1]) !== item.revision) return fail(res, 404, 'not_found');
+    return send(res, 200, { rev: v.rev, revision: { request_revision: item.revision, message: item.payload, files: (item.files ?? []).map((f) => fileRef(w, f)) } });
+  }
   if (method === 'GET' && sub === '/entries') {
     const all = entriesOf(w, item).map((e) => withRev(w, e.entry_id, e));
     const before = url.searchParams.get('before');
@@ -399,9 +433,10 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
       if (!a) return [400, { error: 'invalid_field', field: 'choice', retryable: false }];
       value = a.id === 'seen' && actions.length === 1 ? null : a.value;
     } else if (body.comment !== undefined) {
-      // A message with no answer_ui takes a written reply (assumed: the contract does not yet say).
-      if (typeof body.comment !== 'string' || (ui && !actions.some((x) => x.kind === 'text')))
-        return [400, { error: 'invalid_field', field: 'comment', retryable: false }];
+      // A plain written answer is taken on every answerable item, whatever its
+      // answer screen; an item with no open request (an FYI) is not answerable.
+      const fyi = item.payload.message_type === 'fyi' || (actions.length === 1 && actions[0].id === 'seen');
+      if (typeof body.comment !== 'string' || fyi) return [400, { error: 'invalid_field', field: 'comment', retryable: false }];
       value = body.comment;
       text = body.comment;
     } else if (body.result !== undefined) {
@@ -413,9 +448,9 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
       w.lastAnswer = { key: k, answer: null, noComment: true };
       return [200, done()];
     }
-    const outcome = value === null ? { kind: 'seen' } : typeof value === 'string' ? { kind: 'reply', text: value } : undefined;
-    const ev = ctx.terminate(k, { state: 'answered', by: 'answer', ...(outcome ? { answer_outcome: outcome } : {}) });
-    if (text !== undefined) v2State(w).answerText.set(ev.seq, text);
+    const outcome =
+      value === null ? { kind: 'seen' } : text !== undefined || typeof value === 'string' ? { kind: 'reply', text: text ?? value } : body.choice !== undefined ? { kind: 'default', value } : undefined;
+    ctx.terminate(k, { state: 'answered', by: 'answer', ...(outcome ? { answer_outcome: outcome } : {}) });
     w.lastAnswer = { key: k, answer: value };
     return [200, done()];
   };
@@ -457,6 +492,17 @@ function idempotent(req, res, w, raw, run) {
   return send(res, status, full);
 }
 
+/** The name from `Content-Disposition: attachment; filename*=UTF-8''<percent-encoded>` (RFC 6266, 5987). */
+function fileNameOf(header) {
+  const m = /filename\*=UTF-8''([^;]+)/i.exec(String(header ?? ''));
+  if (!m) return null;
+  try {
+    return decodeURIComponent(m[1].trim()) || null;
+  } catch {
+    return null;
+  }
+}
+
 async function upload(req, res, w) {
   const len = Number(req.headers['content-length'] ?? -1);
   if (len > w.uploadCap) return fail(res, 413, 'payload_too_large');
@@ -469,11 +515,12 @@ async function upload(req, res, w) {
     if (held.digest !== digest) return fail(res, 409, 'idempotency_conflict');
     return send(res, held.status, held.body, { 'idempotent-replayed': 'true' });
   }
+  const name = fileNameOf(req.headers['content-disposition']);
+  if (!name) return fail(res, 400, 'invalid_field', { field: 'name' });
   const id = `f_${randomUUID()}`;
-  // POST /v2/files carries no file name in the contract yet, so uploads are unnamed here.
-  const up = { id, name: 'file', size: bytes.length, sha256: sha(bytes), bytes, referenced: false, v2: true, contentType: req.headers['content-type'] };
+  const up = { id, name, size: bytes.length, sha256: sha(bytes), bytes, referenced: false, v2: true, contentType: req.headers['content-type'] };
   w.uploads.set(id, up);
-  const body = { file_id: id, sha256: up.sha256, size: up.size };
+  const body = { file_id: id, name, sha256: up.sha256, size: up.size };
   v.idem.set(k, { digest, status: 201, body });
   (w.v2Uploads = w.v2Uploads ?? []).push({ size: up.size, contentType: up.contentType });
   return send(res, 201, body);
@@ -505,7 +552,9 @@ function changes(req, res, url, w) {
   const feed = {
     sent: after,
     res,
+    muted: false,
     pump() {
+      if (this.muted) return;
       for (const c of v.changes) {
         if (c.rev <= this.sent) continue;
         res.write(`id: ${c.rev}\nevent: ${c.kind}\ndata: ${JSON.stringify(c.data)}\n\n`);
@@ -524,7 +573,8 @@ function changes(req, res, url, w) {
     },
   };
   v.feeds.add(feed);
-  const beat = setInterval(() => res.write(': heartbeat\n\n'), HEARTBEAT_MS);
+  // The heartbeat is an event with no id: it never moves Last-Event-ID.
+  const beat = setInterval(() => feed.muted || res.write('event: heartbeat\ndata: {}\n\n'), w.heartbeatMs ?? HEARTBEAT_MS);
   res.on('close', () => {
     clearInterval(beat);
     v.feeds.delete(feed);
@@ -559,6 +609,14 @@ export function v2Control(w, what, body) {
     case 'fail-feeds':
       v.failFeeds = body.count ?? 1;
       return true;
+    case 'heartbeat':
+      // Heartbeat interval for feeds opened from now on.
+      w.heartbeatMs = body.ms;
+      return true;
+    case 'mute-feeds':
+      // Open feeds go silent (no changes, no heartbeat) without closing: a dead path the browser has not noticed.
+      for (const f of v.feeds) f.muted = true;
+      return true;
     case 'drop-feeds':
       for (const f of [...v.feeds]) f.drop();
       return true;
@@ -571,7 +629,7 @@ export function v2Control(w, what, body) {
 export function v2Tick(w) {
   const v = v2State(w);
   if (!w.sessionLive) for (const f of [...v.feeds]) f.close('revoked');
-  else if (w.inactive) for (const f of [...v.feeds]) f.drop();
+  else if (w.inactive) for (const f of [...v.feeds]) f.close('account_paused');
   else syncV2(w);
 }
 

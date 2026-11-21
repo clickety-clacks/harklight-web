@@ -18,7 +18,11 @@ function v2(over: Partial<V2Item> = {}): V2Item {
     lastOriginReply: null,
     availability: 'listening',
     as: null,
-    terminal: null,
+    unreadReplies: null,
+    section: null,
+    group: null,
+    replyGroup: null,
+    replyRankKey: null,
     ...over,
   };
 }
@@ -57,10 +61,10 @@ function mount(message: HeldMessage, over: Partial<ChatProps> = {}) {
 
 const STATES: [string, HeldMessage][] = [
   ['open', msg(null)],
-  ['answered', msg({ state: 'answered', seq: 2, retracted: false, outcome: null }, { terminal: { state: 'answered', no_comment: false } })],
+  ['answered', msg({ state: 'answered', seq: 2, retracted: false, outcome: null })],
   ['no comment', msg({ state: 'no_comment', seq: 2, retracted: false, outcome: { kind: 'no_comment' } })],
   ['expired', msg({ state: 'expired', seq: 2, retracted: false, outcome: null })],
-  ['retracted but listed', msg({ state: 'cleared', seq: 2, retracted: true, outcome: null }, { terminal: { state: 'retracted', no_comment: false } })],
+  ['retracted but listed', msg({ state: 'cleared', seq: 2, retracted: true, outcome: null })],
   ['agent not listening', msg(null, { availability: 'not_listening' })],
   ['no chat on the item', msg(null, { availability: null }, false)],
 ];
@@ -98,5 +102,28 @@ describe('client API v2 chat composer', () => {
     const relay: HeldMessage = { ...msg(null, {}, false), v2: undefined };
     expect(chatOpen(undefined, relay)).toBe(false);
     expect(chatOpen(undefined, msg(null, {}, false))).toBe(true);
+  });
+});
+
+import { answerForm } from '../../../src/state/message';
+
+describe('client API v2 answers: a plain written answer is always offered', () => {
+  const actions = (list: unknown[]) => ({ message_type: 'request', answer_ui: { schema: 'attention-client.actions/1', actions: list } });
+  it('adds Reply to choices that have none, and leaves one that has it', () => {
+    const f = answerForm(actions([{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }]) as never, undefined, { plainReply: true });
+    expect(f.kind === 'choices' && f.choices.map((c) => `${c.kind}:${c.id}`)).toEqual(['value:ok', 'text:reply']);
+    const g = answerForm(actions([{ id: 'reply', label: 'Write', kind: 'text' }]) as never, undefined, { plainReply: true });
+    expect(g.kind === 'choices' && g.choices).toHaveLength(1);
+    const h = answerForm(actions([{ id: 'reply', label: 'Yes', kind: 'value', value: 1 }]) as never, undefined, { plainReply: true });
+    expect(h.kind === 'choices' && h.choices.map((c) => c.id)).toEqual(['reply', '_reply']);
+  });
+  it('turns a screen this client cannot draw into a plain reply with a note', () => {
+    const f = answerForm({ message_type: 'request', answer_ui: { schema: 'something.else/9' } } as never, undefined, { plainReply: true });
+    expect(f).toMatchObject({ kind: 'choices', notShown: true });
+    expect(f.kind === 'choices' && f.choices.map((c) => c.kind)).toEqual(['text']);
+  });
+  it('never offers a written answer on an information message (Seen)', () => {
+    const f = answerForm(actions([{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }]) as never, undefined, { plainReply: true });
+    expect(f.kind).toBe('seen');
   });
 });

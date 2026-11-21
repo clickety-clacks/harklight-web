@@ -47,6 +47,14 @@ export interface CallOptions {
   json?: unknown;
   bytes?: Blob;
   idempotencyKey?: string;
+  /** For POST /v2/files: the file's name, sent as Content-Disposition. */
+  fileName?: string;
+}
+
+/** RFC 5987 ext-value: UTF-8, percent-encoded outside attr-char. */
+export function contentDisposition(name: string): string {
+  const encoded = encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `attachment; filename*=UTF-8''${encoded}`;
 }
 
 function retryAfter(res: Response): number | null {
@@ -63,6 +71,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
     body = stringify(o.json);
   } else if (o.bytes) {
     headers['content-type'] = o.bytes.type || 'application/octet-stream';
+    if (o.fileName !== undefined) headers['content-disposition'] = contentDisposition(o.fileName);
     body = o.bytes;
   }
   if (o.idempotencyKey) headers['idempotency-key'] = o.idempotencyKey;

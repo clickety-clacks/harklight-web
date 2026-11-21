@@ -89,8 +89,15 @@ export interface V2Item {
   availability: Availability;
   /** Present when this client is a recipient rather than the item's origin. */
   as: 'message' | 'knock' | null;
-  /** The item's terminal state as the Server sent it. */
-  terminal: { state: string; no_comment: boolean } | null;
+  /** Agent chat replies after the read position, as the Server counts them. */
+  unreadReplies: number | null;
+  /** The inbox section: History is drawn for `resolved`. */
+  section: 'current' | 'resolved' | null;
+  /** The free-order group of a current item. */
+  group: 'common' | 'earlier_messages' | null;
+  /** The unread-reply row's group and sort key, while there are unread replies. */
+  replyGroup: 'earlier_chat_replies' | 'earlier_chat_replies_unknown' | null;
+  replyRankKey: string | null;
 }
 
 export type TurnAuthor = 'person' | 'origin' | 'agent' | 'server';

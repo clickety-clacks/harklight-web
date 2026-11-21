@@ -57,7 +57,7 @@ export interface DetailProps {
 export function Detail(p: DetailProps) {
   const m = p.message;
   const type = messageType(m.payload);
-  const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name), limits: p.ui1Limits });
+  const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name), limits: p.ui1Limits }, { plainReply: !!m.v2 });
   const sender = senderLabel(m);
   // A failed or sending written answer reopens as it was sent, so its text
   // and its Retry survive leaving the message and coming back.
@@ -97,7 +97,7 @@ export function Detail(p: DetailProps) {
   const control = sending || failed ? local!.control : null;
   const statusOf = (id: string): Status => (control === id ? (sending ? 'sending' : 'failed') : null);
 
-  const choices = form.kind === 'choices' ? form.choices : [];
+  const choices = form.kind === 'choices' ? form.choices : form.kind === 'ui1' && form.reply ? [form.reply] : [];
   const replyFailed = failed && choices.some((c) => c.kind === 'text' && c.id === control);
   const formFailed = failed && control === 'form';
   // A failed written answer is held exactly as sent: Retry resends it, and
@@ -121,7 +121,7 @@ export function Detail(p: DetailProps) {
     // A locked failed answer goes out only through Retry, or as a new send after Edit.
     if (!ready || !canAnswer || barRetry) return;
     if (picked === 'no_comment') p.onAnswer({ kind: 'no_comment' });
-    else if (form.kind === 'ui1') {
+    else if (form.kind === 'ui1' && !(form.reply && picked === form.reply.id)) {
       const c = compose(form.doc, draft);
       if (!c.ok) {
         setFormError('Complete the response before sending your answer.');
@@ -341,14 +341,32 @@ export function Detail(p: DetailProps) {
                         // operation is dropped and the next send is new.
                         if (formFrozen) p.onEdit();
                         setDraft(d);
-                        if (picked === 'no_comment') setPicked(null);
+                        if (picked === 'no_comment' || (form.reply && picked === form.reply.id)) setPicked(null);
                       }
                     : null,
                   files: m.firstFiles,
                   imageUrl: p.imageUrl,
                 }}
               />
-              <div class="choices" role="radiogroup" aria-label="No comment">
+              <div class="choices" role="radiogroup" aria-label={form.reply ? 'Other answers' : 'No comment'}>
+                {form.reply && (
+                  <ReplyCard
+                    choice={form.reply}
+                    on={picked === form.reply.id}
+                    text={text}
+                    status={statusOf(form.reply.id)}
+                    dim={sending && control !== form.reply.id}
+                    disabled={!editable}
+                    frozen={replyFrozen && control === form.reply.id}
+                    onPick={() => {
+                      setPicked(form.reply!.id);
+                      setDraft({ ...draft, selected: {} });
+                    }}
+                    onText={setText}
+                    onSubmit={commit}
+                    onEdit={p.onEdit}
+                  />
+                )}
                 <ChoiceCard
                   choice={{ id: 'no_comment', label: 'No comment', kind: 'value', suggested: false }}
                   on={picked === 'no_comment'}
