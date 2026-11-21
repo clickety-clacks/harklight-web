@@ -71,7 +71,11 @@ function fileRef(w, f) {
     if (!v.inlineFiles.has(id)) v.inlineFiles.set(id, { bytes, name: f.name });
     return { file_id: id, name: f.name, size: bytes.length, sha256: sha(bytes) };
   }
-  if (f.file_id) return { file_id: f.file_id, name: f.name, size: f.size, sha256: f.sha256 };
+  if (f.file_id) {
+    // The type a file was uploaded with is stored and shown (FileRef.content_type).
+    const ct = w.uploads.get(f.file_id)?.contentType;
+    return { file_id: f.file_id, name: f.name, size: f.size, sha256: f.sha256, ...(ct ? { content_type: ct } : {}) };
+  }
   return { file_id: f.upload_id, name: f.name, size: f.size, sha256: f.sha256 };
 }
 
@@ -365,11 +369,13 @@ export async function serveV2(req, res, url, w, ctx) {
     const inline = v.inlineFiles.get(id);
     const bytes = up?.referenced ? up.bytes : inline?.bytes;
     if (!bytes) return fail(res, 404, 'not_found');
+    // Served to a browser as a download, never inline on the web origin.
+    const name = up?.name ?? inline?.name ?? 'file';
     res.writeHead(200, {
       'content-type': 'application/octet-stream',
       'content-length': String(bytes.length),
       etag: `"${sha(bytes)}"`,
-      'content-disposition': 'attachment',
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)}`,
       'x-content-type-options': 'nosniff',
       'request-id': res.requestId,
     });
