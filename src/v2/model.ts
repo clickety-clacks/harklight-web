@@ -77,6 +77,7 @@ function toHeld(item: Item): HeldMessage {
       group: item.rank.group ?? null,
       replyGroup: item.chat.reply_group ?? null,
       replyRankKey: item.chat.reply_rank_key ?? null,
+      thread: item.thread ?? null,
     },
   };
 }
@@ -224,7 +225,10 @@ export function viewOf(s: State): ServerView {
   }
   rows.sort((a, b) => compareCodePoints(a.sort, b.sort) || a.tie - b.tie || compareCodePoints(a.key, b.key));
   const listItems = rows.map((r) => r.item);
-  const entries = rows.filter((r) => r.item.kind === 'message').map((r) => ({ key: r.key, score: s.messages.get(r.key)!.v2!.score, thread: null }));
+  // Adjacent open items with the same (sender, thread) draw as one "N messages from" group.
+  const entries = rows
+    .filter((r) => r.item.kind === 'message')
+    .map((r) => ({ key: r.key, score: s.messages.get(r.key)!.v2!.score, thread: s.messages.get(r.key)!.v2!.thread }));
   // Free order (the groups and their headings) applies only when the Server
   // sends groups and they come in today's order.
   return { entries, listItems, freeOrder: grouped && freeOrderValid(1, listItems) };

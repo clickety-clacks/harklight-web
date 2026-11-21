@@ -98,6 +98,8 @@ export interface V2Item {
   /** The unread-reply row's group and sort key, while there are unread replies. */
   replyGroup: 'earlier_chat_replies' | 'earlier_chat_replies_unknown' | null;
   replyRankKey: string | null;
+  /** The effective thread group (with the sender, the group key). */
+  thread: string | null;
 }
 
 export type TurnAuthor = 'person' | 'origin' | 'agent' | 'server';

@@ -52,8 +52,10 @@ export interface Item {
     reply_group?: 'earlier_chat_replies' | 'earlier_chat_replies_unknown';
     reply_rank_key?: string;
   };
-  /** When the item first reached the person. */
+  /** When the item first reached the person (display only). */
   created_at_ms?: number;
+  /** The item's effective thread group, with its sender the group key; absent outside a group. */
+  thread?: string;
   availability?: { state: AvailabilityState; last_detached_at_ms?: number };
   terminal?: Terminal | null;
   rank: {
@@ -246,6 +248,7 @@ export function readItem(v: unknown): Item | null {
       ...(typeof chat.reply_rank_key === 'string' ? { reply_rank_key: chat.reply_rank_key } : {}),
     },
     ...(int(o.created_at_ms, 0) !== null ? { created_at_ms: o.created_at_ms as number } : {}),
+    ...(typeof o.thread === 'string' && o.thread !== '' ? { thread: o.thread } : {}),
     availability: readAvailability(o.availability),
     terminal: readTerminal(o.terminal),
     rank: {

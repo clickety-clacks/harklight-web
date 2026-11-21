@@ -132,3 +132,19 @@ test('a custom form’s pictures show with chat files off: they arrive as files,
   await expect(page.locator('svg image')).toHaveCount(1);
   await expect(page.locator('.u-img-missing')).toHaveCount(0);
 });
+
+test('adjacent messages of one sender’s thread draw as one group (Item.thread)', async ({ page }) => {
+  await openInbox(page);
+  const ask = (id: string) => ({
+    sender_id: 'agent:ops',
+    message_id: id,
+    display_name: 'Ops agent',
+    title: `Approve step ${id}`,
+    message_type: 'request',
+    thread: 'rollout-7',
+    answer_ui: { schema: 'attention-client.actions/1', actions: [{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }] },
+  });
+  await control(page, 'send', { message: ask('s1') });
+  await control(page, 'send', { message: ask('s2') });
+  await expect(page.getByText('2 messages from Ops agent')).toBeVisible();
+});

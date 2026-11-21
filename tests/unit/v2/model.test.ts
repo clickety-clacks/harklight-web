@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rows } from '../../../src/state/inbox';
+import { entries, rows } from '../../../src/state/inbox';
 import { hasUnread, initialState } from '../../../src/state/store';
 import { applyEntry, applyItem, applyRemoved, compareCodePoints, keyOfItem, Model, viewOf, wantThread } from '../../../src/v2/model';
 import { readChange, readEntry, readInboxPage, readItem, readMe, type Entry, type Item } from '../../../src/v2/wire';
@@ -171,6 +171,34 @@ describe('client API v2 model', () => {
     // U+FFFF sorts before U+1F600 by code point (and by UTF-8 bytes), unlike UTF-16 order.
     expect(s.view.listItems!.map((i) => i.key.split('\u0000')[1])).toEqual(['it_c', 'it_b', 'it_a']);
     expect(compareCodePoints('a￿', 'a\u{1F600}')).toBeLessThan(0);
+  });
+});
+
+describe('client API v2 thread groups', () => {
+  const ui = { schema: 'attention-client.actions/1', actions: [{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }] };
+  const open = (id: string, key: string, sender: string, thread?: string) =>
+    item({ item_id: id, sender, rank: { key, section: 'current' }, message: { title: id, display_name: 'Agent A', answer_ui: ui }, ...(thread ? { thread } : {}) });
+
+  it('draws adjacent open items with the same sender and Item.thread as one group', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, open('it_1', 'a', 'agent:a', 't'));
+    applyItem(s, m, open('it_2', 'b', 'agent:a', 't'));
+    applyItem(s, m, open('it_3', 'c', 'agent:a'));
+    s.view = viewOf(s);
+    const e = entries(s, 'inbox');
+    expect(e[0]).toMatchObject({ type: 'thread', label: '2 messages from Agent A' });
+    expect(e.map((x) => x.type)).toEqual(['thread', 'message']);
+  });
+
+  it('keeps the same thread name from another sender apart, and never groups across a gap', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, open('it_1', 'a', 'agent:a', 't'));
+    applyItem(s, m, open('it_2', 'b', 'agent:b', 't'));
+    applyItem(s, m, open('it_3', 'c', 'agent:a', 't'));
+    s.view = viewOf(s);
+    expect(entries(s, 'inbox').map((x) => x.type)).toEqual(['message', 'message', 'message']);
   });
 });
 
