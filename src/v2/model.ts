@@ -6,6 +6,7 @@
 // The store keeps its existing shape, so the UI reads v2 items as it reads
 // relay messages: a message key is the item's sender plus its item_id.
 
+import { seenValue } from '../state/message';
 import type { State } from '../state/store';
 import type { AnswerOutcome, HeldMessage, Terminal as HeldTerminal, Thread, Turn, WireFile } from '../state/types';
 import { keyOf, splitKey } from '../state/types';
@@ -38,10 +39,13 @@ export function toWireFile(f: FileRef): WireFile {
 }
 
 /** Today's terminal state from the item's. The answer is Terminal.answer, as the person sees it. */
-function terminalOf(t: Terminal | null | undefined, rev: number): HeldTerminal | null {
+function terminalOf(t: Terminal | null | undefined, rev: number, payload: HeldMessage['payload']): HeldTerminal | null {
   if (!t) return null;
   if (t.state === 'retracted') return { state: 'cleared', seq: rev, retracted: true, outcome: null };
-  const outcome: AnswerOutcome | null = t.answer ? { kind: t.answer.kind, text: t.answer.text, value: t.answer.value } : null;
+  let outcome: AnswerOutcome | null = t.answer ? { kind: t.answer.kind, text: t.answer.text, value: t.answer.value } : null;
+  // A message whose only answer is Seen, answered with no answer named, was
+  // answered Seen: it keeps its Seen check in the Inbox, as today.
+  if (!outcome && t.state === 'answered' && seenValue(payload) !== null) outcome = { kind: 'seen' };
   if (t.state !== 'answered') return { state: t.state, seq: rev, retracted: false, outcome };
   if (outcome?.kind === 'no_comment') return { state: 'no_comment', seq: rev, retracted: false, outcome };
   return { state: 'answered', seq: rev, retracted: false, outcome };
@@ -56,7 +60,7 @@ function toHeld(item: Item): HeldMessage {
     revision: item.request_revision,
     // Arrival order, newest highest, where the store sorts by it.
     acceptedSeq: item.created_at_ms ?? item.rev,
-    terminal: terminalOf(item.terminal, item.rev),
+    terminal: terminalOf(item.terminal, item.rev, item.message),
     files,
     // Item.files holds every file the current answer screen names, so
     // custom forms are checked against it alone.
