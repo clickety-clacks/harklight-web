@@ -6,7 +6,7 @@
 // The store keeps its existing shape, so the UI reads v2 items as it reads
 // relay messages: a message key is the item's sender plus its item_id.
 
-import { seenValue } from '../state/message';
+import { priorityOf, seenValue } from '../state/message';
 import type { State } from '../state/store';
 import type { AnswerOutcome, HeldMessage, Terminal as HeldTerminal, Thread, Turn, WireFile } from '../state/types';
 import { keyOf, splitKey } from '../state/types';
@@ -244,7 +244,7 @@ export function viewOf(s: State): ServerView {
     .filter((r) => r.item.kind === 'message')
     .map((r) => {
       const v = s.messages.get(r.key)!.v2!;
-      return { key: r.key, score: v.score, thread: v.thread, priority: markOf(v.level) };
+      return { key: r.key, score: v.score, thread: v.thread, priority: markOf(v.level, v.score) };
     });
   // Free order (the groups and their headings) applies only when the Server
   // sends groups and they come in today's order.
@@ -252,11 +252,14 @@ export function viewOf(s: State): ServerView {
 }
 
 /**
- * The urgent and high marks come from the Server's level, never from a score:
- * now is urgent, high is high. With no level there is no mark.
+ * The urgent and high marks, exactly as today: from the Server's level when it
+ * sends one (now is urgent, high is high); otherwise from the score, at
+ * today's thresholds (as under a selected ranking); with neither, no mark (as
+ * for progress messages).
  */
-export function markOf(level: 'now' | 'high' | 'normal' | 'low' | null): 'urgent' | 'high' | null {
-  return level === 'now' ? 'urgent' : level === 'high' ? 'high' : null;
+export function markOf(level: 'now' | 'high' | 'normal' | 'low' | null, score: number | null = null): 'urgent' | 'high' | null {
+  if (level !== null) return level === 'now' ? 'urgent' : level === 'high' ? 'high' : null;
+  return priorityOf(score);
 }
 
 /** Unread chat: the newest agent reply is past the read position. */

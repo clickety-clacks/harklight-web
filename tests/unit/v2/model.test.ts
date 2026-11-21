@@ -211,7 +211,7 @@ describe('client API v2 thread groups', () => {
 });
 
 describe('client API v2 priority marks and choice answers', () => {
-  it('draws the urgent and high marks from Rank.level, never from the score', () => {
+  it('draws the urgent and high marks from Rank.level, else from the score at today\'s thresholds, else none', () => {
     const s = initialState();
     const m = new Model();
     const ui = { schema: 'attention-client.actions/1', actions: [{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }] };
@@ -219,14 +219,22 @@ describe('client API v2 priority marks and choice answers', () => {
       item({ item_id: id, rank: { key, section: 'current', ...(level ? { level } : {}), ...(score !== undefined ? { score } : {}) }, message: { title: id, answer_ui: ui } });
     applyItem(s, m, at('it_now', 'a', 'now', 0.1));
     applyItem(s, m, at('it_high', 'b', 'high'));
+    // A level wins over the score.
     applyItem(s, m, at('it_normal', 'c', 'normal', 0.99));
-    // No level: no mark, even with a score that once meant urgent.
-    applyItem(s, m, at('it_none', 'd', undefined, 0.99));
+    // No level (a selected ranking): the score at today's thresholds.
+    applyItem(s, m, at('it_score_urgent', 'd', undefined, 0.95));
+    applyItem(s, m, at('it_score_high', 'e', undefined, 0.75));
+    applyItem(s, m, at('it_score_plain', 'f', undefined, 0.5));
+    // Neither (a progress message): no mark.
+    applyItem(s, m, at('it_none', 'g'));
     s.view = viewOf(s);
     expect(rows(s, 'inbox').map((r) => [r.key.split('\u0000')[1], r.priority])).toEqual([
       ['it_now', 'urgent'],
       ['it_high', 'high'],
       ['it_normal', null],
+      ['it_score_urgent', 'urgent'],
+      ['it_score_high', 'high'],
+      ['it_score_plain', null],
       ['it_none', null],
     ]);
   });
