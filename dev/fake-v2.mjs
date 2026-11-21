@@ -222,6 +222,8 @@ function itemOf(w, m) {
       ...(unread > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey } : {}),
     },
     created_at_ms: firstSeen.get(m),
+    // The fake's effective thread is the message's own thread, when it has one.
+    ...(typeof m.payload.thread === 'string' ? { thread: m.payload.thread } : {}),
     ...(m.session_handle ? { availability: { state: m.availability ?? 'listening' } } : {}),
     terminal: terminalOf(w, m),
     rank: placed.rank,
