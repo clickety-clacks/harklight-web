@@ -713,6 +713,29 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
+  it('marks from the fake\'s level, from the score under a selected ranking, and none for a progress message', async () => {
+    const { rows } = await import('../../../src/state/inbox');
+    const mark = (h: Harness, title: string) => rows(h.store.state, 'inbox').find((r) => r.message.payload.title === title)?.priority;
+    await post('send', { message: { sender_id: 'agent:p', message_id: 'prog', title: 'Copying files', message_type: 'fyi', urgency: 'now', progress: { done: 1, total: 4 } } });
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    // Baseline: Production deploy failed has level now.
+    expect(h.store.state.messages.get(DEPLOY)!.v2!.level).toBe('now');
+    expect(mark(h, 'Production deploy failed')).toBe('urgent');
+    expect(mark(h, 'Copying files')).toBeNull();
+    h.s.stop();
+    // A selected ranking: no level, the score (0.95) gives the mark.
+    await post('selected-ranking');
+    const h2 = session();
+    h2.s.start();
+    await until(() => h2.store.state.connection === 'connected');
+    expect(h2.store.state.messages.get(DEPLOY)!.v2!.level).toBeNull();
+    expect(mark(h2, 'Production deploy failed')).toBe('urgent');
+    expect(mark(h2, 'Approve the survey questions?')).toBeNull();
+    h2.s.stop();
+  });
+
   it('logs Request-Id, status and token, and never message content', async () => {
     const h = session();
     h.s.start();

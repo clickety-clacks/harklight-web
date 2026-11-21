@@ -102,10 +102,12 @@ function placementOf(w, m) {
   return {
     rank: {
       key: pad(at('message') + 1, 6),
-      score: score(m),
+      // A progress message is not in the priority view: no score, no level.
+      ...(m.payload.progress ? {} : { score: score(m) }),
       section: resolved ? 'resolved' : 'current',
-      // Every current item has a level; the marks come from it.
-      ...(resolved ? {} : { group: 'common', level: levelOf(m) }),
+      // Current items carry a level under the baseline view; a selected
+      // ranking (the selected-ranking control) and progress messages carry none.
+      ...(resolved ? {} : { group: 'common', ...(w.selectedRanking || m.payload.progress ? {} : { level: levelOf(m) }) }),
     },
     replyKey: reply >= 0 && list[reply].unseen_count > 0 ? pad(reply + 1, 6) : null,
   };
@@ -719,6 +721,10 @@ export function v2Control(w, what, body) {
     case 'formless':
       // Log rows with nothing a client is sent (count of them): the position moves, no change does.
       v.rev += body.count ?? 1;
+      return true;
+    case 'selected-ranking':
+      // A selected ranking is in use: current items carry a score but no level.
+      w.selectedRanking = body.on !== false;
       return true;
     case 'heartbeat':
       // Heartbeat interval for feeds opened from now on.
