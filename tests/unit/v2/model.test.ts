@@ -211,27 +211,32 @@ describe('client API v2 thread groups', () => {
 });
 
 describe('client API v2 priority marks and choice answers', () => {
-  it('draws the urgent and high marks from Rank.level, else from the score at today\'s thresholds, else none', () => {
+  it('draws the urgent and high marks from the score at today\'s thresholds, else from Rank.level, else none', () => {
     const s = initialState();
     const m = new Model();
     const ui = { schema: 'attention-client.actions/1', actions: [{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }] };
     const at = (id: string, key: string, level?: 'now' | 'high' | 'normal' | 'low', score?: number) =>
       item({ item_id: id, rank: { key, section: 'current', ...(level ? { level } : {}), ...(score !== undefined ? { score } : {}) }, message: { title: id, answer_ui: ui } });
-    applyItem(s, m, at('it_now', 'a', 'now', 0.1));
-    applyItem(s, m, at('it_high', 'b', 'high'));
-    // A level wins over the score.
-    applyItem(s, m, at('it_normal', 'c', 'normal', 0.99));
-    // No level (a selected ranking): the score at today's thresholds.
-    applyItem(s, m, at('it_score_urgent', 'd', undefined, 0.95));
-    applyItem(s, m, at('it_score_high', 'e', undefined, 0.75));
-    applyItem(s, m, at('it_score_plain', 'f', undefined, 0.5));
+    // Both, disagreeing: the score wins.
+    applyItem(s, m, at('it_both_score_low', 'a', 'now', 0.1));
+    applyItem(s, m, at('it_both_score_high', 'b', 'normal', 0.99));
+    // Level only.
+    applyItem(s, m, at('it_level_now', 'c', 'now'));
+    applyItem(s, m, at('it_level_high', 'd', 'high'));
+    applyItem(s, m, at('it_level_normal', 'e', 'normal'));
+    // Score only (a selected ranking): today's thresholds.
+    applyItem(s, m, at('it_score_urgent', 'f', undefined, 0.95));
+    applyItem(s, m, at('it_score_high', 'g', undefined, 0.75));
+    applyItem(s, m, at('it_score_plain', 'h', undefined, 0.5));
     // Neither (a progress message): no mark.
-    applyItem(s, m, at('it_none', 'g'));
+    applyItem(s, m, at('it_none', 'i'));
     s.view = viewOf(s);
     expect(rows(s, 'inbox').map((r) => [r.key.split('\u0000')[1], r.priority])).toEqual([
-      ['it_now', 'urgent'],
-      ['it_high', 'high'],
-      ['it_normal', null],
+      ['it_both_score_low', null],
+      ['it_both_score_high', 'urgent'],
+      ['it_level_now', 'urgent'],
+      ['it_level_high', 'high'],
+      ['it_level_normal', null],
       ['it_score_urgent', 'urgent'],
       ['it_score_high', 'high'],
       ['it_score_plain', null],

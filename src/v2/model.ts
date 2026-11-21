@@ -252,14 +252,15 @@ export function viewOf(s: State): ServerView {
 }
 
 /**
- * The urgent and high marks, exactly as today: from the Server's level when it
- * sends one (now is urgent, high is high); otherwise from the score, at
- * today's thresholds (as under a selected ranking); with neither, no mark (as
- * for progress messages).
+ * The urgent and high marks, by today's web display rule: from the score when
+ * there is one, at today's thresholds (urgent from 0.9, high from 0.7);
+ * otherwise from the Server's level (now is urgent, high is high); with
+ * neither, no mark (as for progress messages). Settings levels play no part.
  */
 export function markOf(level: 'now' | 'high' | 'normal' | 'low' | null, score: number | null = null): 'urgent' | 'high' | null {
+  if (score !== null && Number.isFinite(score)) return priorityOf(score);
   if (level !== null) return level === 'now' ? 'urgent' : level === 'high' ? 'high' : null;
-  return priorityOf(score);
+  return null;
 }
 
 /** Unread chat: the newest agent reply is past the read position. */
