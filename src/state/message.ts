@@ -3,7 +3,7 @@
 // delivered, so they are easy to test.
 
 import { sameJson } from '../relay/json';
-import { UI1_SCHEMA, validateUi1 } from '../ui1/validate';
+import { UI1_SCHEMA, validateUi1, type Ui1Limits } from '../ui1/validate';
 import type { HeldMessage, Json, JsonObject } from './types';
 
 export type MessageType = 'request' | 'info' | 'done' | 'warn' | 'error';
@@ -64,7 +64,7 @@ function plainReply(notShown: boolean): AnswerForm {
  * screen that cannot be drawn (unknown version, over a limit, malformed, or
  * forms off) falls back to the plain Reply, with No comment, and says so.
  */
-export function answerForm(payload: JsonObject, forms?: { enabled: boolean; fileNames: string[] }): AnswerForm {
+export function answerForm(payload: JsonObject, forms?: { enabled: boolean; fileNames: string[]; limits?: Ui1Limits }): AnswerForm {
   const seen = seenValue(payload);
   if (seen !== null) return { kind: 'seen', value: seen };
   if (!('answer_ui' in payload)) {
@@ -76,7 +76,7 @@ export function answerForm(payload: JsonObject, forms?: { enabled: boolean; file
   const degraded = 'answer_ui_unavailable' in payload;
   if (isObject(ui) && ui.schema === UI1_SCHEMA && forms?.enabled) {
     try {
-      validateUi1(ui, forms.fileNames);
+      validateUi1(ui, forms.fileNames, forms.limits);
       return { kind: 'ui1', doc: ui };
     } catch {
       return plainReply(true);
