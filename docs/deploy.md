@@ -62,7 +62,7 @@ the control that leads there.
 | `devicesPath` | `/devices` |
 | `accountInfoPath` | `/api/profile` |
 | `flags.webClient` | `false`: customers see a short "Web messaging is coming soon" note linking to `devicesPath`, and the page opens no connection |
-| `flags.answerForms` | `false`: custom answer forms (attention-client.ui/1) show "answer it on your iPhone" plus No comment |
+| `flags.answerForms` | `false`: custom answer forms (attention-client.ui/1) offer the plain Reply and No comment, and say the custom screen is not shown |
 | `flags.attachments` | `false`: no attach control; files show name and size only |
 
 A tester can turn every feature on in their own browser only, whatever the

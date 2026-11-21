@@ -12,8 +12,8 @@ export interface Flags {
    * Server's browser file routes are live. Off shows a file's name and size
    * only and offers no attach control (D-7f). */
   attachments: boolean;
-  /** Custom answer forms (attention-client.ui/1). Off shows "answer it on
-   * your iPhone" and No comment. */
+  /** Custom answer forms (attention-client.ui/1). Off offers the plain Reply
+   * and No comment, and says the custom screen is not shown. */
   answerForms: boolean;
 }
 

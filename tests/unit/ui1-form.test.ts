@@ -66,8 +66,9 @@ describe('composing a custom form answer', () => {
   });
   it('draws a form only when the flag is on and the form is valid for the delivered files', () => {
     const files = ['cover-a.jpg', 'cover-b.jpg', 'floor plan.png'];
-    expect(answerForm({ answer_ui: all } as never, { enabled: false, fileNames: files }).kind).toBe('unsupported');
+    const plain = { kind: 'choices', notShown: true, choices: [{ id: 'reply', label: 'Reply', kind: 'text', suggested: false }] };
+    expect(answerForm({ answer_ui: all } as never, { enabled: false, fileNames: files })).toEqual(plain);
     expect(answerForm({ answer_ui: all } as never, { enabled: true, fileNames: files }).kind).toBe('ui1');
-    expect(answerForm({ answer_ui: all } as never, { enabled: true, fileNames: [] }).kind).toBe('unsupported');
+    expect(answerForm({ answer_ui: all } as never, { enabled: true, fileNames: [] })).toEqual(plain);
   });
 });

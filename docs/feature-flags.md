@@ -14,7 +14,7 @@ the Web product owner.
 | Flag | Purpose | Owner | Work item | Default | In production | Remove when |
 | --- | --- | --- | --- | --- | --- | --- |
 | `webClient` | Customers can use web messaging. Off shows the "coming soon" page, and no connection to the Server opens. | Web client delivery owner | `wi_cf6ed278` | off | off | Customers are switched on and the full live message checks pass on hosted. Delete the flag and the "coming soon" page. |
-| `answerForms` | Draws custom answer forms. Off offers No comment and points to the iPhone app. | Web client delivery owner | `wi_cf6ed278` | off | off | Custom forms pass their live check on hosted with customers on. Delete the flag and the off path. |
+| `answerForms` | Draws custom answer forms. Off offers the plain Reply and No comment, and says the custom screen is not shown. | Web client delivery owner | `wi_cf6ed278` | off | off | Custom forms pass their live check on hosted with customers on. Delete the flag and the off path. |
 | `attachments` | Chat files: attaching and uploading, and downloading files. Off sends text only and lists files without a download link. | Web client delivery owner | `wi_cf6ed278` | off | off | A live upload above 256 KB passes on hosted and files are on for customers. Delete the flag and the off path. |
 
 ## The `#preview` tester switch
