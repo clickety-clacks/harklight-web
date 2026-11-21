@@ -147,6 +147,7 @@ export const ERROR_TOKENS = [
   'invalid_field',
   'stale_request',
   'already_answered',
+  'already_closed',
   'already_retracted',
   'idempotency_conflict',
   'precondition_failed',

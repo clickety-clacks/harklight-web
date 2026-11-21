@@ -406,6 +406,9 @@ describe('client API v2 session', () => {
     for (const id of stagingIds) {
       expect((await fetch(`${base()}${h.s.fileHref(id)}`)).status).toBe(404);
     }
+    const attached = await fetch(`${base()}${h.s.fileHref(stagingIds[0])}`, { method: 'DELETE' });
+    expect(attached.status).toBe(409);
+    expect(await attached.json()).toMatchObject({ error: 'already_closed' });
     const rejected = await fetch(`${base()}/v2/items/${itemId('agent:research', 'lisbon')}/replies`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
@@ -421,6 +424,47 @@ describe('client API v2 session', () => {
     expect(got.headers.get('content-type')).toBe('application/octet-stream');
     expect(got.headers.get('content-disposition')).toBe("attachment; filename*=UTF-8''small.png");
     expect((await got.arrayBuffer()).byteLength).toBe(1000);
+    h.s.stop();
+  });
+
+  it('discards staged files when a failed chat attachment is removed or the send is abandoned', async () => {
+    const handles: string[] = [];
+    const deleted: string[] = [];
+    const h = session({
+      fetch: (async (input, init) => {
+        const url = String(input);
+        if (init?.method === 'POST' && url.endsWith('/replies')) {
+          return Response.json({ error: 'invalid_field' }, { status: 400 });
+        }
+        const response = await fetch(input, init);
+        if (init?.method === 'POST' && url.endsWith('/v2/files')) {
+          handles.push((await response.clone().json()).file_id);
+        }
+        if (init?.method === 'DELETE' && response.status === 204) deleted.push(url.split('/').at(-1)!);
+        return response;
+      }) as typeof fetch,
+    });
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const item = h.store.state.messages.get(LISBON)!;
+    const file = new Blob(['fixture']);
+    await h.s.chat(item, 'Keep the text', ['a', 'b'].map((id) => ({ id, name: id, size: file.size, file })));
+    expect(handles).toHaveLength(2);
+    const send = h.store.state.chatSends[0];
+    expect(send.state).toBe('failed');
+
+    h.s.removeChatFile(send.op_id, 'a');
+    await until(() => deleted.length === 1);
+    expect(deleted).toEqual([handles[0]]);
+    const remaining = h.store.state.chatSends[0];
+    expect(remaining.op_id).not.toBe(send.op_id);
+    expect(remaining.files.map((picked) => picked.id)).toEqual(['b']);
+    expect(remaining.text).toBe(send.text);
+
+    h.s.discardChat(remaining.op_id);
+    await until(() => deleted.length === 2);
+    expect(deleted).toEqual(handles);
+    expect(h.store.state.chatSends).toEqual([]);
     h.s.stop();
   });
 

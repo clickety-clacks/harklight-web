@@ -803,12 +803,41 @@ export class V2Session {
     void this.sendReply({ ...c, state: 'sending' });
   }
 
+  private discardUpload(handle: string): void {
+    // Cleanup is best effort, including 409 already_closed if a send landed.
+    void call(this.api, `/files/${seg(handle)}`, { method: 'DELETE', op: 'discard_file', idempotencyKey: newKey() })
+      .catch(() => undefined);
+  }
+
   discardChat(opId: string): void {
+    const files = this.chatFiles.get(opId);
     this.chatFiles.delete(opId);
+    for (const handle of files?.ids.values() ?? []) this.discardUpload(handle);
     this.chatWaiting.delete(opId);
     this.store.update((s) => {
       s.chatSends = s.chatSends.filter((x) => x.op_id !== opId);
     });
+  }
+
+  removeChatFile(opId: string, fileId: string): void {
+    const send = this.store.state.chatSends.find((c) => c.op_id === opId && c.state === 'failed');
+    if (!send || !send.files.some((f) => f.id === fileId)) return;
+    const remaining = send.files.filter((f) => f.id !== fileId);
+    if (remaining.length === 0 && send.text.trim() === '') {
+      this.discardChat(opId);
+      return;
+    }
+    const files = this.chatFiles.get(opId);
+    const handle = files?.ids.get(fileId);
+    files?.ids.delete(fileId);
+    files?.keys.delete(fileId);
+    if (handle) this.discardUpload(handle);
+    this.chatFiles.delete(opId);
+    this.chatWaiting.delete(opId);
+    // Changing the reply body creates a new intent. Retain the other uploads.
+    const replacement = newKey();
+    if (files) this.chatFiles.set(replacement, files);
+    this.updateSend(opId, { op_id: replacement, files: remaining, lookalike: undefined });
   }
 
   private updateSend(opId: string, patch: Partial<ChatSend>): void {
@@ -832,6 +861,10 @@ export class V2Session {
           const r = await this.write(up, { bytes: f.file, name: f.name });
           const created = readFileCreated(r.body);
           if (!created) throw new ApiError(r.status, 'unknown', r.requestId, false, null, null);
+          if (!this.chatFiles.has(send.op_id)) {
+            this.discardUpload(created.file_id);
+            return;
+          }
           files.ids.set(f.id, created.file_id);
         }
         const body: Record<string, unknown> = { text: send.text };

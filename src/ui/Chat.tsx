@@ -25,6 +25,8 @@ export interface ChatProps {
   onDraft: (d: ChatDraft) => void;
   onSend: (text: string, files: PickedFile[]) => void;
   onRetry: (opId: string) => void;
+  onDiscard?: (opId: string) => void;
+  onRemovePendingFile?: (opId: string, fileId: string) => void;
   onReplyVisible: (seq: number) => void;
   fileHref: (uploadId: string) => string;
 }
@@ -191,7 +193,8 @@ export function Chat(p: ChatProps) {
             <span class="who">You</span>
             <span class="turn-text">{s.text}</span>
             {s.files.map((f) => (
-              <FileRow key={f.id} file={{ name: f.name, size: f.size }} download={false} fileHref={p.fileHref} />
+              <FileRow key={f.id} file={{ name: f.name, size: f.size }} download={false} fileHref={p.fileHref}
+                onRemove={s.state === 'failed' && p.onRemovePendingFile ? () => p.onRemovePendingFile?.(s.op_id, f.id) : undefined} />
             ))}
             <span class={s.state === 'failed' ? 'turn-st turn-st--bad' : 'turn-st'}>
               {s.state === 'sending' && 'Sending'}
@@ -209,6 +212,11 @@ export function Chat(p: ChatProps) {
                     </button>
                   )}
                 </>
+              )}
+              {(s.state === 'failed' || s.state === 'closed') && p.onDiscard && (
+                <button type="button" class="link-btn" onClick={() => p.onDiscard?.(s.op_id)}>
+                  Discard
+                </button>
               )}
             </span>
           </div>
