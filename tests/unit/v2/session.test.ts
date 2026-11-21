@@ -561,8 +561,9 @@ describe('client API v2 session', () => {
     expect(h.store.state.connection).toBe('reconnecting');
     await post('send', { message: { sender_id: 'agent:back', message_id: 'b1', title: 'After the restart' } });
     await post('bad-gateway', { on: false });
+    // The recovery batch can bring the message just before the reopened feed opens.
     await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === 'After the restart'));
-    expect(h.store.state.connection).toBe('connected');
+    await until(() => h.store.state.connection === 'connected');
     h.s.stop();
   });
 
@@ -611,6 +612,20 @@ describe('client API v2 session', () => {
     await h.s.answer(card, null, null, { seen: true, control: 'seen' });
     await h.s.answer(h.store.state.messages.get(keyFor('agent:finance', 'card-expiry'))!, null, null, { seen: true, control: 'seen' });
     expect(h.store.state.answers.get(keyFor('agent:finance', 'card-expiry'))).toMatchObject({ state: 'refused', reason: 'closed' });
+    h.s.stop();
+  });
+
+  it('after a recovery the cursor moves to the batch rev, even past its last change', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await post('formless', { count: 3 });
+    const target = (await fakeState()).v2Rev;
+    await post('fail-feeds', { count: 1 });
+    await post('server-shutdown');
+    await until(() => h.sources.length >= 3 && h.store.state.connection === 'connected');
+    const opens = (await fakeState()).feedOpens as { after: number }[];
+    expect(opens.at(-1)!.after).toBe(target);
     h.s.stop();
   });
 

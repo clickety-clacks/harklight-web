@@ -582,9 +582,12 @@ export class V2Session {
     this.recovering = true;
     try {
       const r = await this.get(`/changes?after=${this.cursor}`, 'changes');
-      const b = r.body as { changes?: unknown } | null;
+      const b = r.body as { changes?: unknown; rev?: unknown } | null;
       const list = (Array.isArray(b?.changes) ? b!.changes : []).map(readBatchChange).filter((c): c is Change => c !== null);
       this.applyChanges(list);
+      // The batch's rev is the position it is complete through, which can be
+      // past its last change (rows with nothing to send): the cursor goes there.
+      if (typeof b?.rev === 'number' && Number.isSafeInteger(b.rev) && b.rev > this.cursor) this.cursor = b.rev;
       this.openFeed();
     } catch (e) {
       if (e instanceof ApiError && e.status === 410) {

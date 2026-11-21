@@ -591,7 +591,10 @@ function changes(req, res, url, w) {
   if (!sse) {
     const limit = Math.min(Number(url.searchParams.get('limit') ?? 500) || 500, 500);
     const list = v.changes.filter((c) => c.rev > after).slice(0, limit);
-    return send(res, 200, { changes: list, rev: list.length ? list[list.length - 1].rev : after, more: v.changes.some((c) => c.rev > (list.at(-1)?.rev ?? after)) });
+    const more = v.changes.some((c) => c.rev > (list.at(-1)?.rev ?? after));
+    // rev is the position the batch is complete through: past its last change
+    // when the rest of the log is rows with nothing to send.
+    return send(res, 200, { changes: list, rev: more ? list[list.length - 1].rev : Math.max(v.rev, after), more });
   }
   if (v.failFeeds > 0) {
     v.failFeeds -= 1;
@@ -659,6 +662,10 @@ export function v2Control(w, what, body) {
       return true;
     case 'fail-feeds':
       v.failFeeds = body.count ?? 1;
+      return true;
+    case 'formless':
+      // Log rows with nothing a client is sent (count of them): the position moves, no change does.
+      v.rev += body.count ?? 1;
       return true;
     case 'heartbeat':
       // Heartbeat interval for feeds opened from now on.

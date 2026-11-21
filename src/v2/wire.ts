@@ -69,8 +69,9 @@ export interface Item {
   };
 }
 
-/** Answers live on Item.terminal and receipts on Entry.delivery, so neither is an entry kind. */
-export type EntryKind = 'reply' | 'lifecycle' | 'revision' | 'availability';
+/** Answers live on Item.terminal and receipts on Entry.delivery, so neither is an entry kind.
+ * A `result` entry is a result fact of the origin; the web reads it but does not draw it, as today. */
+export type EntryKind = 'reply' | 'lifecycle' | 'revision' | 'availability' | 'result';
 
 export interface Entry {
   entry_id: string;
@@ -168,7 +169,7 @@ function optId(v: unknown): string | null {
 
 const AVAILABILITY: AvailabilityState[] = ['listening', 'not_listening', 'gone', 'unsupported'];
 const TERMINAL: TerminalState[] = ['answered', 'cleared', 'expired', 'superseded', 'retracted'];
-const ENTRY_KINDS: EntryKind[] = ['reply', 'lifecycle', 'revision', 'availability'];
+const ENTRY_KINDS: EntryKind[] = ['reply', 'lifecycle', 'revision', 'availability', 'result'];
 const ANSWER_KINDS: Answer['kind'][] = ['seen', 'reply', 'default', 'no_comment'];
 
 function readAnswer(v: unknown): Answer | undefined {
