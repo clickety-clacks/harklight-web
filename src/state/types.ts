@@ -141,6 +141,10 @@ export interface ChatSend {
   files: PickedFile[];
   state: 'sending' | 'sent' | 'failed' | 'closed';
   reason?: string;
+  /** Client API v2: a person turn already in the chat that looks like this
+   * send. It is hidden while sending, so it never shows twice, but only its own
+   * response settles it: the turn may be the same text from another device. */
+  lookalike?: string;
 }
 
 export interface PickedFile {
