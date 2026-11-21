@@ -33,9 +33,11 @@ export function splitKey(key: string): MessageKey {
 export type LifecycleState = 'answered' | 'no_comment' | 'cleared' | 'expired' | 'superseded';
 
 export interface AnswerOutcome {
-  kind: 'seen' | 'reply' | 'no_comment' | 'default';
+  kind: 'seen' | 'reply' | 'no_comment' | 'default' | 'choice';
   text?: string;
   value?: Json;
+  /** kind choice (client API v2): the matched answer action. */
+  choice?: { id: string; label: string };
 }
 
 export interface Terminal {
@@ -100,6 +102,9 @@ export interface V2Item {
   replyRankKey: string | null;
   /** The effective thread group (with the sender, the group key). */
   thread: string | null;
+  /** The item's priority level (Rank.level) and its reply row's (Chat.reply_priority.level). */
+  level: 'now' | 'high' | 'normal' | 'low' | null;
+  replyLevel: 'now' | 'high' | 'normal' | 'low' | null;
 }
 
 export type TurnAuthor = 'person' | 'origin' | 'agent' | 'server';

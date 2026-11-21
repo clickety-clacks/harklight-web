@@ -210,6 +210,47 @@ describe('client API v2 thread groups', () => {
   });
 });
 
+describe('client API v2 priority marks and choice answers', () => {
+  it('draws the urgent and high marks from Rank.level, never from the score', () => {
+    const s = initialState();
+    const m = new Model();
+    const ui = { schema: 'attention-client.actions/1', actions: [{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }] };
+    const at = (id: string, key: string, level?: 'now' | 'high' | 'normal' | 'low', score?: number) =>
+      item({ item_id: id, rank: { key, section: 'current', ...(level ? { level } : {}), ...(score !== undefined ? { score } : {}) }, message: { title: id, answer_ui: ui } });
+    applyItem(s, m, at('it_now', 'a', 'now', 0.1));
+    applyItem(s, m, at('it_high', 'b', 'high'));
+    applyItem(s, m, at('it_normal', 'c', 'normal', 0.99));
+    // No level: no mark, even with a score that once meant urgent.
+    applyItem(s, m, at('it_none', 'd', undefined, 0.99));
+    s.view = viewOf(s);
+    expect(rows(s, 'inbox').map((r) => [r.key.split('\u0000')[1], r.priority])).toEqual([
+      ['it_now', 'urgent'],
+      ['it_high', 'high'],
+      ['it_normal', null],
+      ['it_none', null],
+    ]);
+  });
+
+  it('marks a reply row from Chat.reply_priority.level', () => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ rank: { key: 'b', section: 'current', level: 'normal' }, chat: { available: true, started: true, last_origin_reply: 'en_4', unread_replies: 1, reply_rank_key: 'a', reply_priority: { level: 'now' } } }));
+    s.view = viewOf(s);
+    const reply = entries(s, 'inbox').find((e) => e.type === 'reply');
+    expect(reply && reply.type === 'reply' && reply.priority).toBe('urgent');
+  });
+
+  it('shows the chosen action\'s label on the answered card, from Terminal.answer kind choice', async () => {
+    const { answeredText } = await import('../../../src/state/message');
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item({ terminal: { state: 'answered', at_ms: 1, answer: { kind: 'choice', id: 'approve', label: 'Approve' } } }));
+    const held = s.messages.get(K)!;
+    expect(held.terminal?.outcome).toMatchObject({ kind: 'choice', choice: { id: 'approve', label: 'Approve' } });
+    expect(answeredText(held, null)).toBe('Approve');
+  });
+});
+
 describe('client API v2 readers', () => {
   it('ignores unknown members and drops malformed resources', () => {
     const page = readInboxPage({ rev: 3, items: [{ ...item(), extra: 1 }, { item_id: 'x' }], counts: { unresolved: 1 }, future: true });

@@ -8,6 +8,8 @@ export interface ViewEntry {
   key: string;
   score: number | null;
   thread: string | null;
+  /** Client API v2: the mark the Server's level gives (Rank.level), which wins over the score. */
+  priority?: 'urgent' | 'high' | null;
 }
 
 export type FreeState = 'active' | 'history';
@@ -29,6 +31,8 @@ export type ListItem =
       unseen: number | null;
       score: number | null;
       historical: boolean;
+      /** Client API v2: the mark from Chat.reply_priority.level, which wins over the score. */
+      priority?: 'urgent' | 'high' | null;
     };
 
 export interface ServerView {

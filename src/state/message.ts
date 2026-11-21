@@ -257,6 +257,8 @@ export function answeredText(m: HeldMessage, localLabel: string | null): string 
       }
       return null;
     }
+    // Client API v2 names the chosen action, so another device's choice shows too.
+    if (o.kind === 'choice') return o.choice?.label ?? localLabel;
     if (o.kind === 'seen' || o.kind === 'no_comment') return null;
   }
   return localLabel;

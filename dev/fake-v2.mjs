@@ -75,6 +75,11 @@ function fileRef(w, f) {
   return { file_id: f.upload_id, name: f.name, size: f.size, sha256: f.sha256 };
 }
 
+/** The fake's priority level: the message's urgency. */
+function levelOf(m) {
+  return m.payload.urgency === 'now' ? 'now' : m.payload.urgency === 'high' ? 'high' : 'normal';
+}
+
 function score(m) {
   return m.payload.urgency === 'now' ? 0.95 : m.payload.urgency === 'high' ? 0.75 : 0.4;
 }
@@ -91,7 +96,13 @@ function placementOf(w, m) {
   const reply = at('reply');
   const resolved = row?.free_section?.state === 'history' || (!row && !!m.terminal);
   return {
-    rank: { key: pad(at('message') + 1, 6), score: score(m), section: resolved ? 'resolved' : 'current', ...(resolved ? {} : { group: 'common' }) },
+    rank: {
+      key: pad(at('message') + 1, 6),
+      score: score(m),
+      section: resolved ? 'resolved' : 'current',
+      // Every current item has a level; the marks come from it.
+      ...(resolved ? {} : { group: 'common', level: levelOf(m) }),
+    },
     replyKey: reply >= 0 && list[reply].unseen_count > 0 ? pad(reply + 1, 6) : null,
   };
 }
@@ -108,8 +119,13 @@ function terminalOf(w, m) {
   const state = ['answered', 'cleared', 'expired', 'superseded'].includes(t.state) ? t.state : 'answered';
   // Terminal.answer is the person-facing answer outcome, carried as it is.
   const o = t.terminal_kind === 'no_comment' ? { kind: 'no_comment' } : t.answer_outcome;
-  const answer = o && ['seen', 'reply', 'default', 'no_comment'].includes(o.kind)
-    ? { kind: o.kind, ...(typeof o.text === 'string' ? { text: o.text } : {}), ...(o.kind === 'default' && 'value' in o ? { value: o.value } : {}) }
+  const answer = o && ['seen', 'reply', 'default', 'no_comment', 'choice'].includes(o.kind)
+    ? {
+        kind: o.kind,
+        ...(typeof o.text === 'string' ? { text: o.text } : {}),
+        ...(o.kind === 'default' && 'value' in o ? { value: o.value } : {}),
+        ...(o.kind === 'choice' ? { id: o.id, label: o.label } : {}),
+      }
     : null;
   return { state, at_ms, ...(answer ? { answer } : {}), by_this_person: state === 'answered' };
 }
@@ -219,7 +235,7 @@ function itemOf(w, m) {
       read_position: readEv ? entryIdFor(w, readEv) : null,
       last_origin_reply: replies.length ? replies[replies.length - 1].entry_id : null,
       unread_replies: unread,
-      ...(unread > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey } : {}),
+      ...(unread > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey, reply_priority: { level: levelOf(m) } } : {}),
     },
     created_at_ms: firstSeen.get(m),
     // The fake's effective thread is the message's own thread, when it has one.
@@ -472,11 +488,13 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
     const ui = item.payload.answer_ui;
     const actions = ui && ui.schema === 'attention-client.actions/1' && Array.isArray(ui.actions) ? ui.actions : [];
     let value;
+    let chosen = null;
     let text;
     if (body.choice !== undefined) {
       const a = actions.find((x) => x.id === body.choice && x.kind === 'value');
       if (!a) return [400, { error: 'invalid_field', field: 'choice', retryable: false }];
       value = a.id === 'seen' && actions.length === 1 ? null : a.value;
+      chosen = value === null ? null : a;
     } else if (body.comment !== undefined) {
       // A plain written answer is taken on every answerable item (terminal is
       // null), whatever its answer screen, an FYI included.
@@ -492,8 +510,9 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
       w.lastAnswer = { key: k, answer: null, noComment: true };
       return [200, done()];
     }
+    // A value action's answer names the action (kind choice); a written one is a reply.
     const outcome =
-      value === null ? { kind: 'seen' } : text !== undefined || typeof value === 'string' ? { kind: 'reply', text: text ?? value } : body.choice !== undefined ? { kind: 'default', value } : undefined;
+      value === null ? { kind: 'seen' } : chosen ? { kind: 'choice', id: chosen.id, label: chosen.label } : text !== undefined ? { kind: 'reply', text } : undefined;
     ctx.terminate(k, { state: 'answered', by: 'answer', ...(outcome ? { answer_outcome: outcome } : {}) });
     w.lastAnswer = { key: k, answer: value };
     return [200, done()];
