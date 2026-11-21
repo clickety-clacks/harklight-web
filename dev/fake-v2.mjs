@@ -12,6 +12,24 @@ const UUID4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{
 const INBOX_PAGE = 20;
 const ENTRY_PAGE = 50;
 const HEARTBEAT_MS = 5000;
+/** The answer-screen limits Harklight Server publishes (answer_ui_limits). */
+const PUBLISHED_UI1_LIMITS = {
+  document_bytes: 1_048_576,
+  requires: 32,
+  illustrations: 256,
+  primitives_per_illustration: 4_096,
+  primitives_total: 16_384,
+  inputs: 128,
+  actions: 512,
+  scene_nodes: 4_096,
+  scene_depth: 64,
+  result_nodes: 4_096,
+  result_depth: 64,
+  result_point_path: 64,
+  array_items: 4_096,
+  object_members: 4_096,
+  identifier_bytes: 512,
+};
 
 const key = (s, m) => `${s}\u0000${m}`;
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');
@@ -125,7 +143,11 @@ function entriesOf(w, m) {
   const itemId = itemIdOf(m);
   const conv = convOf(w, m);
   const out = [];
-  const delivered = new Set(conv.filter((e) => e.kind === 'receipt' && e.delivered !== false).map((e) => e.event_id));
+  // Delivered: a receipt says so, or the agent replied to the turn.
+  const delivered = new Set([
+    ...conv.filter((e) => e.kind === 'receipt' && e.delivered !== false).map((e) => e.event_id),
+    ...conv.filter((e) => e.kind === 'reply' && e.in_reply_to).map((e) => e.in_reply_to),
+  ]);
   for (const e of conv) {
     if (e.kind !== 'discussion' && e.kind !== 'reply' && e.kind !== 'availability') continue;
     const entry_id = entryIdFor(w, e);
@@ -291,7 +313,7 @@ export async function serveV2(req, res, url, w, ctx) {
     return send(res, 200, {
       account: { state: w.inactive ? 'paused' : 'active' },
       limits: { upload_cap_bytes_per_file: w.uploadCap ?? 'none', inline_decoded_bytes_per_entry: 262_144 },
-      answer_ui_limits: {},
+      answer_ui_limits: PUBLISHED_UI1_LIMITS,
       retention_days: 30,
       features: { server_matched_push_routing: true, priority_level_editing: true },
     });
@@ -386,7 +408,7 @@ export async function serveV2(req, res, url, w, ctx) {
   }
   if (method === 'POST' && sub === '/replies') {
     return idempotent(req, res, w, raw, () => {
-      if (w.refuseInactive) return [403, { error: 'forbidden', retryable: false }];
+      if (w.refuseInactive) return [403, { error: 'account_paused', retryable: false }];
       const extra = Object.keys(body).filter((x) => x !== 'text' && x !== 'file_ids');
       if (extra.length || typeof body.text !== 'string') return [400, { error: 'invalid_field', field: 'text', retryable: false }];
       const ids = body.file_ids ?? [];
@@ -412,7 +434,18 @@ export async function serveV2(req, res, url, w, ctx) {
 
 /** Answer validation and effect, as the contract's section 5 states it. */
 function answer(req, res, w, raw, body, item, k, ctx, done) {
-  const record = () => (w.answerFrames = w.answerFrames ?? []).push({ op_id: req.headers['idempotency-key'] ?? null, body });
+  const idemKey = req.headers['idempotency-key'] ?? null;
+  // What the request answers, in the relay's terms (answerFrames[].answer), for tests that check both.
+  const actions = Array.isArray(item.payload.answer_ui?.actions) ? item.payload.answer_ui.actions : [];
+  const chosen = actions.find((x) => x.id === body.choice);
+  const answer = body.comment ?? body.result ?? (chosen ? (chosen.id === 'seen' && actions.length === 1 ? null : chosen.value) : null);
+  // The client resends a 503 by itself, with the same key, twice before it
+  // shows the failure (Retry-After 0 here). Those resends are kept apart from
+  // the person's own sends, so tests count what the person did.
+  w.busyStreak = w.busyStreak ?? new Map();
+  const streak = w.busyStreak.get(idemKey) ?? 0;
+  const auto = w.failAnswers && streak % 3 !== 0;
+  const record = () => (auto ? (w.answerResends = w.answerResends ?? []) : (w.answerFrames = w.answerFrames ?? [])).push({ op_id: idemKey, answer, body });
   const run = () => {
     const extra = Object.keys(body).filter((x) => !['request_revision', 'choice', 'comment', 'result'].includes(x));
     const given = ['choice', 'comment', 'result'].filter((x) => body[x] !== undefined);
@@ -455,7 +488,11 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
     return [200, done()];
   };
   record();
-  if (w.failAnswers) return fail(res, 503, 'storage_unavailable', { retryAfter: 0 });
+  if (w.failAnswers) {
+    w.busyStreak.set(idemKey, streak + 1);
+    return fail(res, 503, 'storage_unavailable', { retryAfter: 0 });
+  }
+  w.busyStreak.delete(idemKey);
   if (w.holdAnswers) {
     w.held = w.held ?? [];
     (w.heldSockets = w.heldSockets ?? []).push(req.socket);

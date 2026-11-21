@@ -40,8 +40,11 @@ async function load(f: WireFile, config: Config, fileHref: (id: string) => strin
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       return URL.createObjectURL(new Blob([bytes], { type: typeOf(f.name) }));
     }
+    // On client API v2 a picture a custom form names arrives as a file (the
+    // relay sent small ones inline). It is part of the message, not a chat
+    // file, so it is shown whether or not chat files are on.
     const id = f.file_id ?? f.upload_id;
-    if (id && config.flags.attachments) {
+    if (id && (f.file_id !== undefined || config.flags.attachments)) {
       const res = await fetch(fileHref(id), { credentials: 'same-origin', redirect: 'manual' });
       if (!res.ok) return null;
       return URL.createObjectURL(new Blob([await res.arrayBuffer()], { type: typeOf(f.name) }));

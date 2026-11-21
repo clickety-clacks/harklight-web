@@ -353,7 +353,7 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
-  it('a chat send with no response stays sending and is resent with the same keys once the feed is back', async () => {
+  it('a chat send with no response is settled by its turn on the feed, or resent with the same key, never doubled', async () => {
     let drop = true;
     const h = session({
       fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -372,9 +372,11 @@ describe('client API v2 session', () => {
     await until(() => (h.store.state.threads.get(LISBON)?.turns.length ?? 0) === 3);
     await h.s.chat(lisbon, 'Exactly once', []);
     await until(() => h.store.state.chatSends.length === 0);
+    // Either the feed brought the turn first (it settles the send, nothing is
+    // resent) or the resend went first, with the same key (replayed).
     const replies = h.requests.filter((r) => r.url.endsWith('/replies'));
-    expect(replies).toHaveLength(2);
-    expect(replies[1].key).toBe(replies[0].key);
+    expect(replies.length).toBeLessThanOrEqual(2);
+    expect(new Set(replies.map((r) => r.key)).size).toBe(1);
     expect(h.store.state.threads.get(LISBON)!.turns.filter((t) => t.text === 'Exactly once')).toHaveLength(1);
     h.s.stop();
   });
@@ -475,7 +477,9 @@ describe('client API v2 session', () => {
     const h = session();
     h.s.start();
     await until(() => h.store.state.connection === 'connected' && h.store.state.fileLimits !== null);
-    expect(h.store.state.fileLimits).toEqual({ inline: 262_144, cap: 20_000_000 });
+    const { WEB_LIMITS } = await import('../../../src/ui1/validate');
+    // The answer-screen limits come from GET /v2/me answer_ui_limits too.
+    expect(h.store.state.fileLimits).toEqual({ inline: 262_144, cap: 20_000_000, ui1: WEB_LIMITS });
     const { entries } = await import('../../../src/state/inbox');
     expect(h.store.state.view!.freeOrder).toBe(true);
     const list = entries(h.store.state, 'inbox');

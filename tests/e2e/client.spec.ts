@@ -3,6 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 const control = (page: Page, what: string, body: unknown = {}) =>
   page.request.post(`/__fake/${what}`, { data: body }).then((r) => r.json());
 
+/** The suite runs twice: on the relay, and with flags.clientApiV2 on client API v2. */
+const onV2 = () => test.info().project.name.endsWith('-v2');
+
 test.beforeEach(async ({ page }) => {
   await control(page, 'reset');
 });
@@ -105,6 +108,12 @@ test('sends files with a chat message: small inline, large uploaded', async ({ p
   await expect.poll(async () => (await control(page, 'state')).lastDiscussion?.text).toBe('Two files');
   await expect(page.locator('.turn--me', { hasText: 'Two files' }).locator('.file')).toHaveCount(2);
   const files = (await control(page, 'state')).lastDiscussion.files;
+  if (onV2()) {
+    // Client API v2 has no inline tier: every file goes up with POST /v2/files, named.
+    expect(files.map((f: { name: string }) => f.name)).toEqual(['note.txt', 'plan.pdf']);
+    expect((await control(page, 'state')).v2Uploads).toHaveLength(2);
+    return;
+  }
   expect(files.map((f: { name: string; tier: string }) => [f.name, f.tier])).toEqual([
     ['note.txt', 'inline'],
     ['plan.pdf', 'upload'],
@@ -798,6 +807,7 @@ test('Seen spins while sending, comes back as Retry Seen on failure, and confirm
 });
 
 test('a policy close offers Try again, which reconnects without a reload and keeps the draft', async ({ page }) => {
+  test.skip(onV2(), 'A policy close (1008) is a relay WebSocket close; client API v2 has no socket.');
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Production deploy failed');
