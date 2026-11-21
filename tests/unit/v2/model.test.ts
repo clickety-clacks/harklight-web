@@ -218,6 +218,17 @@ describe('client API v2 readers', () => {
     expect(readEntry({ ...entry(), kind: 'mystery' })).toBeNull();
   });
 
+  it('reads a result entry (the origin\'s result fact) and keeps it out of the chat', () => {
+    const e = readEntry({ ...entry(), kind: 'result', author: 'origin', text: undefined, result: { status: 'applied', revision: 1 } });
+    expect(e?.kind).toBe('result');
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, item());
+    wantThread(s, K);
+    applyEntry(s, m, e!);
+    expect(s.threads.get(K)!.turns.map((t) => t.kind)).toEqual(['result']);
+  });
+
   it('reads a feed event by its id and kind, and keeps big numbers exact', () => {
     const c = readChange('item', '12', JSON.stringify(item()).replace('"title":"Hello"', '"title":"Hello","n":18446744073709551617'));
     expect(c?.rev).toBe(12);

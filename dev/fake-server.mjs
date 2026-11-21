@@ -680,7 +680,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         relay.dropAll();
         return json(res, 200, { ok: true });
       case 'state':
-        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], connections: relay.count(), feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [], replays: world.replays ?? 0 });
+        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], connections: relay.count(), feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [], replays: world.replays ?? 0, v2Rev: world.v2?.rev ?? 0 });
       case 'send': {
         const m = addMessage(world, { created_at: Date.now(), ...body.message }, { chat: body.chat });
         return json(res, 200, { ok: true, seq: m.acceptedSeq });
