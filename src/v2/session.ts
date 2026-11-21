@@ -118,6 +118,7 @@ export class V2Session {
   private seenSent = new Set<string>();
   private readsInFlight = new Set<string>();
   /** Conversations read or being read: whole (`full`) or just the newest page, for a reply row. */
+  private entriesGeneration = 0;
   private entriesLoading = new Map<string, { run: Promise<void>; full: boolean }>();
   /** The person left (sign-out): nothing restarts, not even a lifted pause. */
   private left = false;
@@ -307,6 +308,14 @@ export class V2Session {
         }
       }
       if (this.stopped) return;
+      const reloadThreads = new Map<string, boolean>();
+      if (full) {
+        for (const key of this.store.state.threads.keys()) {
+          reloadThreads.set(key, this.entriesLoading.get(key)?.full ?? true);
+        }
+        this.entriesGeneration++;
+        this.entriesLoading.clear();
+      }
       this.store.update((s) => {
         if (full) {
           const keep = new Set(pages.flatMap((p) => p.items.map((i) => keyOfItem(i))));
@@ -318,6 +327,10 @@ export class V2Session {
           }
         }
         for (const p of pages) for (const item of p.items) applyItem(s, this.model, item);
+        if (full) {
+          s.threads.clear();
+          for (const key of reloadThreads.keys()) if (s.messages.has(key)) wantThread(s, key);
+        }
         s.view = viewOf(s);
         s.loaded = true;
         s.chatAvailable = true;
@@ -328,8 +341,9 @@ export class V2Session {
       // page's rev, so the feed delivers it.
       this.cursor = first.rev;
       if (full) {
-        for (const key of [...this.entriesLoading.keys()]) if (!this.store.state.messages.has(key)) this.entriesLoading.delete(key);
-        for (const key of this.store.state.threads.keys()) void this.loadEntries(key, { full: this.entriesLoading.get(key)?.full ?? true, again: true });
+        for (const [key, reloadFull] of reloadThreads) {
+          if (this.store.state.messages.has(key)) void this.loadEntries(key, { full: reloadFull });
+        }
       }
       this.loadReplyThreads();
       this.openFeed();
@@ -383,17 +397,19 @@ export class V2Session {
    * row needs only the newest page (`full: false`); opening the item reads it
    * whole.
    */
-  private loadEntries(key: string, opts: { full?: boolean; again?: boolean } = {}): Promise<void> {
+  private loadEntries(key: string, opts: { full?: boolean } = {}): Promise<void> {
     const full = opts.full ?? true;
     const held = this.entriesLoading.get(key);
-    if (held && !opts.again && (held.full || !full)) return held.run;
+    if (held && (held.full || !full)) return held.run;
     const itemId = itemIdOf(key);
+    const generation = this.entriesGeneration;
     const run = (async () => {
       this.store.update((s) => wantThread(s, key));
       let before: string | null = null;
       for (let i = 0; i < (full ? ENTRY_PAGES : 1); i++) {
         const q: string = before ? `?before=${encodeURIComponent(before)}` : '';
         const r = await this.get(`/items/${seg(itemId)}/entries${q}`, 'entries');
+        if (generation !== this.entriesGeneration) return;
         const page = readEntriesPage(r.body);
         if (!page) return;
         this.store.update((s) => {
@@ -405,6 +421,7 @@ export class V2Session {
         before = page.entries.reduce((a, b) => (b.position < a.position ? b : a)).entry_id;
       }
     })().catch((e) => {
+      if (generation !== this.entriesGeneration) return;
       this.entriesLoading.delete(key);
       if (e instanceof ApiError && e.status === 401) this.ended();
     });
@@ -507,7 +524,8 @@ export class V2Session {
       } catch {
         // An unreadable closing still ends the feed.
       }
-      // A closing event has no id: it never moves the cursor.
+      // A closing event has no id: it never moves the cursor. Native
+      // EventSource hides response headers, including the Server Request-Id.
       this.log.record({ op: 'feed', status: null, token: 'closing', requestId: null, closing: reason });
       this.closeFeed();
       // The sign-in ended, as a 401 says.
