@@ -362,9 +362,7 @@ export function readMe(v: unknown): Me | null {
   const limits = obj(o?.limits);
   if (!o || !limits) return null;
   const cap = limits.upload_cap_bytes_per_file;
-  // answer_ui_limits sits beside `limits` in the Server's contract doc and
-  // inside it in an earlier ruling; either is read.
-  const ui = obj(o.answer_ui_limits) ?? obj(limits.answer_ui_limits);
+  const ui = obj(limits.answer_ui_limits);
   const caps: Record<string, number> = {};
   for (const [k, n] of Object.entries(ui ?? {})) if (int(n, 0) !== null) caps[k] = n as number;
   return {
