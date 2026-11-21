@@ -207,42 +207,71 @@ describe('client API v2 session', () => {
     const h = session();
     h.s.start();
     await until(() => h.store.state.connection === 'connected');
+    const lisbon = h.store.state.messages.get(LISBON)!;
     await post('hold-answers');
-    void h.s.answer(h.store.state.messages.get(SURVEY)!, 'approve', 'Approve', { control: 'approve' });
-    await until(() => h.store.state.answers.get(SURVEY)?.state === 'sending');
-    // The Server applies it, but the response never arrives.
-    await post('release-answers');
-    await until(() => h.store.state.messages.get(SURVEY)!.terminal !== null || h.store.state.answers.get(SURVEY)?.state === 'accepted');
-    h.s.stop();
-
-    const h2 = session();
-    h2.s.start();
-    await until(() => h2.store.state.connection === 'connected');
-    const lisbon = h2.store.state.messages.get(LISBON)!;
-    await post('hold-answers');
-    void h2.s.answer(lisbon, 'plaza', 'Lisboa Plaza', { control: 'plaza' });
-    await until(() => h2.store.state.answers.get(LISBON)?.state === 'sending');
+    void h.s.answer(lisbon, 'plaza', 'Lisboa Plaza', { control: 'plaza' });
+    await until(() => h.store.state.answers.get(LISBON)?.state === 'sending');
+    // The connection drops with the answer in flight: the outcome is unknown.
     await post('drop');
-    await until(() => h2.store.state.answers.get(LISBON)?.state === 'failed');
-    expect(h2.store.state.answers.get(LISBON)?.reason).toBe('connection');
-    await post('hold-answers', { on: false });
-    // Resent once, by itself, when the feed is back.
-    await until(() => h2.store.state.answers.get(LISBON)?.state === 'accepted');
-    const answers = h2.requests.filter((r) => r.url.endsWith('/answer'));
-    expect(answers).toHaveLength(2);
+    await until(() => h.store.state.answers.get(LISBON)?.state === 'failed');
+    expect(h.store.state.answers.get(LISBON)?.reason).toBe('connection');
+    // The resend (once the feed is back) waits at the Server behind the first.
+    await until(() => h.requests.filter((r) => r.url.endsWith('/answer')).length === 2);
+    // The Server applies the first; the resend gets the stored response, replayed.
+    await post('release-answers');
+    await until(() => h.store.state.answers.get(LISBON)?.state === 'accepted');
+    const answers = h.requests.filter((r) => r.url.endsWith('/answer'));
     expect(answers[1].key).toBe(answers[0].key);
-    // Retry of the same intent after it went through: replayed, nothing applied twice.
-    const before = (await fakeState()).answerFrames.length;
-    const raw = await fetch(`${base()}/v2/items/${itemId('agent:research', 'lisbon')}/answer`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'idempotency-key': answers[0].key! },
-      body: JSON.stringify({ request_revision: 1, choice: 'plaza' }),
-    });
-    expect(raw.status).toBe(200);
-    expect(raw.headers.get('idempotent-replayed')).toBe('true');
-    expect((await fakeState()).answerFrames.length).toBe(before + 1);
-    expect((await fakeState()).lastAnswer.answer).toBe('plaza');
-    h2.s.stop();
+    const st = await fakeState();
+    expect(st.replays).toBe(1);
+    expect(st.lastAnswer.answer).toBe('plaza');
+    expect(h.store.state.messages.get(LISBON)!.terminal?.state).toBe('answered');
+    h.s.stop();
+  });
+
+  it('an unread reply row reads only the newest page of its conversation; opening the item reads it whole', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await until(() => h.requests.some((r) => r.url.includes(`${itemId('agent:research', 'lisbon')}/entries`)));
+    await new Promise((r) => setTimeout(r, 100));
+    const reads = () => h.requests.filter((r) => r.url.includes(`${itemId('agent:research', 'lisbon')}/entries`)).length;
+    expect(reads()).toBe(1);
+    // Another batch of changes does not read it again.
+    await post('send', { message: { sender_id: 'agent:x', message_id: 'x1', title: 'Another' } });
+    await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === 'Another'));
+    expect(reads()).toBe(1);
+    h.s.messageOpened(h.store.state.messages.get(LISBON)!);
+    await until(() => reads() === 2);
+    h.s.stop();
+  });
+
+  it('a paused tab notices when the pause is lifted and carries on', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await post('inactive');
+    await until(() => h.store.state.connection === 'inactive');
+    await post('send', { message: { sender_id: 'agent:p', message_id: 'p1', title: 'Sent during the pause' } });
+    await post('active');
+    await until(() => h.store.state.connection === 'connected');
+    await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === 'Sent during the pause'));
+    h.s.stop();
+  });
+
+  it('an item removed and brought back reads its conversation again', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    h.s.messageOpened(h.store.state.messages.get(LISBON)!);
+    await until(() => (h.store.state.threads.get(LISBON)?.turns.length ?? 0) === 3);
+    await post('remove', { title: 'Which hotel should I book for Lisbon?' });
+    await until(() => !h.store.state.messages.has(LISBON));
+    await post('restore');
+    await until(() => h.store.state.messages.has(LISBON));
+    h.s.messageOpened(h.store.state.messages.get(LISBON)!);
+    await until(() => (h.store.state.threads.get(LISBON)?.turns.length ?? 0) === 3);
+    h.s.stop();
   });
 
   it('Retry resends a failed answer with the same key; Edit starts a new one', async () => {
@@ -487,6 +516,70 @@ describe('client API v2 session', () => {
     expect(history).toBeGreaterThan(0);
     const after = list.slice(history + 1).filter((e) => e.type === 'message').map((e) => String((e as { message: { payload: Record<string, unknown> } }).message.payload.title));
     expect(after).toContain('Your week ahead');
+    h.s.stop();
+  });
+
+  it('Try again after a failure resumes from the cursor: a change to a held conversation made meanwhile is not lost', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    h.s.messageOpened(h.store.state.messages.get(LISBON)!);
+    await until(() => (h.store.state.threads.get(LISBON)?.turns.length ?? 0) === 3);
+    await post('refuse-reads');
+    await until(() => h.store.state.connection === 'failed');
+    await post('reply', { sender_id: 'agent:research', message_id: 'lisbon', text: 'Sent while the tab had failed' });
+    await post('refuse-reads', { on: false });
+    h.s.tryAgain();
+    await until(() => h.store.state.connection === 'connected');
+    await until(() => h.store.state.threads.get(LISBON)!.turns.some((t) => t.text === 'Sent while the tab had failed'));
+    h.s.stop();
+  });
+
+  it('a 502 with no contract body (a proxy while the Server restarts) is retried, not a failure', async () => {
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    await post('bad-gateway');
+    await until(() => h.s.log.list().some((r) => r.status === 502));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(h.store.state.connection).toBe('reconnecting');
+    await post('send', { message: { sender_id: 'agent:back', message_id: 'b1', title: 'After the restart' } });
+    await post('bad-gateway', { on: false });
+    await until(() => [...h.store.state.messages.values()].some((m) => m.payload.title === 'After the restart'));
+    expect(h.store.state.connection).toBe('connected');
+    h.s.stop();
+  });
+
+  it('the same text from another device never takes the place of this tab\'s pending send', async () => {
+    let releaseMine: (() => void) | null = null;
+    const h = session({
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/replies') && !releaseMine && (init?.headers as Record<string, string>)['x-other'] === undefined) {
+          // This tab's first send: held, then lost with no response.
+          await new Promise<void>((r) => (releaseMine = r));
+          throw new TypeError('network');
+        }
+        return fetch(input, init);
+      }) as typeof fetch,
+    });
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const lisbon = h.store.state.messages.get(LISBON)!;
+    h.s.messageOpened(lisbon);
+    await until(() => (h.store.state.threads.get(LISBON)?.turns.length ?? 0) === 3);
+    void h.s.chat(lisbon, 'ok', []);
+    await until(() => releaseMine !== null);
+    // Another device sends the same text.
+    await fetch(`${base()}/v2/items/${itemId('agent:research', 'lisbon')}/replies`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
+      body: JSON.stringify({ text: 'ok' }),
+    });
+    await until(() => h.store.state.threads.get(LISBON)!.turns.filter((t) => t.text === 'ok').length === 1);
+    // This tab's request is lost; it must still be resent, not dropped.
+    releaseMine!();
+    await until(() => h.store.state.threads.get(LISBON)!.turns.filter((t) => t.text === 'ok').length === 2);
+    expect(h.store.state.chatSends).toHaveLength(0);
     h.s.stop();
   });
 

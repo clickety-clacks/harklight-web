@@ -243,6 +243,8 @@ export function syncV2(w) {
   for (const m of w.messages.values()) {
     const item = itemOf(w, m);
     const s = JSON.stringify(item);
+    // A removed item that comes back is a new change, with a rev above its tombstone.
+    if (v.removed.delete(item.item_id)) v.last.delete(item.item_id);
     if (v.last.get(item.item_id) !== s) {
       v.last.set(item.item_id, s);
       append(w, 'item', item.item_id, item);
@@ -302,6 +304,11 @@ export async function serveV2(req, res, url, w, ctx) {
   // A paused account: 403 account_paused on every /v2 request but GET /v2/me.
   if (w.inactive && p !== '/me') return fail(res, 403, 'account_paused');
   if (p.startsWith('/devices/me')) return fail(res, 403, 'forbidden');
+  if (w.refuseReads && method === 'GET' && (p === '/inbox' || p === '/changes')) return fail(res, 400, 'invalid_field');
+  if (w.badGateway && method === 'GET' && (p === '/inbox' || p === '/changes')) {
+    res.writeHead(502, { 'content-type': 'text/html' });
+    return res.end('<html><body>Bad gateway</body></html>');
+  }
   if (method !== 'GET') {
     const origin = req.headers.origin;
     if (origin && origin !== `http://${req.headers.host}`) return fail(res, 403, 'forbidden');
@@ -501,9 +508,10 @@ function answer(req, res, w, raw, body, item, k, ctx, done) {
     (w.heldSockets = w.heldSockets ?? []).push(req.socket);
     let alive = true;
     req.socket.once('close', () => (alive = false));
-    w.held.push(() => {
-      if (alive) idempotent(req, res, w, raw, run);
-    });
+    // On release the answer is applied even if the client is gone: the
+    // Server did the work and only the response was lost.
+    const lost = { requestId: res.requestId, writeHead() {}, end() {} };
+    w.held.push(() => idempotent(req, alive ? res : lost, w, raw, run));
     return;
   }
   return idempotent(req, res, w, raw, run);
@@ -522,6 +530,7 @@ function idempotent(req, res, w, raw, run) {
   const held = v.idem.get(k);
   if (held) {
     if (held.digest !== digest) return fail(res, 409, 'idempotency_conflict');
+    w.replays = (w.replays ?? 0) + 1;
     return send(res, held.status, held.body, { 'idempotent-replayed': 'true' });
   }
   const out = run();
@@ -553,6 +562,7 @@ async function upload(req, res, w) {
   const held = v.idem.get(k);
   if (held) {
     if (held.digest !== digest) return fail(res, 409, 'idempotency_conflict');
+    w.replays = (w.replays ?? 0) + 1;
     return send(res, held.status, held.body, { 'idempotent-replayed': 'true' });
   }
   const name = fileNameOf(req.headers['content-disposition']);
@@ -656,6 +666,17 @@ export function v2Control(w, what, body) {
     case 'mute-feeds':
       // Open feeds go silent (no changes, no heartbeat) without closing: a dead path the browser has not noticed.
       for (const f of v.feeds) f.muted = true;
+      return true;
+    case 'refuse-reads':
+      // Every read is refused (400) and open feeds drop: a failure no retry fixes.
+      w.refuseReads = body.on !== false;
+      if (w.refuseReads) for (const f of [...v.feeds]) f.drop();
+      return true;
+    case 'bad-gateway':
+      // A front end answers reads and feed opens with 502 and no contract body,
+      // as while the Server restarts behind a proxy; open feeds drop.
+      w.badGateway = body.on !== false;
+      if (w.badGateway) for (const f of [...v.feeds]) f.drop();
       return true;
     case 'drop-feeds':
       for (const f of [...v.feeds]) f.drop();

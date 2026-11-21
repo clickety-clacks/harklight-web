@@ -680,7 +680,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         relay.dropAll();
         return json(res, 200, { ok: true });
       case 'state':
-        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], connections: relay.count(), feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [] });
+        return json(res, 200, { subprotocol: world.lastSubprotocol ?? null, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], connections: relay.count(), feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [], replays: world.replays ?? 0 });
       case 'send': {
         const m = addMessage(world, { created_at: Date.now(), ...body.message }, { chat: body.chat });
         return json(res, 200, { ok: true, seq: m.acceptedSeq });
@@ -774,8 +774,20 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
         if (!m) return json(res, 404, { error: 'no message with that title' });
         world.messages.delete(key(m.sender_id, m.message_id));
+        (world.removedMessages = world.removedMessages ?? []).push(m);
         return json(res, 200, { ok: true });
       }
+      case 'restore': {
+        // The last removed message comes back.
+        const m = world.removedMessages?.pop();
+        if (!m) return json(res, 404, { error: 'nothing removed' });
+        world.messages.set(key(m.sender_id, m.message_id), m);
+        return json(res, 200, { ok: true });
+      }
+      case 'active':
+        // The account's pause is lifted.
+        world.inactive = false;
+        return json(res, 200, { ok: true });
       default:
         if (v2Control(world, what, body)) return json(res, 200, { ok: true });
         return json(res, 404, {});

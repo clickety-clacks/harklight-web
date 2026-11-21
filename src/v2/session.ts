@@ -70,6 +70,8 @@ export const BACKOFF_MS = [1000, 2000, 4000, 8000, 16000, 32000, 60000];
 const BUSY_RESENDS = 2;
 /** At most this many older pages of one conversation are read. */
 const ENTRY_PAGES = 20;
+/** How often a paused tab asks whether the pause is lifted. */
+const PAUSE_POLL_MS = 60_000;
 
 /** A write as frozen at the person's intent: resent unchanged, with the same key. */
 export interface FrozenWrite {
@@ -86,15 +88,18 @@ class Ended extends Error {}
 
 /**
  * The feed can bring the person's own chat turn before the reply's response
- * arrives. That turn settles the oldest pending send it matches, so the chat
- * never shows it twice; the response, when it comes, finds nothing left.
+ * arrives. A person turn that looks like the oldest pending send hides it, so
+ * the chat never shows it twice. It does not settle it: the turn may be the
+ * same text from another device, so only the send's own response, replay or
+ * failure does.
  */
-function settleSend(s: import('../state/store').State, key: string | undefined, e: import('./wire').Entry): void {
+function markLookalike(s: import('../state/store').State, key: string | undefined, e: import('./wire').Entry): void {
   if (!key || e.kind !== 'reply' || e.author !== 'person') return;
+  if (s.chatSends.some((c) => c.lookalike === e.entry_id)) return;
   const i = s.chatSends.findIndex(
-    (c) => c.key === key && (c.state === 'sending' || c.state === 'sent') && c.text === (e.text ?? '') && c.files.length === (e.files?.length ?? 0),
+    (c) => c.key === key && c.state === 'sending' && !c.lookalike && c.text === (e.text ?? '') && c.files.length === (e.files?.length ?? 0),
   );
-  if (i >= 0) s.chatSends = s.chatSends.filter((_, j) => j !== i);
+  if (i >= 0) s.chatSends = s.chatSends.map((c, j) => (j === i ? { ...c, lookalike: e.entry_id } : c));
 }
 
 export class V2Session {
@@ -112,7 +117,10 @@ export class V2Session {
   private recovering = false;
   private seenSent = new Set<string>();
   private readsInFlight = new Set<string>();
-  private entriesLoading = new Map<string, Promise<void>>();
+  /** Conversations read or being read: whole (`full`) or just the newest page, for a reply row. */
+  private entriesLoading = new Map<string, { run: Promise<void>; full: boolean }>();
+  /** The person left (sign-out): nothing restarts, not even a lifted pause. */
+  private left = false;
   private queues = new Map<string, Promise<void>>();
   /** Files of a chat send: their upload keys and, once uploaded, their ids. */
   private chatFiles = new Map<string, { keys: Map<string, string>; ids: Map<string, string> }>();
@@ -153,11 +161,13 @@ export class V2Session {
 
   start(): void {
     this.stopped = false;
+    this.left = false;
     void this.baseline(false);
   }
 
   stop(): void {
     this.stopped = true;
+    this.left = true;
     this.closeFeed();
   }
 
@@ -174,7 +184,10 @@ export class V2Session {
   tryAgain(): void {
     if (this.stopped || this.store.state.connection !== 'failed') return;
     this.attempt = 0;
-    void this.baseline(false);
+    // Resume from the cursor when the tab holds an inbox, so nothing between
+    // it and now is skipped; only a tab that never loaded starts afresh.
+    if (this.store.state.loaded) void this.recover();
+    else void this.baseline(false);
   }
 
   private later(run: () => void): void {
@@ -208,6 +221,28 @@ export class V2Session {
     this.store.update((s) => {
       s.connection = 'inactive';
     });
+    this.timer(() => void this.pollPause(), PAUSE_POLL_MS);
+  }
+
+  /** GET /v2/me stays answerable while paused: ask it until the pause is lifted, then carry on from the cursor. */
+  private async pollPause(): Promise<void> {
+    if (this.left || this.store.state.connection !== 'inactive') return;
+    try {
+      const me = readMe((await this.get('/me', 'me')).body);
+      if (me && !me.paused) {
+        this.stopped = false;
+        this.attempt = 0;
+        this.store.update((s) => {
+          s.connection = 'reconnecting';
+        });
+        if (this.store.state.loaded) void this.recover();
+        else void this.baseline(false);
+        return;
+      }
+    } catch {
+      // Asked again later.
+    }
+    this.timer(() => void this.pollPause(), PAUSE_POLL_MS);
   }
 
   /** A read failed: what the tab does next. */
@@ -284,7 +319,10 @@ export class V2Session {
       // Anything that changed between pages has a change after the first
       // page's rev, so the feed delivers it.
       this.cursor = first.rev;
-      if (full) for (const key of this.store.state.threads.keys()) void this.loadEntries(key, true);
+      if (full) {
+        for (const key of [...this.entriesLoading.keys()]) if (!this.store.state.messages.has(key)) this.entriesLoading.delete(key);
+        for (const key of this.store.state.threads.keys()) void this.loadEntries(key, { full: this.entriesLoading.get(key)?.full ?? true, again: true });
+      }
       this.loadReplyThreads();
       this.openFeed();
       if (!this.store.state.fileLimits) void this.readMe();
@@ -332,21 +370,26 @@ export class V2Session {
     return this.paging;
   }
 
-  /** Read an item's conversation, newest page first, then older pages. */
-  private loadEntries(key: string, again = false): Promise<void> {
-    const running = this.entriesLoading.get(key);
-    if (running && !again) return running;
+  /**
+   * Read an item's conversation, newest page first, then older pages. A reply
+   * row needs only the newest page (`full: false`); opening the item reads it
+   * whole.
+   */
+  private loadEntries(key: string, opts: { full?: boolean; again?: boolean } = {}): Promise<void> {
+    const full = opts.full ?? true;
+    const held = this.entriesLoading.get(key);
+    if (held && !opts.again && (held.full || !full)) return held.run;
     const itemId = itemIdOf(key);
     const run = (async () => {
       this.store.update((s) => wantThread(s, key));
       let before: string | null = null;
-      for (let i = 0; i < ENTRY_PAGES; i++) {
+      for (let i = 0; i < (full ? ENTRY_PAGES : 1); i++) {
         const q: string = before ? `?before=${encodeURIComponent(before)}` : '';
         const r = await this.get(`/items/${seg(itemId)}/entries${q}`, 'entries');
         const page = readEntriesPage(r.body);
         if (!page) return;
         this.store.update((s) => {
-          for (const e of page.entries) if (applyEntry(s, this.model, e)) settleSend(s, key, e);
+          for (const e of page.entries) if (applyEntry(s, this.model, e)) markLookalike(s, key, e);
           s.view = viewOf(s);
         });
         if (!page.older || page.entries.length === 0) return;
@@ -356,7 +399,7 @@ export class V2Session {
       this.entriesLoading.delete(key);
       if (e instanceof ApiError && e.status === 401) this.ended();
     });
-    this.entriesLoading.set(key, run);
+    this.entriesLoading.set(key, { run, full });
     return run;
   }
 
@@ -373,7 +416,7 @@ export class V2Session {
   /** Unread agent replies show as inbox rows with their text: read those conversations. */
   private loadReplyThreads(): void {
     for (const [key, m] of this.store.state.messages) {
-      if ((m.v2?.unreadReplies ?? 0) > 0 && !this.entriesLoading.has(key)) void this.loadEntries(key);
+      if ((m.v2?.unreadReplies ?? 0) > 0 && !this.entriesLoading.has(key)) void this.loadEntries(key, { full: false });
     }
   }
 
@@ -388,7 +431,7 @@ export class V2Session {
     if (!w) return;
     this.store.update((s) => {
       if (w.item) applyItem(s, this.model, w.item);
-      if (w.entry && applyEntry(s, this.model, w.entry)) settleSend(s, this.model.keyFor(w.entry.item_id), w.entry);
+      if (w.entry && applyEntry(s, this.model, w.entry)) markLookalike(s, this.model.keyFor(w.entry.item_id), w.entry);
       s.view = viewOf(s);
     });
   }
@@ -501,10 +544,15 @@ export class V2Session {
           if (item) applyItem(s, this.model, item);
         } else if (c.kind === 'item_removed') {
           const id = (c.data as { item_id?: unknown } | null)?.item_id;
-          if (typeof id === 'string') applyRemoved(s, this.model, id, c.rev);
+          if (typeof id === 'string') {
+            applyRemoved(s, this.model, id, c.rev);
+            // If the item comes back, its conversation is read afresh.
+            const key = this.model.keyFor(id);
+            if (key && !s.messages.has(key)) this.entriesLoading.delete(key);
+          }
         } else if (c.kind === 'entry') {
           const e = readEntry(c.data);
-          if (e && applyEntry(s, this.model, e)) settleSend(s, this.model.keyFor(e.item_id), e);
+          if (e && applyEntry(s, this.model, e)) markLookalike(s, this.model.keyFor(e.item_id), e);
         }
         // counts and settings: nothing the web client draws.
       }
@@ -785,7 +833,7 @@ export class V2Session {
         }
         if (!(e instanceof ApiError)) throw e;
         const reason = e.token === 'payload_too_large' ? 'upload_cap_exceeded' : e.token === 'account_paused' ? 'inactive_account' : e.token;
-        this.updateSend(send.op_id, { state: 'failed', reason });
+        this.updateSend(send.op_id, { state: 'failed', reason, lookalike: undefined });
       }
     });
   }

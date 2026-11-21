@@ -118,7 +118,9 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
   const token = ERROR_TOKENS.includes(e.error as ErrorToken) ? (e.error as ErrorToken) : 'unknown';
   const id = requestId ?? (typeof e.request_id === 'string' ? e.request_id : null);
   deps.log.record({ op: o.op, status: res.status, token, requestId: id });
-  const retryable = typeof e.retryable === 'boolean' ? e.retryable : res.status === 503;
+  // A 5xx with no contract body comes from something in front of the Server
+  // (a proxy while it restarts): treated like no response, retried.
+  const retryable = typeof e.retryable === 'boolean' ? e.retryable : res.status >= 500;
   throw new ApiError(res.status, token, id, retryable, retryAfter(res), typeof e.field === 'string' ? e.field : null);
 }
 

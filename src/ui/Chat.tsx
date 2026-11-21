@@ -72,7 +72,8 @@ export function Chat(p: ChatProps) {
   const field = useRef<HTMLTextAreaElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const turns = p.thread?.turns ?? [];
-  const pending = p.sends.filter((s) => s.key === `${p.message.sender_id}\u0000${p.message.message_id}`);
+  // A send whose turn already shows (lookalike) is hidden until it settles.
+  const pending = p.sends.filter((s) => s.key === `${p.message.sender_id}\u0000${p.message.message_id}` && !(s.lookalike && s.state === 'sending'));
 
   // Keep the newest turn in view as turns arrive.
   useEffect(() => {
