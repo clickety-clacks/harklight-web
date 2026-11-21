@@ -133,6 +133,38 @@ test('a custom form’s pictures show with chat files off: they arrive as files,
   await expect(page.locator('.u-img-missing')).toHaveCount(0);
 });
 
+for (const contentType of ['image/avif', 'application/octet-stream']) {
+  test(`UI/1 decodes an AVIF illustration with stored type ${contentType}`, async ({ page }) => {
+    await page.route('**/v2/inbox*', async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      const item = body.items.find((it: { message: { title: string } }) => it.message.title === 'Which cover for the November issue?');
+      if (item) {
+        const [file] = item.files;
+        if (contentType === 'application/octet-stream') {
+          item.message = JSON.parse(JSON.stringify(item.message).replaceAll('cover-a.png', 'cover-a.avif'));
+          file.name = 'cover-a.avif';
+        }
+        file.content_type = contentType;
+        await page.route(`**/v2/files/${file.file_id}`, (get) =>
+          get.fulfill({ path: 'tests/fixtures/cover-2x2.avif', contentType: 'application/octet-stream' }));
+      }
+      await route.fulfill({ response, json: body });
+    });
+    await openInbox(page);
+    await openRow(page, 'Which cover for the November issue?');
+    const picture = page.locator('svg image');
+    await expect(picture).toHaveAttribute('href', /^blob:/);
+    const size = await picture.evaluate(async (node) => {
+      const image = new Image();
+      image.src = node.getAttribute('href')!;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    });
+    expect(size).toEqual([2, 2]);
+  });
+}
+
 test('adjacent messages of one sender’s thread draw as one group (Item.thread)', async ({ page }) => {
   await openInbox(page);
   const ask = (id: string) => ({

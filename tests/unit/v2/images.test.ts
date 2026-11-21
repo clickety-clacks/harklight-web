@@ -1,20 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { imageUrlFor, previewType } from '../../../src/ui/images';
+import { imageUrlFor, formPictureType } from '../../../src/ui/images';
 import { DEFAULT_CONFIG } from '../../../src/config';
 
 describe('client API v2 pictures', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('draws only PNG, JPEG, GIF and WebP, by the stored type, else by the name for files with none', () => {
-    expect(previewType({ name: 'a.bin', content_type: 'image/png' })).toBe('image/png');
-    expect(previewType({ name: 'a.png', content_type: 'image/jpeg; charset=x' })).toBe('image/jpeg');
-    expect(previewType({ name: 'a.svg', content_type: 'image/svg+xml' })).toBeNull();
-    expect(previewType({ name: 'a.png', content_type: 'text/html' })).toBeNull();
+  it('uses the stored type for form pictures, with name fallback for migrated files', () => {
+    expect(formPictureType({ name: 'a.bin', content_type: 'image/png' })).toBe('image/png');
+    expect(formPictureType({ name: 'a.png', content_type: 'image/jpeg; charset=x' })).toBe('image/jpeg');
+    expect(formPictureType({ name: 'a.svg', content_type: 'image/svg+xml' })).toBeNull();
+    expect(formPictureType({ name: 'a.png', content_type: 'text/html' })).toBeNull();
     // From before the cut-over: served as octet-stream, typed by name.
-    expect(previewType({ name: 'cover.jpg', content_type: 'application/octet-stream' })).toBe('image/jpeg');
-    expect(previewType({ name: 'cover.webp' })).toBe('image/webp');
-    expect(previewType({ name: 'photo.heic' })).toBeNull();
-    expect(previewType({ name: 'notes.txt' })).toBeNull();
+    expect(formPictureType({ name: 'cover.jpg', content_type: 'application/octet-stream' })).toBe('image/jpeg');
+    expect(formPictureType({ name: 'cover.webp' })).toBe('image/webp');
+    expect(formPictureType({ name: 'photo.heic' })).toBe('image/heic');
+    expect(formPictureType({ name: 'a.bin', content_type: 'image/avif' })).toBe('image/avif');
+    expect(formPictureType({ name: 'notes.txt' })).toBeNull();
   });
 
   it('fetches the bytes and builds a typed Blob; a type not on the list is never fetched', async () => {

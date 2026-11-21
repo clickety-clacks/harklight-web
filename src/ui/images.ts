@@ -15,18 +15,18 @@ function typeOf(name: string): string {
   return TYPES[name.split('.').pop()?.toLowerCase() ?? ''] ?? 'image/png';
 }
 
-/** The only picture types drawn from a client API v2 file; anything else stays a download. */
-const PREVIEWABLE = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+/** Image types supported by the UI/1 form renderer before the v2 cut-over. */
+const FORM_PICTURE_TYPES = new Set(Object.values(TYPES));
 
 /**
  * The type a client API v2 file is drawn as: its stored type (FileRef.content_type),
  * or for a file with none (from before the cut-over) the type its name says.
  * Null when it is not a picture the web draws.
  */
-export function previewType(f: Pick<WireFile, 'name' | 'content_type'>): string | null {
+export function formPictureType(f: Pick<WireFile, 'name' | 'content_type'>): string | null {
   const stored = f.content_type?.split(';')[0].trim().toLowerCase();
   const t = stored && stored !== 'application/octet-stream' ? stored : TYPES[f.name.split('.').pop()?.toLowerCase() ?? ''];
-  return t && PREVIEWABLE.has(t) ? t : null;
+  return t && FORM_PICTURE_TYPES.has(t) ? t : null;
 }
 
 const cache = new Map<string, Promise<string | null>>();
@@ -60,7 +60,7 @@ async function load(f: WireFile, config: Config, fileHref: (id: string) => strin
     // as downloads, so the bytes become a typed Blob, and only an allowed
     // picture type is drawn.
     if (f.file_id !== undefined) {
-      const type = previewType(f);
+      const type = formPictureType(f);
       if (!type) return null;
       const res = await fetch(fileHref(f.file_id), { credentials: 'same-origin', redirect: 'manual' });
       if (!res.ok) return null;

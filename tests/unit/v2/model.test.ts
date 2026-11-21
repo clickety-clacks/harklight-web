@@ -226,7 +226,7 @@ describe('client API v2 priority marks and choice answers', () => {
     applyItem(s, m, at('it_level_normal', 'e', 'normal'));
     // Score only (a selected ranking): today's thresholds.
     applyItem(s, m, at('it_score_urgent', 'f', undefined, 0.95));
-    applyItem(s, m, at('it_score_high', 'g', undefined, 0.75));
+    applyItem(s, m, at('it_score_high', 'g', undefined, 0.7));
     applyItem(s, m, at('it_score_plain', 'h', undefined, 0.5));
     // Neither (a progress message): no mark.
     applyItem(s, m, at('it_none', 'i'));
@@ -242,6 +242,22 @@ describe('client API v2 priority marks and choice answers', () => {
       ['it_score_plain', null],
       ['it_none', null],
     ]);
+  });
+
+  it('reads exact JSON numbers for item and reply scores and honors inclusive thresholds', () => {
+    const s = initialState();
+    const m = new Model();
+    const raw = JSON.stringify(item({
+      rank: { key: 'b', section: 'current', level: 'normal' },
+      chat: { available: true, started: true, last_origin_reply: 'en_4', unread_replies: 1, reply_rank_key: 'a', reply_priority: { level: 'normal' } },
+    })).replace('"rank":{', '"rank":{"score":1.0,').replace('"reply_priority":{', '"reply_priority":{"score":0.90,');
+    const change = readChange('item', '12', raw);
+    if (change?.kind !== 'item') throw new Error('Expected an item');
+    applyItem(s, m, readItem(change.data)!);
+    s.view = viewOf(s);
+    const reply = entries(s, 'inbox').find((e) => e.type === 'reply');
+    expect(rows(s, 'inbox')[0].priority).toBe('urgent');
+    expect(reply && reply.type === 'reply' && reply.priority).toBe('urgent');
   });
 
   it('marks a reply row from Chat.reply_priority.level', () => {
@@ -280,7 +296,7 @@ describe('client API v2 readers', () => {
     applyItem(s, m, item());
     wantThread(s, K);
     applyEntry(s, m, e!);
-    expect(s.threads.get(K)!.turns.map((t) => t.kind)).toEqual(['result']);
+    expect(s.threads.get(K)!.turns).toMatchObject([{ kind: 'result', result: { status: 'applied', revision: 1 } }]);
   });
 
   it('reads a feed event by its id and kind, and keeps big numbers exact', () => {
