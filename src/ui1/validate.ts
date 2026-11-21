@@ -61,7 +61,7 @@ function requiredString(o: Obj, key: string, parent: string, message: string): s
 
 function identifier(v: unknown, path: string): string {
   const s = string(v, path, true, 'identifier must be non-empty');
-  require(utf8Length(s) <= 128, path, 'identifier is at most 128 UTF-8 bytes');
+  require(utf8Length(s) <= L.identifier_bytes, path, `identifier is at most ${L.identifier_bytes} UTF-8 bytes`);
   return s;
 }
 
@@ -98,7 +98,91 @@ function rejectDuplicateKeys(v: unknown, path: string): void {
 }
 
 /** Validate a delivered form. Throws Ui1Fault on the first fault. */
-export function validateUi1(document: unknown, deliveredFileNames: string[]): void {
+/** The size and count limits a UI/1 document is checked against. */
+export interface Ui1Limits {
+  document_bytes: number;
+  requires: number;
+  illustrations: number;
+  primitives_per_illustration: number;
+  primitives_total: number;
+  inputs: number;
+  actions: number;
+  scene_nodes: number;
+  scene_depth: number;
+  result_nodes: number;
+  result_depth: number;
+  result_point_path: number;
+  array_items: number;
+  object_members: number;
+  identifier_bytes: number;
+}
+
+/**
+ * The limits Harklight Server publishes to senders (its answer_ui_limits).
+ * Every client renders custom answer screens up to them; a screen over them
+ * is offered as a plain reply instead.
+ */
+export const PUBLISHED_UI1_LIMITS: Ui1Limits = {
+  document_bytes: 1_048_576,
+  requires: 32,
+  illustrations: 256,
+  primitives_per_illustration: 4_096,
+  primitives_total: 16_384,
+  inputs: 128,
+  actions: 512,
+  scene_nodes: 4_096,
+  scene_depth: 64,
+  result_nodes: 4_096,
+  result_depth: 64,
+  result_point_path: 64,
+  array_items: 4_096,
+  object_members: 4_096,
+  identifier_bytes: 512,
+};
+
+/** The limits the shared conformance corpus was written at (the app's, at the time). */
+export const CORPUS_UI1_LIMITS: Ui1Limits = {
+  document_bytes: 65_536,
+  requires: 8,
+  illustrations: 64,
+  primitives_per_illustration: 512,
+  primitives_total: 512,
+  inputs: 16,
+  actions: 64,
+  scene_nodes: 128,
+  scene_depth: 16,
+  result_nodes: 128,
+  result_depth: 16,
+  result_point_path: 16,
+  array_items: 128,
+  object_members: 128,
+  identifier_bytes: 128,
+};
+
+/** The published limits, with any the Server sent (GET /v2/me answer_ui_limits) in place of the defaults. */
+export function ui1Limits(published: Record<string, number> | null | undefined): Ui1Limits {
+  const out = { ...PUBLISHED_UI1_LIMITS };
+  for (const k of Object.keys(out) as (keyof Ui1Limits)[]) {
+    const v = published?.[k];
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0) out[k] = v;
+  }
+  return out;
+}
+
+/** The limits of the validation running now. */
+let L: Ui1Limits = PUBLISHED_UI1_LIMITS;
+
+export function validateUi1(document: unknown, deliveredFileNames: string[], limits: Ui1Limits = PUBLISHED_UI1_LIMITS): void {
+  const previous = L;
+  L = limits;
+  try {
+    validate(document, deliveredFileNames);
+  } finally {
+    L = previous;
+  }
+}
+
+function validate(document: unknown, deliveredFileNames: string[]): void {
   rejectDuplicateKeys(document, '$');
   const root = object(document, '$', 'document must be an object');
   exactFields(root, REQUIRED, OPTIONAL, '$', 'top-level members must match the UI/1 shape');
@@ -106,11 +190,11 @@ export function validateUi1(document: unknown, deliveredFileNames: string[]): vo
   require(schema === UI1_SCHEMA, 'schema', 'schema must be attention-client.ui/1');
 
   const bytes = utf8Length(stringify(document, { sortKeys: true }));
-  require(bytes <= 65_536, '$', `answer_ui document is ${bytes} bytes; it must be at most 65536 UTF-8 bytes`);
+  require(bytes <= L.document_bytes, '$', `answer_ui document is ${bytes} bytes; it must be at most ${L.document_bytes} UTF-8 bytes`);
 
   const requires = array(root.requires, 'requires', 'requires must be a string array');
   require(requires.length > 0, 'requires', 'requires must contain the capabilities used');
-  require(requires.length <= 8, 'requires', 'requires permits at most eight capabilities');
+  require(requires.length <= L.requires, 'requires', `requires permits at most ${L.requires} capabilities`);
   const required = requires.map((x, i) => string(x, `requires[${i}]`, true, 'each capability must be a non-empty string'));
   const seen = new Set<string>();
   required.forEach((r, i) => {
@@ -141,8 +225,8 @@ export function validateUi1(document: unknown, deliveredFileNames: string[]): vo
   string(submission.label, 'submission.label', true, 'submission label must be non-empty');
   const result = { refs: new Set<string>(), count: 0 };
   parseConstructor(submission.result, 'submission.result', 1, kinds, result);
-  require(result.count <= 128, 'submission.result', 'at most 128 result constructor nodes are allowed');
-  require(state.count <= 128, 'open', 'at most 128 scene nodes are allowed');
+  require(result.count <= L.result_nodes, 'submission.result', `at most ${L.result_nodes} result constructor nodes are allowed`);
+  require(state.count <= L.scene_nodes, 'open', `at most ${L.scene_nodes} scene nodes are allowed`);
 
   const inputIds = [...kinds.keys()];
   const openIds = [...state.openInputCounts.keys()];
@@ -183,7 +267,7 @@ export function validateUi1(document: unknown, deliveredFileNames: string[]): vo
 
 function parseIllustrations(value: unknown, files: Set<string>, names: string[]) {
   const values = array(value, 'illustrations', 'illustrations must be an array');
-  require(values.length <= 64, 'illustrations', 'at most 64 illustrations are allowed');
+  require(values.length <= L.illustrations, 'illustrations', `at most ${L.illustrations} illustrations are allowed`);
   const ids = new Set<string>();
   let total = 0;
   let image = false;
@@ -197,12 +281,12 @@ function parseIllustrations(value: unknown, files: Set<string>, names: string[])
     boundedInteger(item.width, `${path}.width`, 1, 4096, 'width');
     boundedInteger(item.height, `${path}.height`, 1, 4096, 'height');
     const primitives = array(item.primitives, `${path}.primitives`, 'primitives must be an array');
-    require(primitives.length <= 512, `${path}.primitives`, 'at most 512 primitives are allowed in one illustration');
+    require(primitives.length <= L.primitives_per_illustration, `${path}.primitives`, `at most ${L.primitives_per_illustration} primitives are allowed in one illustration`);
     primitives.forEach((p, i) => {
       if (parsePrimitive(p, `${path}.primitives[${i}]`, files, names)) image = true;
     });
     total += primitives.length;
-    require(total <= 512, 'illustrations', 'at most 512 primitives are allowed across illustrations');
+    require(total <= L.primitives_total, 'illustrations', `at most ${L.primitives_total} primitives are allowed across illustrations`);
     ids.add(id);
   });
   return { ids, image };
@@ -261,7 +345,7 @@ function parsePrimitive(raw: unknown, path: string, files: Set<string>, names: s
 
 function parseInputs(value: unknown, illustrationIds: Set<string>) {
   const inputs = array(value, 'inputs', 'inputs must be an array');
-  require(inputs.length <= 16, 'inputs', 'at most 16 inputs are allowed');
+  require(inputs.length <= L.inputs, 'inputs', `at most ${L.inputs} inputs are allowed`);
   const kinds = new Map<string, InputKind>();
   const refs = new Set<string>();
   inputs.forEach((raw, index) => {
@@ -275,7 +359,7 @@ function parseInputs(value: unknown, illustrationIds: Set<string>) {
       string(input.label, `${path}.label`, true, 'label must be non-empty');
       const actions = array(input.actions, `${path}.actions`, 'actions must be an array');
       require(actions.length > 0, `${path}.actions`, 'response input requires at least one action');
-      require(actions.length <= 64, `${path}.actions`, 'at most 64 actions are allowed');
+      require(actions.length <= L.actions, `${path}.actions`, `at most ${L.actions} actions are allowed`);
       parseActions(actions, `${path}.actions`, illustrationIds, refs);
     } else if (kind === 'text') {
       exactFields(input, ['kind', 'id', 'label'], [], path, 'text input members must match its exact shape');
@@ -330,11 +414,11 @@ function parseScene(
   illustrationIds: Set<string>,
   state: SceneState,
 ): void {
-  require(depth <= 16, path, 'scene depth must be at most 16');
+  require(depth <= L.scene_depth, path, `scene depth must be at most ${L.scene_depth}`);
   const node = object(raw, path, 'scene node must be an object');
   const kind = requiredString(node, 'kind', path, 'scene kind is required');
   state.count++;
-  require(state.count <= 128, path, 'at most 128 scene nodes are allowed');
+  require(state.count <= L.scene_nodes, path, `at most ${L.scene_nodes} scene nodes are allowed`);
   const children = (label: string) => {
     const list = array(node.children, `${path}.children`, `${label} children must be an array`);
     require(list.length > 0, `${path}.children`, `${label} requires at least one child`);
@@ -389,7 +473,7 @@ function parseScene(
       require(illustrationIds.has(id), `${path}.id`, 'illustration identifier must exist');
       string(node.label, `${path}.label`, true, 'label must be non-empty');
       const comps = array(node.path, `${path}.path`, 'result-point path must be an array');
-      require(comps.length <= 16, `${path}.path`, 'result-point path permits at most 16 components');
+      require(comps.length <= L.result_point_path, `${path}.path`, `result-point path permits at most ${L.result_point_path} components`);
       comps.forEach((c, i) => {
         const cp = `${path}.path[${i}]`;
         if (typeof c === 'string') return;
@@ -413,11 +497,11 @@ function parseConstructor(
   kinds: Map<string, InputKind>,
   acc: { refs: Set<string>; count: number },
 ): void {
-  require(depth <= 16, path, 'result constructor depth must be at most 16');
+  require(depth <= L.result_depth, path, `result constructor depth must be at most ${L.result_depth}`);
   const node = object(raw, path, 'result constructor must be an object');
   const kind = requiredString(node, 'kind', path, 'result constructor kind is required');
   acc.count++;
-  require(acc.count <= 128, path, 'at most 128 result constructor nodes are allowed');
+  require(acc.count <= L.result_nodes, path, `at most ${L.result_nodes} result constructor nodes are allowed`);
   switch (kind) {
     case 'literal':
       exactFields(node, ['kind', 'value'], [], path, 'literal constructor members must match its exact shape');
@@ -432,14 +516,14 @@ function parseConstructor(
     case 'array': {
       exactFields(node, ['kind', 'items'], [], path, 'array constructor members must match its exact shape');
       const items = array(node.items, `${path}.items`, 'array constructor items must be an array');
-      require(items.length <= 128, `${path}.items`, 'at most 128 array items are allowed');
+      require(items.length <= L.array_items, `${path}.items`, `at most ${L.array_items} array items are allowed`);
       items.forEach((it, i) => parseConstructor(it, `${path}.items[${i}]`, depth + 1, kinds, acc));
       return;
     }
     case 'object': {
       exactFields(node, ['kind', 'members'], [], path, 'object constructor members must match its exact shape');
       const members = array(node.members, `${path}.members`, 'object constructor members must be an array');
-      require(members.length <= 128, `${path}.members`, 'at most 128 object members are allowed');
+      require(members.length <= L.object_members, `${path}.members`, `at most ${L.object_members} object members are allowed`);
       const seen = new Set<string>();
       members.forEach((m, i) => {
         const mp = `${path}.members[${i}]`;
