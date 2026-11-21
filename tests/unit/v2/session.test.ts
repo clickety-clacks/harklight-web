@@ -748,6 +748,31 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
+  it('replaces retained conversation entries when the cursor expires', async () => {
+    let replace = false;
+    let refreshed = false;
+    const h = session({
+      fetch: (async (input, init) => {
+        const response = await fetch(input, init);
+        if (replace && String(input).includes('/entries')) {
+          refreshed = true;
+          return Response.json({ ...(await response.json()), entries: [], older: false });
+        }
+        return response;
+      }) as typeof fetch,
+    });
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    h.s.messageOpened(h.store.state.messages.get(LISBON)!);
+    await until(() => (h.store.state.threads.get(LISBON)?.turns.length ?? 0) > 0);
+    replace = true;
+    await post('closing', { reason: 'cursor_expired' });
+    await until(() => refreshed && h.sources.length >= 2 && h.store.state.connection === 'connected');
+    expect(h.store.state.messages.has(LISBON)).toBe(true);
+    expect(h.store.state.threads.get(LISBON)?.turns).toEqual([]);
+    h.s.stop();
+  });
+
   for (const reason of ['server_shutdown', 'storage_unavailable'] as const) {
     it(`closing ${reason} reopens the feed from the cursor after a backoff, re-reading nothing`, async () => {
       const h = session();
