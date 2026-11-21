@@ -713,6 +713,23 @@ describe('client API v2 session', () => {
     h.s.stop();
   });
 
+  it('marks from the score first, then the level, then none, and the score wins when they disagree', async () => {
+    const { rows } = await import('../../../src/state/inbox');
+    const ui = { schema: 'attention-client.actions/1', actions: [{ id: 'ok', label: 'OK', kind: 'value', value: 'ok' }] };
+    const send = (id: string, x_rank: Record<string, unknown>) =>
+      post('send', { message: { sender_id: 'agent:m', message_id: id, title: id, message_type: 'request', answer_ui: ui, x_rank } });
+    await send('score-only', { score: 0.92, level: null });
+    await send('level-only', { score: null, level: 'high' });
+    await send('neither', { score: null, level: null });
+    await send('disagree', { score: 0.2, level: 'now' });
+    const h = session();
+    h.s.start();
+    await until(() => h.store.state.connection === 'connected');
+    const mark = (title: string) => rows(h.store.state, 'inbox').find((r) => r.message.payload.title === title)?.priority;
+    expect([mark('score-only'), mark('level-only'), mark('neither'), mark('disagree')]).toEqual(['urgent', 'high', null, null]);
+    h.s.stop();
+  });
+
   it('marks from the fake\'s level, from the score under a selected ranking, and none for a progress message', async () => {
     const { rows } = await import('../../../src/state/inbox');
     const mark = (h: Harness, title: string) => rows(h.store.state, 'inbox').find((r) => r.message.payload.title === title)?.priority;

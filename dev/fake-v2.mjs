@@ -99,15 +99,18 @@ function placementOf(w, m) {
   const row = list[at('message')];
   const reply = at('reply');
   const resolved = row?.free_section?.state === 'history' || (!row && !!m.terminal);
+  // A progress message is not in the priority view: no score, no level. A
+  // selected ranking (the selected-ranking control) sends scores but no level.
+  // Tests can set either directly with x_rank on a sent message (null omits it).
+  const override = m.payload.x_rank ?? {};
+  const sc = 'score' in override ? override.score : m.payload.progress ? null : score(m);
+  const lv = 'level' in override ? override.level : w.selectedRanking || m.payload.progress ? null : levelOf(m);
   return {
     rank: {
       key: pad(at('message') + 1, 6),
-      // A progress message is not in the priority view: no score, no level.
-      ...(m.payload.progress ? {} : { score: score(m) }),
+      ...(sc === null ? {} : { score: sc }),
       section: resolved ? 'resolved' : 'current',
-      // Current items carry a level under the baseline view; a selected
-      // ranking (the selected-ranking control) and progress messages carry none.
-      ...(resolved ? {} : { group: 'common', ...(w.selectedRanking || m.payload.progress ? {} : { level: levelOf(m) }) }),
+      ...(resolved ? {} : { group: 'common', ...(lv === null ? {} : { level: lv }) }),
     },
     replyKey: reply >= 0 && list[reply].unseen_count > 0 ? pad(reply + 1, 6) : null,
   };
