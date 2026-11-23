@@ -76,10 +76,8 @@
   gap: 10px;
   color: var(--muted);
 }
-.nothing svg.icon {
-  width: 36px;
-  height: 44px;
-  color: var(--fg);
+.nothing img {
+  display: block;
 }
 
 .banner {
@@ -144,16 +142,8 @@
   padding: 10px 8px 6px 16px;
 }
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--serif);
-  font-size: 18.4px;
-  letter-spacing: 0.01em;
-}
-.brand-mark {
-  width: 18px !important;
-  height: 22px !important;
+  display: block;
+  height: auto;
 }
 
 .seg {

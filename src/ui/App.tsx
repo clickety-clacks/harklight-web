@@ -1,3 +1,5 @@
+import heronNavy from '../brand/heron-navy.svg?no-inline';
+import heronMist from '../brand/heron-mist.svg?no-inline';
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Config } from '../config';
@@ -9,7 +11,6 @@ import type { Json, WireFile } from '../state/types';
 import { imageUrlFor } from './images';
 import { Chat, type ChatDraft } from './Chat';
 import { Detail, type AnswerChoice } from './Detail';
-import { Icon } from './Icon';
 import { InboxList } from './InboxList';
 import { Settings } from './Settings';
 
@@ -349,7 +350,10 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         {banner}
         {detail ?? (
           <div class="nothing">
-            <Icon name="light" />
+            <picture>
+              <source media="(prefers-color-scheme: light)" srcSet={heronNavy} />
+              <img src={heronMist} width="44" height="44" alt="" />
+            </picture>
             <span>Select a message</span>
           </div>
         )}

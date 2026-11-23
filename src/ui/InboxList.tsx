@@ -1,3 +1,5 @@
+import harklightNavy from '../brand/harklight-navy.svg?no-inline';
+import harklightMist from '../brand/harklight-mist.svg?no-inline';
 import { useEffect, useRef } from 'preact/hooks';
 import type { Entry, ReplyRow, Row, Tab } from '../state/inbox';
 import { body, createdAt, friendlyTime, initials, messageType, senderLabel, title, TYPE_ICON } from '../state/message';
@@ -54,10 +56,10 @@ export function InboxList(props: {
   return (
     <aside class="side" aria-label="Inbox">
       <div class="side-head">
-        <span class="brand">
-          <Icon name="light" class="brand-mark" />
-          Harklight
-        </span>
+        <picture>
+          <source media="(prefers-color-scheme: light)" srcSet={harklightNavy} />
+          <img class="brand" src={harklightMist} width="126" height="30" alt="Harklight" />
+        </picture>
         <button type="button" class="icon-btn" aria-label="Settings" onClick={props.onSettings}>
           <Icon name="gear" />
         </button>
