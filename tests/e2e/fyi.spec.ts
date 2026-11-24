@@ -204,6 +204,29 @@ test('a Seen that failed while Progress was unfinished is sent as the answer onc
   expect(writes).toEqual(['p-one seen', 'p-one answer']);
 });
 
+test('a Seen whose response was lost is resent as it was, never as an answer, after Progress finishes', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendProgress(page, 'p-one', 'Progress one', 30);
+  const writes = seenWrites(page);
+  const keys: (string | undefined)[] = [];
+  await page.route(/\/seen$/, async (route) => {
+    keys.push(route.request().headers()['idempotency-key']);
+    if (keys.length > 1) return route.fallback();
+    // The Server takes it, the agent finishes, and the response never arrives.
+    await route.fetch();
+    await fake(page, 'revise', { title: 'Progress one', message: { progress: progressAt(100), body: 'Finished now' } });
+    await route.abort('connectionreset');
+  });
+  await openFyis(page);
+  await page.getByRole('button', { name: 'Mark seen: Progress one' }).click();
+  await expect.poll(() => keys.length, { timeout: 15000 }).toBe(2);
+  await expect(article(page, 'Progress one')).toContainText('Finished now');
+  expect(writes).toEqual(['p-one seen', 'p-one seen']);
+  expect(keys[1]).toBe(keys[0]);
+  // Still open: the agent can revise it again.
+  expect((await fake(page, 'revise', { title: 'Progress one', message: { body: 'One more thing' } })).status()).toBe(200);
+});
+
 test('Progress that is closed, or offers no Seen, reads as any other message', async ({ page }) => {
   await fake(page, 'reset');
   await sendProgress(page, 'p-ans', 'Answered elsewhere', 30);

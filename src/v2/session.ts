@@ -746,7 +746,8 @@ export class V2Session {
     for (const key of [...this.answerWaiting]) {
       this.answerWaiting.delete(key);
       const a = this.store.state.answers.get(key);
-      if (a?.state === 'failed' && a.reason === 'connection' && a.resend) void this.retryHeld(key, a);
+      // Nobody pressed again: exactly the same request, never a new answer.
+      if (a?.state === 'failed' && a.reason === 'connection' && a.resend) void this.resendAnswer(key, a.resend as FrozenWrite);
     }
   }
 
