@@ -121,3 +121,17 @@ test('desktop FYI keeps the real Inbox and Replied tabs with the approved row tr
   await expect(digest).toBeVisible();
   await expect(request).toHaveCount(0);
 });
+
+test('Back pressed as the FYI list opens returns focus to the summary', async ({ page }) => {
+  await page.request.post('/__fake/reset');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  await expect(page.getByRole('button', { name: /Open FYIs/ })).toBeVisible();
+  // In the page, so nothing is painted between the two presses.
+  await page.evaluate(async () => {
+    document.querySelector<HTMLElement>('.fyi-summary')!.click();
+    while (!document.querySelector('.fyi-back')) await new Promise((resolve) => setTimeout(resolve, 0));
+    document.querySelector<HTMLElement>('.fyi-back')!.click();
+  });
+  await expect(page.getByRole('button', { name: /Open FYIs/ })).toBeFocused();
+});
