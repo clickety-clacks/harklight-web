@@ -1251,10 +1251,16 @@ a.grow:hover .grow-l {
 }
 
 .fyi-meta,
-.fyi-seen {
+span.fyi-seen {
   color: var(--muted);
 }
 
 .fyi-seen {
   flex: none;
+}
+
+button.fyi-seen {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 14px;
 }

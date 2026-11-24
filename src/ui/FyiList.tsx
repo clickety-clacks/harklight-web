@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
-import { isFyi } from '../state/inbox';
-import { body, createdAt, friendlyTime, senderLabel, title } from '../state/message';
+import { body, createdAt, friendlyTime, isFyi, senderLabel, title } from '../state/message';
 import type { State } from '../state/store';
 import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
@@ -9,7 +8,7 @@ import { FileRow } from './FileRow';
 
 export function fyiItems(state: State) {
   return [...state.messages].flatMap(([key, message]) => {
-    if (!isFyi(message) || message.terminal?.state === 'superseded') return [];
+    if (!isFyi(message.payload) || message.terminal?.state === 'superseded') return [];
     const local = state.answers.get(key);
     const seen = !!message.v2?.seen || message.terminal?.outcome?.kind === 'seen';
     return [{ key, message, seen, sending: local?.state === 'sending', failed: !!(local?.seen && local.state === 'failed') }];
@@ -17,7 +16,7 @@ export function fyiItems(state: State) {
 }
 
 function postedAt(message: HeldMessage) {
-  return createdAt(message) ?? message.v2?.receivedAt ?? null;
+  return message.v2?.createdAt ?? createdAt(message);
 }
 
 type Item = ReturnType<typeof fyiItems>[number];
@@ -98,7 +97,7 @@ export function FyiList(p: {
                   <h2>{title(message)}</h2>
                 </div>
                 {seen ? <span class="fyi-seen">Seen</span> : (
-                  <button class="btn fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending} onClick={() => void p.session.markFyiSeen(message)}>
+                  <button class="btn btn--bordered fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending} onClick={() => void p.session.markFyiSeen(message)}>
                     {sending ? 'Marking…' : failed ? 'Retry Seen' : 'Seen'}
                   </button>
                 )}

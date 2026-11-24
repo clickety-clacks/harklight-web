@@ -3,7 +3,7 @@
 // free-order section headings and thread groups, as the iPhone app draws it.
 // Without a view it falls back to open messages first, newest first.
 
-import { belongsToReplied, senderLabel, type Priority } from './message';
+import { belongsToReplied, isFyi, senderLabel, type Priority } from './message';
 import type { State } from './store';
 import type { HeldMessage } from './types';
 import { keyOf } from './types';
@@ -90,10 +90,6 @@ export function rows(s: State, tab: Tab, groupFyi = false): MessageRow[] {
   return out;
 }
 
-export function isFyi(m: HeldMessage): boolean {
-  return m.payload.message_type === 'fyi';
-}
-
 export function entries(s: State, tab: Tab, groupFyi = false): Entry[] {
   const items = s.view?.listItems;
   return items ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox', groupFyi) : fallback(s, tab, groupFyi);
@@ -120,7 +116,7 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
   for (const it of items) {
     if (it.kind === 'message') {
       const m = s.messages.get(it.key);
-      if (!m || !visible(m) || (groupFyi && isFyi(m))) continue;
+      if (!m || !visible(m) || (groupFyi && isFyi(m.payload))) continue;
       if (!freeOrder && (tab === 'replied') !== inReplied(s, it.key)) continue;
     } else {
       if (it.unseen === null) continue;
@@ -212,7 +208,7 @@ function fallback(s: State, tab: Tab, groupFyi: boolean): Entry[] {
   const out: MessageRow[] = [];
   for (const m of s.messages.values()) {
     const key = keyOf(m);
-    if (!visible(m) || (groupFyi && isFyi(m))) continue;
+    if (!visible(m) || (groupFyi && isFyi(m.payload))) continue;
     if ((tab === 'replied') !== inReplied(s, key)) continue;
     out.push(messageRow(s, key, m, sc, false));
   }

@@ -143,10 +143,13 @@ export { sameJson } from './json';
  * answer; a blocker request is an error. A read-only message is information,
  * a success is done and a blocker is a warning.
  */
+export function isFyi(payload: JsonObject): boolean {
+  return payload.message_type === 'fyi' || (payload.message_type !== 'request' && seenValue(payload) !== null);
+}
+
 export function messageType(payload: JsonObject): MessageType {
   const kind = payload.message_kind;
-  const readOnly = payload.message_type === 'fyi' || (payload.message_type !== 'request' && seenValue(payload) !== null);
-  if (readOnly) {
+  if (isFyi(payload)) {
     if (kind === 'success') return 'done';
     if (kind === 'blocker') return 'warn';
     return 'info';
