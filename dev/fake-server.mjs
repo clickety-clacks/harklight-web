@@ -382,6 +382,15 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         for (const sock of world.heldSockets ?? []) sock.destroy();
         world.heldSockets = [];
         return json(res, 200, { ok: true });
+      case 'revise': {
+        // The origin revises a message (by title): the given members replace its own.
+        const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
+        if (!m) return json(res, 404, { error: 'no message with that title' });
+        if (m.terminal) return json(res, 409, { error: 'already_closed' });
+        m.payload = { ...m.payload, ...body.message };
+        m.revision += 1;
+        return json(res, 200, { ok: true });
+      }
       case 'retract': {
         // The origin retracts a message (by title); it stays listed and readable.
         const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);

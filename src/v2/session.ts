@@ -1,4 +1,4 @@
-import { answerForm } from '../state/message';
+import { answerForm, isProgress, seenKeepsOpen, seenValue } from '../state/message';
 // The tab's session with Harklight Server over client API v2, behind the
 // store and the actions the UI calls:
 //
@@ -746,6 +746,7 @@ export class V2Session {
     for (const key of [...this.answerWaiting]) {
       this.answerWaiting.delete(key);
       const a = this.store.state.answers.get(key);
+      // Nobody pressed again: exactly the same request, never a new answer.
       if (a?.state === 'failed' && a.reason === 'connection' && a.resend) void this.resendAnswer(key, a.resend as FrozenWrite);
     }
   }
@@ -833,6 +834,11 @@ export class V2Session {
     await this.sendAnswer(m, body, { label, seen: opts.seen ?? false, noComment: false, control: opts.control, text: opts.text, draft: opts.draft });
   }
 
+  /** Seen on this message, as it is now, is its answer and ends it. */
+  private seenIsAnswer(m: HeldMessage): boolean {
+    return !m.terminal && answerForm(m.payload).kind === 'seen' && !seenKeepsOpen(m);
+  }
+
   async markFyiSeen(m: HeldMessage): Promise<void> {
     if (!m.v2 || !this.canWrite(this.store.state)) return;
     const key = keyOfItem({ sender: m.sender_id, item_id: m.v2.item_id });
@@ -841,10 +847,10 @@ export class V2Session {
     if (!current?.v2 || current.revision !== m.revision || pending?.state === 'sending') return;
     if (current.v2.seen || current.terminal?.outcome?.kind === 'seen') return;
     if (pending?.seen && pending.state === 'failed' && pending.resend) {
-      await this.resendAnswer(key, pending.resend as FrozenWrite);
+      await this.retryHeld(key, pending);
       return;
     }
-    if (!current.terminal && answerForm(current.payload).kind === 'seen') {
+    if (this.seenIsAnswer(current)) {
       await this.answer(current, null, null, { seen: true, control: 'seen' });
       return;
     }
@@ -887,7 +893,15 @@ export class V2Session {
   /** Retry a failed answer: the same request and key, so it can never apply twice. */
   retryAnswer(key: string): void {
     const a = this.store.state.answers.get(key);
-    if (a?.state === 'failed' && a.resend) void this.resendAnswer(key, a.resend as FrozenWrite);
+    if (a?.state === 'failed' && a.resend) void this.retryHeld(key, a);
+  }
+
+  /** A failed Seen that was not an answer becomes one if the Progress has finished since. */
+  private retryHeld(key: string, a: LocalAnswer): Promise<void> {
+    const w = a.resend as FrozenWrite;
+    const m = this.store.state.messages.get(key);
+    if (w.op === 'seen' && m && this.seenIsAnswer(m)) return this.answer(m, null, null, { seen: true, control: 'seen' });
+    return this.resendAnswer(key, w);
   }
 
   /** Update an answer's state, unless it was edited into a new answer meanwhile. */
@@ -906,7 +920,10 @@ export class V2Session {
         const r = await this.write(w);
         // A replayed response is the original's: the answer went through.
         this.applyWrite(readWriteResult(r.body));
-        this.setAnswer(key, { state: 'accepted', resend: undefined }, w);
+        // Progress keeps its Seen on the item, which the agent may change again.
+        const m = this.store.state.messages.get(key);
+        if (w.op === 'seen' && m && isProgress(m.payload) && seenValue(m.payload) !== null) this.store.update((s) => void (s.answers.get(key)?.resend === w && s.answers.delete(key)));
+        else this.setAnswer(key, { state: 'accepted', resend: undefined }, w);
       } catch (e) {
         if (e instanceof Ended) return;
         if (e instanceof NetworkError) {
