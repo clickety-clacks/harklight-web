@@ -98,7 +98,14 @@ describe('the caption under a chat turn the person sent', () => {
     ['gone', {}, 'No one will get this'],
     ['unsupported', {}, 'No one will get this'],
     ['not_listening', SERVED, 'Sending…'],
-    ['gone', SERVED, 'Sending…'],
+    ['gone', SERVED, 'No one will get this'],
+    ['unsupported', SERVED, 'No one will get this'],
+    ['gone', { ...SERVED, ack2_expected: true }, 'No one will get this'],
+    ['gone', { ...SERVED, ack2_expected: false }, 'No one will get this'],
+    ['gone', { ...SERVED, ack2_expected: false, listener_received: true }, 'Delivered'],
+    ['gone', { ...SERVED, agent_seen: true }, 'Delivered'],
+    ['unsupported', { ...SERVED, agent_acted: true }, 'Delivered'],
+    ['unsupported', { ...SERVED, outcome: 'handed' }, 'Delivered'],
     ['not_listening', NOT, 'Not delivered'],
     ['gone', NOT, 'No one will get this'],
     ['unsupported', NOT, 'No one will get this'],
@@ -126,6 +133,13 @@ describe('the caption under a chat turn the person sent', () => {
     w.mine(2, SERVED);
     w.reply(3, 'en_1', { state: 'retracted' });
     expect(w.text()).toBe('Sending…');
+  });
+
+  it('a reply to the turn wins over a conversation that is gone', () => {
+    const w = world();
+    w.mine(2, SERVED);
+    w.reply(3, 'en_1');
+    expect([w.text('gone'), w.text('unsupported')]).toEqual(['Delivered', 'Delivered']);
   });
 
   it('a reply to another turn, or by someone else, is not evidence', () => {

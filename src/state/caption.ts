@@ -38,7 +38,7 @@ export function captionOf(turn: Turn, turns: Turn[], availability: Availability)
   } else if (d.legacy_caption) {
     return d.delivered || d.acted ? DELIVERED : { text: 'Sent' };
   }
-  if (d.delivered) return { text: 'Sending…' };
   if (unreachable) return NO_ONE;
+  if (d.delivered) return { text: 'Sending…' };
   return { text: availability === 'not_listening' ? 'Not delivered yet' : 'Sent' };
 }

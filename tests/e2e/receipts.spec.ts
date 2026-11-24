@@ -137,3 +137,19 @@ test('before it is served, the caption follows whether the agent is there', asyn
   await control(page, 'availability', { title: TITLE, state: 'listening' });
   await expect(c).toHaveText('Sent');
 });
+
+for (const state of ['gone', 'unsupported']) {
+  test(`a conversation that is ${state} says no one will get it, served or not, unless the agent has it`, async ({ page }) => {
+    const served = await sendChat(page, TEXT);
+    const unserved = await sendChat(page, 'And quiet?');
+    await set(page, { delivered: true });
+    await expect(served).toHaveText('Sending…');
+    await control(page, 'availability', { title: TITLE, state });
+    await expect(served).toHaveText('No one will get this');
+    await expect(unserved).toHaveText('No one will get this');
+    await set(page, { agent_seen: true });
+    await expect(served).toHaveText('Delivered');
+    await set(page, { outcome: 'handed' }, 'And quiet?');
+    await expect(unserved).toHaveText('Delivered');
+  });
+}
