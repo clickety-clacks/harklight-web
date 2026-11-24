@@ -2,7 +2,7 @@
 // answer controls and its status. Pure functions over the payload the Server
 // delivered, so they are easy to test.
 
-import { sameJson, stringify } from './json';
+import { RawNumber, sameJson, stringify } from './json';
 import { UI1_SCHEMA, validateUi1, type Ui1Limits } from '../ui1/validate';
 import type { HeldMessage, Json, JsonObject } from './types';
 
@@ -156,26 +156,34 @@ const INTERNET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\
 
 /** Progress that has reached 100, readable by the iPhone app's rules. Anything else is not finished. */
 export function progressFinished(payload: JsonObject): boolean {
-  const percentage = (v: Json | undefined): v is number => typeof v === 'number' && v >= 0 && v <= 100;
+  // A number the parser kept as text (100.0, 1e2) is still that number.
+  const number = (v: unknown) => (v instanceof RawNumber ? Number(v.text) : typeof v === 'number' ? v : NaN);
   const noteOk = (v: Json | undefined) => v === undefined || v === null || typeof v === 'string';
   const p = payload.progress;
-  if (!isObject(p) || p.percent !== 100 || typeof p.stage !== 'string' || !noteOk(p.note)) return false;
+  if (!isObject(p) || number(p.percent) !== 100 || typeof p.stage !== 'string' || !noteOk(p.note)) return false;
   if (typeof p.updated_at !== 'string' || !INTERNET_DATE_TIME.test(p.updated_at) || Number.isNaN(Date.parse(p.updated_at))) return false;
   if (!Array.isArray(p.segments)) return false;
   let total = 0;
   for (const v of p.segments) {
-    if (!isObject(v) || typeof v.stage !== 'string' || !percentage(v.width) || !noteOk(v.note)) return false;
-    total += v.width;
+    const width = isObject(v) ? number(v.width) : NaN;
+    if (!isObject(v) || typeof v.stage !== 'string' || !(width >= 0 && width <= 100) || !noteOk(v.note)) return false;
+    total += width;
   }
   return Math.abs(total - 100) < 0.000001;
 }
 
 /**
  * A Seen answer ends the item, and the Server then refuses the agent's
- * updates. Progress that is not finished is marked Seen without one.
+ * updates. Progress that offers Seen and is not finished is marked Seen
+ * without one.
  */
-export function seenKeepsOpen(payload: JsonObject): boolean {
-  return isProgress(payload) && !progressFinished(payload);
+export function seenKeepsOpen(m: { payload: JsonObject; terminal: unknown }): boolean {
+  return !m.terminal && isProgress(m.payload) && seenValue(m.payload) !== null && !progressFinished(m.payload);
+}
+
+/** Unfinished Progress the person has marked Seen. */
+export function seenWithoutAnswer(m: HeldMessage): boolean {
+  return seenKeepsOpen(m) && !!m.v2?.seen;
 }
 
 export function messageType(payload: JsonObject): MessageType {

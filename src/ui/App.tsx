@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Config } from '../config';
 import type { ClientSession } from '../client';
 import { entries as entriesFor, rows as rowsFor, type ReplyRow, type Tab } from '../state/inbox';
-import { answerForm, seenKeepsOpen, senderLabel } from '../state/message';
+import { answerForm, seenKeepsOpen, seenWithoutAnswer, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
 import type { Json, WireFile } from '../state/types';
 import { imageUrlFor } from './images';
@@ -189,7 +189,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     (k: string) => {
       const m = s.messages.get(k);
       const a = s.answers.get(k);
-      return m?.terminal?.outcome?.kind === 'seen' || (!!a?.seen && a.state === 'accepted');
+      return m?.terminal?.outcome?.kind === 'seen' || (!!a?.seen && a.state === 'accepted') || (!!m && seenWithoutAnswer(m));
     },
     [s],
   );
@@ -221,7 +221,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   // The session sends the Seen action as a v2 choice.
   const onSeen = () => {
     if (!message) return;
-    if (seenKeepsOpen(message.payload)) void session.markFyiSeen(message);
+    if (seenKeepsOpen(message)) void session.markFyiSeen(message);
     else void session.answer(message, null, null, { seen: true, control: 'seen' });
   };
   const onRetry = () => selected && session.retryAnswer(selected);
