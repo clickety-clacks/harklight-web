@@ -71,6 +71,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const [tab, setTab] = useState<Tab>('inbox');
   const [showFyi, setShowFyi] = useState(false);
   const restoreFyiFocus = useRef(false);
+  // For the Back listener, which is added once and must see the current value.
+  const fyiShown = useRef(showFyi);
+  fyiShown.current = showFyi;
   const [selected, setSelected] = useState<string | null>(null);
   /** Whether the chat is open. Where there's room it shows as a side panel,
    * otherwise as a modal over the message; a resize switches between them and
@@ -101,7 +104,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     const on = () => {
       setPage(pageFromPath(location.pathname));
       const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean } | null;
-      if (showFyi && !st?.fyi) restoreFyiFocus.current = true;
+      if (fyiShown.current && !st?.fyi) restoreFyiFocus.current = true;
       setShowFyi(!!st?.fyi);
       setSelected(st?.selected ?? null);
       setChatWanted(!!st?.chat);
@@ -110,7 +113,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     };
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
-  }, [showFyi]);
+  }, []);
 
   const base = useMemo(() => location.pathname.replace(/\/(inbox|settings)\/?$/, ''), []);
   const go = (p: Page, sel: string | null, chat: boolean, fromReply = false) => {
