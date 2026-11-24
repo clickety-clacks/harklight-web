@@ -15,7 +15,8 @@ export interface Flags {
   /** Custom answer forms (attention-client.ui/1). Off offers the plain Reply
    * and No comment, and says the custom screen is not shown. */
   answerForms: boolean;
-  /** Group FYI messages in their dedicated Inbox list. */
+  /** Group FYI messages in their dedicated Inbox list. On by default; a
+   * deployment can turn it off in its config.json. */
   fyiInbox?: boolean;
 }
 
@@ -49,7 +50,7 @@ export const DEFAULT_CONFIG: Config = {
   componentsPath: '/components',
   devicesPath: '/devices',
   accountInfoPath: '/api/profile',
-  flags: { webClient: false, attachments: false, answerForms: false, fyiInbox: false },
+  flags: { webClient: false, attachments: false, answerForms: false, fyiInbox: true },
 };
 
 export function mergeConfig(base: Config, override: unknown): Config {
