@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
-import { body, createdAt, friendlyTime, isFyi, senderLabel, title } from '../state/message';
+import { body, createdAt, isFyi, messageType, title } from '../state/message';
 import type { State } from '../state/store';
 import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
-import { FileRow } from './FileRow';
+import { MessageContent, MessageHeading } from './MessageContent';
 
 export function fyiItems(state: State) {
   return [...state.messages].flatMap(([key, message]) => {
@@ -90,11 +90,10 @@ export function FyiList(p: {
       <ul class="fyi-entries">
         {items.map(({ key, message, seen, sending, failed }) => (
           <li key={key}>
-            <article class="fyi-item">
+            <article class={`fyi-item type-${messageType(message.payload)}`}>
               <div class="fyi-item-heading">
                 <div>
-                  <div class="fyi-meta">{senderLabel(message)} {friendlyTime(postedAt(message))}</div>
-                  <h2>{title(message)}</h2>
+                  <MessageHeading message={message} timestamp={postedAt(message)} />
                 </div>
                 {seen ? <span class="fyi-seen">Seen</span> : (
                   <button class="btn btn--bordered fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending} onClick={() => void p.session.markFyiSeen(message)}>
@@ -102,10 +101,7 @@ export function FyiList(p: {
                   </button>
                 )}
               </div>
-              {body(message) && <p class="msg-body">{body(message)}</p>}
-              {message.files.length > 0 && <div class="files">
-                {message.files.map((file, i) => <FileRow key={i} file={file} download={p.attachments} fileHref={(id) => p.session.fileHref(id)} />)}
-              </div>}
+              <MessageContent message={message} attachments={p.attachments} fileHref={(id) => p.session.fileHref(id)} />
               {message.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}
               {message.chat && <button class="btn" type="button" onClick={() => p.openConversation(key)}>Open conversation</button>}
               {failed && !seen && <p role="status">Could not mark this FYI seen.</p>}

@@ -1226,8 +1226,7 @@ a.grow:hover .grow-l {
   margin-inline-start: auto;
 }
 
-.fyi-toolbar h1,
-.fyi-item h2 {
+.fyi-toolbar h1 {
   margin: 0;
 }
 
@@ -1238,6 +1237,9 @@ a.grow:hover .grow-l {
 }
 
 .fyi-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   border-bottom: 1px solid var(--line);
   padding-block: 16px;
   overflow-wrap: anywhere;
@@ -1250,7 +1252,10 @@ a.grow:hover .grow-l {
   gap: 12px;
 }
 
-.fyi-meta,
+.fyi-item-heading > div {
+  min-width: 0;
+}
+
 span.fyi-seen {
   color: var(--muted);
 }
