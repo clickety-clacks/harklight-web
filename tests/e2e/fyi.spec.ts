@@ -135,3 +135,56 @@ test('Back pressed as the FYI list opens returns focus to the summary', async ({
   });
   await expect(page.getByRole('button', { name: /Open FYIs/ })).toBeFocused();
 });
+
+test('Seen and Mark All Seen leave unfinished Progress open, so the agent can keep updating it', async ({ page }) => {
+  await page.request.post('/__fake/reset');
+  const answer_ui = { schema: 'attention-client.actions/1', actions: [{ id: 'seen', label: 'Seen', kind: 'value', value: 'seen' }] };
+  const at = '2026-11-24T12:00:00Z';
+  const progress = (percent: number) => ({ percent, stage: 'Build', updated_at: at, segments: [{ stage: 'Build', width: percent }] });
+  const send = (message_id: string, title: string, percent: number) =>
+    page.request.post('/__fake/send', { data: { chat: true, message: { sender_id: 'agent:build', message_id, title, message_type: 'fyi', answer_ui, progress: progress(percent) } } });
+  await send('p-one', 'Progress one', 30);
+  await send('p-two', 'Progress two', 60);
+  await send('p-done', 'Progress done', 100);
+  const writes: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'POST') return;
+    const m = new URL(r.url()).pathname.match(/items\/it_([^/]+)\/(answer|seen)$/);
+    if (m) writes.push(`${Buffer.from(m[1], 'base64url').toString().split('\u0000')[1]} ${m[2]}`);
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.getByRole('button', { name: 'Mark seen: Progress one' }).click();
+  const one = page.getByRole('article').filter({ hasText: 'Progress one' });
+  await expect(one.getByText('Seen', { exact: true })).toBeVisible();
+  expect(writes).toEqual(['p-one seen']);
+  await page.getByRole('button', { name: 'Mark All Seen' }).click();
+  await expect(page.getByRole('button', { name: 'Mark All Seen' })).toBeDisabled();
+  await expect(page.locator('.fyi-unseen')).toHaveText('0 unseen');
+  expect(writes.filter((w) => w.startsWith('p-')).sort()).toEqual(['p-done answer', 'p-one seen', 'p-two seen']);
+  // On the message itself: already Seen, and no button that would end it.
+  await one.getByRole('button', { name: 'Open conversation' }).click();
+  await expect(page.getByTestId('seen-done')).toBeVisible();
+  await expect(page.locator('button.seen-under')).toHaveCount(0);
+});
+
+test('Seen on the message itself leaves unfinished Progress open', async ({ page }) => {
+  await page.request.post('/__fake/reset');
+  const answer_ui = { schema: 'attention-client.actions/1', actions: [{ id: 'seen', label: 'Seen', kind: 'value', value: 'seen' }] };
+  await page.request.post('/__fake/send', {
+    data: { chat: true, message: { sender_id: 'agent:build', message_id: 'p-one', title: 'Progress one', message_type: 'fyi', answer_ui, progress: { percent: 30 } } },
+  });
+  const writes: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/(answer|seen)$/.test(r.url())) writes.push(r.url().split('/').at(-1)!);
+  });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.getByRole('article').filter({ hasText: 'Progress one' }).getByRole('button', { name: 'Open conversation' }).click();
+  expect(writes).toEqual([]);
+  await page.locator('button.seen-under').click();
+  await expect(page.getByTestId('seen-done')).toBeVisible();
+  expect(writes).toEqual(['seen']);
+});

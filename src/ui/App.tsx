@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Config } from '../config';
 import type { ClientSession } from '../client';
 import { entries as entriesFor, rows as rowsFor, type ReplyRow, type Tab } from '../state/inbox';
-import { answerForm, senderLabel } from '../state/message';
+import { answerForm, seenKeepsOpen, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
 import type { Json, WireFile } from '../state/types';
 import { imageUrlFor } from './images';
@@ -219,7 +219,11 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     else void session.answer(message, a.text, a.text, { control: a.choice.id, text: a.text });
   };
   // The session sends the Seen action as a v2 choice.
-  const onSeen = () => message && void session.answer(message, null, null, { seen: true, control: 'seen' });
+  const onSeen = () => {
+    if (!message) return;
+    if (seenKeepsOpen(message.payload)) void session.markFyiSeen(message);
+    else void session.answer(message, null, null, { seen: true, control: 'seen' });
+  };
   const onRetry = () => selected && session.retryAnswer(selected);
   const onEdit = () => selected && session.editFailedAnswer(selected);
 

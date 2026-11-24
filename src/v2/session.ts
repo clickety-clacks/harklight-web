@@ -1,4 +1,4 @@
-import { answerForm } from '../state/message';
+import { answerForm, seenKeepsOpen } from '../state/message';
 // The tab's session with Harklight Server over client API v2, behind the
 // store and the actions the UI calls:
 //
@@ -844,7 +844,7 @@ export class V2Session {
       await this.resendAnswer(key, pending.resend as FrozenWrite);
       return;
     }
-    if (!current.terminal && answerForm(current.payload).kind === 'seen') {
+    if (!current.terminal && answerForm(current.payload).kind === 'seen' && !seenKeepsOpen(current.payload)) {
       await this.answer(current, null, null, { seen: true, control: 'seen' });
       return;
     }
@@ -906,7 +906,9 @@ export class V2Session {
         const r = await this.write(w);
         // A replayed response is the original's: the answer went through.
         this.applyWrite(readWriteResult(r.body));
-        this.setAnswer(key, { state: 'accepted', resend: undefined }, w);
+        // Seen without an answer lives on the item, which may change again.
+        if (w.op === 'seen') this.store.update((s) => void (s.answers.get(key)?.resend === w && s.answers.delete(key)));
+        else this.setAnswer(key, { state: 'accepted', resend: undefined }, w);
       } catch (e) {
         if (e instanceof Ended) return;
         if (e instanceof NetworkError) {

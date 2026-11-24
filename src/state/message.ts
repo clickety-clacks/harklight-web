@@ -147,6 +147,37 @@ export function isFyi(payload: JsonObject): boolean {
   return payload.message_type === 'fyi' || (payload.message_type !== 'request' && seenValue(payload) !== null);
 }
 
+/** An FYI the agent keeps updating. The Server's own test: it has `progress`, readable or not. */
+export function isProgress(payload: JsonObject): boolean {
+  return payload.message_type === 'fyi' && 'progress' in payload;
+}
+
+const INTERNET_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
+
+/** Progress that has reached 100, readable by the iPhone app's rules. Anything else is not finished. */
+export function progressFinished(payload: JsonObject): boolean {
+  const percentage = (v: Json | undefined): v is number => typeof v === 'number' && v >= 0 && v <= 100;
+  const noteOk = (v: Json | undefined) => v === undefined || v === null || typeof v === 'string';
+  const p = payload.progress;
+  if (!isObject(p) || p.percent !== 100 || typeof p.stage !== 'string' || !noteOk(p.note)) return false;
+  if (typeof p.updated_at !== 'string' || !INTERNET_DATE_TIME.test(p.updated_at) || Number.isNaN(Date.parse(p.updated_at))) return false;
+  if (!Array.isArray(p.segments)) return false;
+  let total = 0;
+  for (const v of p.segments) {
+    if (!isObject(v) || typeof v.stage !== 'string' || !percentage(v.width) || !noteOk(v.note)) return false;
+    total += v.width;
+  }
+  return Math.abs(total - 100) < 0.000001;
+}
+
+/**
+ * A Seen answer ends the item, and the Server then refuses the agent's
+ * updates. Progress that is not finished is marked Seen without one.
+ */
+export function seenKeepsOpen(payload: JsonObject): boolean {
+  return isProgress(payload) && !progressFinished(payload);
+}
+
 export function messageType(payload: JsonObject): MessageType {
   const kind = payload.message_kind;
   if (isFyi(payload)) {

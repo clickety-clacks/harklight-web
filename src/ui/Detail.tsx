@@ -7,6 +7,7 @@ import {
   messageType,
   title,
   type Choice,
+  seenKeepsOpen,
 } from '../state/message';
 import type { LocalAnswer } from '../state/store';
 import type { HeldMessage, Json, WireFile } from '../state/types';
@@ -67,7 +68,10 @@ export function Detail(p: DetailProps) {
   const local = p.local;
   const sending = local?.state === 'sending';
   const failed = local?.state === 'failed';
-  const seenDone = m.terminal?.outcome?.kind === 'seen' || (!!local?.seen && local.state === 'accepted');
+  const seenDone =
+    m.terminal?.outcome?.kind === 'seen' ||
+    (!!local?.seen && local.state === 'accepted') ||
+    (seenKeepsOpen(m.payload) && !!m.v2?.seen);
   const answered =
     !seenDone &&
     (m.terminal?.state === 'answered' ||
