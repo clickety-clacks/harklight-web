@@ -261,7 +261,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       if (p === '/app/config.json')
         return json(res, 200, {
           accountInfoPath: '/__fake/me',
-          flags: { webClient, attachments, answerForms: flags.includes('answer-forms') },
+          flags: { webClient, attachments, answerForms: flags.includes('answer-forms'), fyiInbox: flags.includes('fyi-inbox') },
         });
       if (p === '/sign-out' && req.method === 'POST') {
         const body = (await readBody(req)).toString();

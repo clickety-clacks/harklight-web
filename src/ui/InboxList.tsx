@@ -7,6 +7,7 @@ import { Icon } from './Icon';
 
 export function InboxList(props: {
   tab: Tab;
+  fyiSummary?: import('preact').ComponentChildren;
   entries: Entry[];
   selected: string | null;
   /** Thread groups the person opened. */
@@ -74,6 +75,7 @@ export function InboxList(props: {
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) props.onNearEnd();
         }}
       >
+        {props.tab === 'inbox' && props.fyiSummary}
         {props.entries.map((e) => {
           if (e.type === 'message') return messageRow(e);
           if (e.type === 'heading')

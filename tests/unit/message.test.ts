@@ -120,7 +120,7 @@ describe('web client flag', () => {
     const st = mem();
     const live = { ...DEFAULT_CONFIG, flags: { webClient: true, answerForms: true, attachments: false } };
     expect(applyPreview(live, '', st).flags.attachments).toBe(false);
-    expect(applyPreview(live, '#preview', st).flags).toEqual({ webClient: true, answerForms: true, attachments: true });
+    expect(applyPreview(live, '#preview', st).flags).toEqual({ webClient: true, answerForms: true, attachments: true, fyiInbox: true });
     expect(live.flags.attachments).toBe(false);
   });
   it('has no relay settings left: a deployment config naming them changes nothing', () => {

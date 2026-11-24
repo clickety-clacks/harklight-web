@@ -15,6 +15,8 @@ export interface Flags {
   /** Custom answer forms (attention-client.ui/1). Off offers the plain Reply
    * and No comment, and says the custom screen is not shown. */
   answerForms: boolean;
+  /** Group FYI messages in their dedicated Inbox list. */
+  fyiInbox?: boolean;
 }
 
 export interface Config {
@@ -47,7 +49,7 @@ export const DEFAULT_CONFIG: Config = {
   componentsPath: '/components',
   devicesPath: '/devices',
   accountInfoPath: '/api/profile',
-  flags: { webClient: false, attachments: false, answerForms: false },
+  flags: { webClient: false, attachments: false, answerForms: false, fyiInbox: false },
 };
 
 export function mergeConfig(base: Config, override: unknown): Config {
@@ -94,5 +96,5 @@ export function applyPreview(config: Config, hash: string, storage: Pick<Storage
   if (hash === '#preview') storage.setItem(PREVIEW_KEY, '1');
   if (hash === '#preview-off') storage.removeItem(PREVIEW_KEY);
   if (storage.getItem(PREVIEW_KEY) !== '1') return config;
-  return { ...config, flags: { ...config.flags, webClient: true, answerForms: true, attachments: true } };
+  return { ...config, flags: { ...config.flags, webClient: true, answerForms: true, attachments: true, fyiInbox: true } };
 }

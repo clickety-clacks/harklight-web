@@ -1,3 +1,4 @@
+import { answerForm } from '../state/message';
 // The tab's session with Harklight Server over client API v2, behind the
 // store and the actions the UI calls:
 //
@@ -110,7 +111,7 @@ export class V2Session {
   private cursor = 0;
   private feed: EventSourceLike | null = null;
   private nextPage: string | null = null;
-  private paging: Promise<void> | null = null;
+  private paging: Promise<boolean> | null = null;
   private stopped = false;
   private attempt = 0;
   private retry: (() => void) | null = null;
@@ -459,10 +460,10 @@ export class V2Session {
   }
 
   /** Load the next inbox page, if the Server has one. */
-  async loadMore(): Promise<void> {
+  async loadMore(): Promise<boolean> {
     if (this.paging) return this.paging;
     const page = this.nextPage;
-    if (!page || this.stopped) return;
+    if (!page || this.stopped) return false;
     this.paging = (async () => {
       try {
         const p = await this.inboxPage(page);
@@ -472,14 +473,23 @@ export class V2Session {
           s.view = viewOf(s);
           s.morePages = this.nextPage !== null;
         });
+        return this.nextPage !== page;
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) this.ended();
-        // Otherwise the next scroll asks again.
+        // Otherwise the next scroll or explicit retry asks again.
+        return false;
       } finally {
         this.paging = null;
       }
     })();
     return this.paging;
+  }
+
+  /** Complete the paged snapshot for an exact FYI count and bulk action. */
+  async loadAllPages(): Promise<void> {
+    while (this.nextPage && !this.stopped && (await this.loadMore())) {
+      // A failed page stops this pass. The user can retry from the FYI list.
+    }
   }
 
   /**
@@ -760,7 +770,7 @@ export class V2Session {
         return await call(this.api, w.path, {
           op: w.op,
           method: w.method,
-          automatic: w.op === 'seen' || w.op === 'read_position',
+          automatic: (w.op === 'seen' && !w.explicit) || w.op === 'read_position',
           ...(file ? { bytes: file.bytes, fileName: file.name } : { json: w.body }),
           idempotencyKey: w.key,
         });
@@ -815,6 +825,31 @@ export class V2Session {
     else if (opts.text !== undefined) body.comment = opts.text;
     else body.choice = opts.control;
     await this.sendAnswer(m, body, { label, seen: opts.seen ?? false, noComment: false, control: opts.control, text: opts.text, draft: opts.draft });
+  }
+
+  async markFyiSeen(m: HeldMessage): Promise<void> {
+    if (!m.v2 || !this.canWrite(this.store.state)) return;
+    const key = keyOfItem({ sender: m.sender_id, item_id: m.v2.item_id });
+    const current = this.store.state.messages.get(key);
+    const pending = this.store.state.answers.get(key);
+    if (!current?.v2 || current.revision !== m.revision || pending?.state === 'sending') return;
+    if (current.v2.seen || current.terminal?.outcome?.kind === 'seen') return;
+    if (pending?.seen && pending.state === 'failed' && pending.resend) {
+      await this.resendAnswer(key, pending.resend as FrozenWrite);
+      return;
+    }
+    if (!current.terminal && answerForm(current.payload).kind === 'seen') {
+      await this.answer(current, null, null, { seen: true, control: 'seen' });
+      return;
+    }
+    const w: FrozenWrite = {
+      type: 'v2', op: 'seen', method: 'POST', path: `/items/${seg(current.v2.item_id)}/seen`,
+      body: {}, key: newKey(), explicit: true,
+    };
+    this.store.update((s) => {
+      s.answers.set(key, { state: 'sending', label: null, seen: true, noComment: false, control: 'seen', resend: w });
+    });
+    await this.resendAnswer(key, w);
   }
 
   async noComment(m: HeldMessage): Promise<void> {
