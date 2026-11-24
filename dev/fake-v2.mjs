@@ -132,9 +132,7 @@ function terminalOf(w, m) {
         ...(o.kind === 'choice' ? { id: o.id, label: o.label } : {}),
       }
     : null;
-  // A recorded handoff also sets delivered; the outcome is absent until one is recorded.
-  const delivery = t.handoff ? { delivery: { delivered: true, acted: false, outcome: t.handoff } } : {};
-  return { state, at_ms, ...(answer ? { answer } : {}), by_this_person: state === 'answered', ...delivery };
+  return { state, at_ms, ...(answer ? { answer } : {}), by_this_person: state === 'answered' };
 }
 
 function convOf(w, m) {
@@ -195,7 +193,7 @@ function entriesOf(w, m) {
       ...(files.length ? { files } : {}),
       ...(!person && e.in_reply_to ? { in_reply_to: `en_${e.in_reply_to}` } : {}),
       state: 'active',
-      ...(person ? { delivery: { delivered: !!e.handoff || delivered.has(e.event_id), acted: false, ...(e.handoff ? { outcome: e.handoff } : {}) } } : {}),
+      ...(person ? { delivery: { delivered: delivered.has(e.event_id), acted: false } } : {}),
     });
   }
   // A lifecycle entry is only the retraction fact; answers live on Item.terminal.

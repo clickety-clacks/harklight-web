@@ -35,21 +35,12 @@ function readLevel(v: unknown): Level | undefined {
   return LEVELS.includes(v as Level) ? (v as Level) : undefined;
 }
 
-/** What is recorded about an entry's or an answer's handoff to the agent.
- * `outcome` is absent when no handoff is recorded. */
-export interface Delivery {
-  delivered?: boolean;
-  acted?: boolean;
-  outcome?: 'handed' | 'not_handed';
-}
-
 export interface Terminal {
   state: TerminalState;
   at_ms: number;
   answer?: Answer;
   /** By any client of this person. */
   by_this_person?: boolean;
-  delivery?: Delivery;
 }
 
 export interface Item {
@@ -119,7 +110,7 @@ export interface Entry {
   state?: 'active' | 'withdrawn' | 'retracted';
   terminal?: Terminal;
   availability?: { state: AvailabilityState };
-  delivery?: Delivery;
+  delivery?: { delivered?: boolean; acted?: boolean };
   result?: OriginResult;
 }
 
@@ -250,27 +241,15 @@ function readFiles(v: unknown): FileRef[] {
   return v.map(readFileRef).filter((f): f is FileRef => f !== null);
 }
 
-function readDelivery(v: unknown): Delivery | undefined {
-  const o = obj(v);
-  if (!o) return undefined;
-  return {
-    delivered: o.delivered === true,
-    acted: o.acted === true,
-    ...(o.outcome === 'handed' || o.outcome === 'not_handed' ? { outcome: o.outcome } : {}),
-  };
-}
-
 export function readTerminal(v: unknown): Terminal | null {
   const o = obj(v);
   if (!o || !TERMINAL.includes(o.state as TerminalState)) return null;
   const answer = readAnswer(o.answer);
-  const delivery = readDelivery(o.delivery);
   return {
     state: o.state as TerminalState,
     at_ms: int(o.at_ms, 0) ?? 0,
     ...(answer ? { answer } : {}),
     by_this_person: o.by_this_person === true,
-    ...(delivery ? { delivery } : {}),
   };
 }
 
@@ -339,7 +318,7 @@ export function readEntry(v: unknown): Entry | null {
   const author = o.author === 'person' || o.author === 'origin' || o.author === 'server' ? o.author : null;
   if (!author) return null;
   const state = o.state === 'active' || o.state === 'withdrawn' || o.state === 'retracted' ? o.state : undefined;
-  const delivery = readDelivery(o.delivery);
+  const delivery = obj(o.delivery);
   const result = o.kind === 'result' ? readResult(o.result) : undefined;
   return {
     ...(result ? { result } : {}),
@@ -357,7 +336,7 @@ export function readEntry(v: unknown): Entry | null {
     ...(state ? { state } : {}),
     ...(readTerminal(o.terminal) ? { terminal: readTerminal(o.terminal)! } : {}),
     ...(readAvailability(o.availability) ? { availability: readAvailability(o.availability)! } : {}),
-    ...(delivery ? { delivery } : {}),
+    ...(delivery ? { delivery: { delivered: delivery.delivered === true, acted: delivery.acted === true } } : {}),
   };
 }
 
