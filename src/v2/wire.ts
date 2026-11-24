@@ -35,6 +35,25 @@ function readLevel(v: unknown): Level | undefined {
   return LEVELS.includes(v as Level) ? (v as Level) : undefined;
 }
 
+/** What is recorded of a person's turn reaching the agent. All optional. */
+export interface Delivery {
+  /** The Server served it; not evidence that the agent has it. */
+  delivered?: boolean;
+  acted?: boolean;
+  outcome?: 'handed' | 'not_handed';
+  /** Whether a handoff receipt is expected; only an explicit false says not. */
+  ack2_expected?: boolean;
+  listener_received?: boolean;
+  agent_seen?: boolean;
+  agent_acted?: boolean;
+  /** Served before handoffs were recorded: keeps the old caption. */
+  legacy_caption?: boolean;
+  /** Agent-written text, shown as plain text. */
+  reason?: string;
+  agent?: string;
+  rerouted?: boolean;
+}
+
 export interface Terminal {
   state: TerminalState;
   at_ms: number;
@@ -110,7 +129,7 @@ export interface Entry {
   state?: 'active' | 'withdrawn' | 'retracted';
   terminal?: Terminal;
   availability?: { state: AvailabilityState };
-  delivery?: { delivered?: boolean; acted?: boolean };
+  delivery?: Delivery;
   result?: OriginResult;
 }
 
@@ -258,6 +277,22 @@ function readAvailability(v: unknown): { state: AvailabilityState } | undefined 
   return o && AVAILABILITY.includes(o.state as AvailabilityState) ? { state: o.state as AvailabilityState } : undefined;
 }
 
+const DELIVERY_FLAGS = ['delivered', 'acted', 'ack2_expected', 'listener_received', 'agent_seen', 'agent_acted', 'legacy_caption', 'rerouted'] as const;
+
+function readDelivery(v: unknown): Delivery | undefined {
+  const o = obj(v);
+  if (!o) return undefined;
+  const d: Delivery = {};
+  for (const f of DELIVERY_FLAGS) {
+    const flag = o[f];
+    if (typeof flag === 'boolean') d[f] = flag;
+  }
+  if (o.outcome === 'handed' || o.outcome === 'not_handed') d.outcome = o.outcome;
+  if (typeof o.reason === 'string') d.reason = o.reason;
+  if (typeof o.agent === 'string') d.agent = o.agent;
+  return d;
+}
+
 export function readItem(v: unknown): Item | null {
   const o = obj(v);
   if (!o) return null;
@@ -318,7 +353,7 @@ export function readEntry(v: unknown): Entry | null {
   const author = o.author === 'person' || o.author === 'origin' || o.author === 'server' ? o.author : null;
   if (!author) return null;
   const state = o.state === 'active' || o.state === 'withdrawn' || o.state === 'retracted' ? o.state : undefined;
-  const delivery = obj(o.delivery);
+  const delivery = readDelivery(o.delivery);
   const result = o.kind === 'result' ? readResult(o.result) : undefined;
   return {
     ...(result ? { result } : {}),
@@ -336,7 +371,7 @@ export function readEntry(v: unknown): Entry | null {
     ...(state ? { state } : {}),
     ...(readTerminal(o.terminal) ? { terminal: readTerminal(o.terminal)! } : {}),
     ...(readAvailability(o.availability) ? { availability: readAvailability(o.availability)! } : {}),
-    ...(delivery ? { delivery: { delivered: delivery.delivered === true, acted: delivery.acted === true } } : {}),
+    ...(delivery ? { delivery } : {}),
   };
 }
 

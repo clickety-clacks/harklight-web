@@ -322,7 +322,9 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       }
       case 'reply': {
         const k = key(body.sender_id, body.message_id);
-        agentOrPersonTurn(world, k, { author: 'origin', text: body.text, files: body.files });
+        const ev = agentOrPersonTurn(world, k, { author: 'origin', text: body.text, files: body.files });
+        // to: the text of the person's turn it answers, else the newest one.
+        if (body.to !== undefined) ev.in_reply_to = world.conv.find((e) => e.kind === 'discussion' && e.text === body.to).event_id;
         return json(res, 200, { ok: true });
       }
       case 'bulk': {
@@ -385,6 +387,20 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
         if (!m) return json(res, 404, { error: 'no message with that title' });
         terminate(world, key(m.sender_id, m.message_id), { state: 'cleared', terminal_reason: 'retracted' });
+        return json(res, 200, { ok: true });
+      }
+      case 'delivery': {
+        // Set members of a person's chat turn's delivery, by the turn's text.
+        const ev = world.conv.find((e) => e.kind === 'discussion' && e.author === 'person' && e.text === body.text);
+        if (!ev) return json(res, 404, { error: 'no such chat turn' });
+        ev.delivery = { ...ev.delivery, ...body.delivery };
+        return json(res, 200, { ok: true });
+      }
+      case 'withdraw-reply': {
+        // The agent withdraws a chat reply, by its text.
+        const ev = world.conv.find((e) => e.kind === 'reply' && e.text === body.text);
+        if (!ev) return json(res, 404, { error: 'no such reply' });
+        ev.state = 'withdrawn';
         return json(res, 200, { ok: true });
       }
       case 'availability': {

@@ -192,8 +192,8 @@ function entriesOf(w, m) {
       text: e.text ?? '',
       ...(files.length ? { files } : {}),
       ...(!person && e.in_reply_to ? { in_reply_to: `en_${e.in_reply_to}` } : {}),
-      state: 'active',
-      ...(person ? { delivery: { delivered: delivered.has(e.event_id), acted: false } } : {}),
+      state: e.state ?? 'active',
+      ...(person ? { delivery: { delivered: delivered.has(e.event_id), acted: false, ...e.delivery } } : {}),
     });
   }
   // A lifecycle entry is only the retraction fact; answers live on Item.terminal.

@@ -140,6 +140,7 @@ function toTurn(e: Entry): Turn {
     revision: e.request_revision,
     ...(e.in_reply_to ? { in_reply_to: e.in_reply_to } : {}),
     rev: e.rev,
+    ...(e.author === 'person' && e.delivery ? { delivery: e.delivery } : {}),
     ...(e.state ? { state: e.state } : {}),
     ...(e.result ? { result: e.result } : {}),
   };
@@ -154,7 +155,6 @@ export function wantThread(s: State, key: string): void {
     turns: [],
     availability: m?.v2?.availability ?? null,
     retracted: m?.terminal?.retracted ?? false,
-    delivered: new Set(),
     applied: new Set(),
   });
 }
@@ -170,7 +170,7 @@ export function applyEntry(s: State, model: Model, e: Entry): boolean {
   if (!held) return false;
   const i = held.turns.findIndex((t) => t.id === e.entry_id);
   if (i >= 0 && (held.turns[i].rev ?? 0) >= e.rev) return false;
-  const t: Thread = { ...held, turns: [...held.turns], delivered: new Set(held.delivered) };
+  const t: Thread = { ...held, turns: [...held.turns] };
   const turn = toTurn(e);
   if (i >= 0) t.turns[i] = turn;
   else {
@@ -179,7 +179,6 @@ export function applyEntry(s: State, model: Model, e: Entry): boolean {
     while (at > 0 && (t.turns[at - 1].seq ?? 0) > e.position) at--;
     t.turns.splice(at, 0, turn);
   }
-  if (e.delivery?.delivered || e.delivery?.acted) t.delivered.add(e.entry_id);
   if (e.kind === 'availability' && e.availability) t.availability = e.availability.state;
   s.threads.set(key, t);
   return true;
