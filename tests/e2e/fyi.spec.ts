@@ -62,3 +62,30 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   await page.getByRole('button', { name: 'Back to Inbox' }).press('Enter');
   await expect(page.getByRole('button', { name: 'Open FYIs, 0 unseen' })).toBeVisible();
 });
+
+test('opening a FYI conversation reads its existing history without marking Seen', async ({ page }) => {
+  await page.request.post('/__fake/reset');
+  await page.setViewportSize({ width: 320, height: 700 });
+  await page.route(/\/v2\/inbox(?:\?|$)/, async (route) => {
+    const response = await route.fetch();
+    const json = await response.json();
+    const item = json.items.find((candidate: { message: { title: string } }) =>
+      candidate.message.title === 'Which hotel should I book for Lisbon?');
+    item.message.message_type = 'fyi';
+    item.chat.unread_replies = 0;
+    await route.fulfill({ response, json });
+  });
+  const operations: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (/\/(entries|answer|seen)$/.test(path)) operations.push(`${request.method()} ${path}`);
+  });
+
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: 'Open FYIs, 3 unseen' }).press('Enter');
+  await page.getByRole('article').filter({ hasText: 'Which hotel should I book for Lisbon?' })
+    .getByRole('button', { name: 'Open conversation' }).press('Enter');
+  await expect(page.getByRole('dialog').getByText('I can hold either room until 6 PM today.')).toBeVisible();
+  expect(operations.some((entry) => /^GET .*\/entries$/.test(entry))).toBe(true);
+  expect(operations.filter((entry) => entry.startsWith('POST '))).toEqual([]);
+});

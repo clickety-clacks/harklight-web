@@ -355,7 +355,12 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       {banner}
       <FyiList items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
         attachments={config.flags.attachments} close={() => history.back()}
-        openConversation={(key) => go('inbox', key, true, true)} />
+        openConversation={(key) => {
+          const item = s.messages.get(key);
+          if (!item) return;
+          session.readConversation(item);
+          go('inbox', key, true, true);
+        }} />
     </div>
   );
 

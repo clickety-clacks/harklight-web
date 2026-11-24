@@ -792,11 +792,17 @@ export class V2Session {
     }
   }
 
+  /** Read conversation history independently of a Seen write. */
+  readConversation(m: HeldMessage): void {
+    if (!m.v2 || this.stopped) return;
+    void this.loadEntries(keyOfItem({ sender: m.sender_id, item_id: m.v2.item_id }));
+  }
+
   /** Mark Seen when the person opens the item, and read its conversation. */
   messageOpened(m: HeldMessage): void {
     if (!m.v2 || this.stopped) return;
     const key = keyOfItem({ sender: m.sender_id, item_id: m.v2.item_id });
-    void this.loadEntries(key);
+    this.readConversation(m);
     const id = `${key}\u0000${m.revision}`;
     if (m.v2.seen || this.seenSent.has(id)) return;
     this.seenSent.add(id);

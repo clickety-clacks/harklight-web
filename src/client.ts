@@ -15,6 +15,7 @@ export interface ClientSession {
   loadAllPages(): Promise<void>;
   markFyiSeen(m: HeldMessage): Promise<void>;
   messageOpened(m: HeldMessage): void;
+  readConversation(m: HeldMessage): void;
   answer(m: HeldMessage, value: Json, label: string | null, opts?: { seen?: boolean; control: string; text?: string; draft?: unknown }): Promise<void>;
   noComment(m: HeldMessage): Promise<void>;
   retryAnswer(key: string): void;
