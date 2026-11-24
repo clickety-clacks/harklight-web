@@ -246,6 +246,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const list = (
     <InboxList
       tab={tab}
+      fyiDesign={groupFyi}
       fyiSummary={groupFyi && (fyis.length > 0 || s.morePages) &&
         <FyiSummary items={fyis} incomplete={s.morePages} open={openFyi} />}
       entries={listEntries}
@@ -273,6 +274,10 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       loaded={s.loaded}
       onTab={(t) => {
         setTab(t);
+        if (showFyi && t === 'replied') {
+          history.replaceState(null, '', location.pathname);
+          setShowFyi(false);
+        }
         if (!phone) setSelected(null);
       }}
       onOpen={open}
@@ -350,18 +355,15 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const banner = <ConnectionBanner state={s} config={config} onTryAgain={() => session.tryAgain()} />;
 
-  if (groupFyi && showFyi) return (
-    <div class="app app--phone">
-      {banner}
-      <FyiList items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
-        attachments={config.flags.attachments} close={() => history.back()}
-        openConversation={(key) => {
-          const item = s.messages.get(key);
-          if (!item) return;
-          session.readConversation(item);
-          go('inbox', key, true, true);
-        }} />
-    </div>
+  const fyiDetail = groupFyi && showFyi && (
+    <FyiList items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
+      attachments={config.flags.attachments} close={() => history.back()}
+      openConversation={(key) => {
+        const item = s.messages.get(key);
+        if (!item) return;
+        session.readConversation(item);
+        go('inbox', key, true, true);
+      }} />
   );
 
   const modal = chatVisible && !panel && (
@@ -374,8 +376,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     return (
       <div class="app app--phone">
         {banner}
-        {!message && list}
-        {message && detail}
+        {fyiDetail || (message ? detail : list)}
         {modal}
       </div>
     );
@@ -386,7 +387,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       {list}
       <div class="main-col">
         {banner}
-        {detail ?? (
+        {fyiDetail || (detail ?? (
           <div class="nothing">
             <picture>
               <source media="(prefers-color-scheme: light)" srcSet={heronNavy} />
@@ -394,7 +395,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
             </picture>
             <span>Select a message</span>
           </div>
-        )}
+        ))}
       </div>
       {chatVisible && panel && <div class="chat-col">{chat}</div>}
       {modal}

@@ -267,3 +267,28 @@ svg.icon {
   background: var(--coral);
   border-color: var(--coral);
 }
+
+:root {
+  --fyi-serif: Georgia, "Times New Roman", serif;
+  --row-clay: #ecd1b9;
+  --row-sand: #46382e;
+  --row-sage: #c3dfc9;
+  --row-leaf: #2d4031;
+  --row-red: #ffd1c6;
+  --row-blush: #513531;
+  --row-blue: #c5dce7;
+  --row-mist: #2e4149;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --row-clay: #754e36;
+    --row-sand: #eee4da;
+    --row-sage: #385943;
+    --row-leaf: #e1e9df;
+    --row-red: #893c39;
+    --row-blush: #f6e4df;
+    --row-blue: #3b5965;
+    --row-mist: #e2ecee;
+  }
+}

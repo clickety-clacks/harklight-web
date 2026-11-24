@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
-import { body, createdAt, isFyi, messageType, title } from '../state/message';
+import { body, createdAt, initials, isFyi, messageType, senderLabel, title } from '../state/message';
 import type { State } from '../state/store';
 import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
+import { Icon } from './Icon';
 import { MessageContent, MessageHeading } from './MessageContent';
 
 export function fyiItems(state: State) {
@@ -28,11 +29,46 @@ const level = (item: Item) => priority[item.message.v2?.level ?? 'normal'];
 export function FyiSummary({ items, incomplete, open }: { items: Item[]; incomplete: boolean; open: () => void }) {
   const latest = [...items].sort(byPosted)[0]?.message;
   const unseen = items.filter((item) => !item.seen).length;
+  const sender = latest ? senderLabel(latest) : '';
   return (
-    <button class="fyi-summary row" type="button" aria-label={`Open FYIs, ${incomplete ? 'at least ' : ''}${unseen} unseen`} onClick={open}>
-      <span class="fyi-summary-title">FYI <span class="fyi-count">{unseen}{incomplete ? '+' : ''}</span></span>
-      {latest && <span class="fyi-preview">{body(latest) || title(latest)}</span>}
+    <button class="fyi-summary row" type="button" aria-label={`Open FYIs, ${incomplete ? 'at least ' : ''}${unseen} unseen`}
+      aria-describedby={latest ? 'fyi-digest-content' : undefined} onClick={open}>
+      <DigestCoast />
+      <span class="fyi-digest-text">
+        <span class="fyi-summary-title">FYI digest <span class="fyi-count">{unseen}{incomplete ? '+' : ''} unseen</span></span>
+        {latest && <span id="fyi-digest-content">
+          <strong class="fyi-digest-heading">{title(latest)}</strong>
+          {body(latest) && <span class="fyi-preview">{body(latest)}</span>}
+          <span class="fyi-digest-agent">
+            <span class="initials" aria-hidden="true">{initials(sender)}</span>
+            <span>{sender}</span>
+          </span>
+        </span>}
+      </span>
+      <span class="fyi-next"><Icon name="fyi-next" /></span>
     </button>
+  );
+}
+
+function DigestCoast() {
+  return (
+    <svg class="fyi-coast" viewBox="0 0 250 150" preserveAspectRatio="xMaxYMax slice" aria-hidden="true">
+      <defs>
+        <pattern id="fyi-sea" width="20" height="7" patternUnits="userSpaceOnUse">
+          <path d="M0 1h13" stroke="#9eafb0" opacity=".34" />
+        </pattern>
+      </defs>
+      <path fill="#b9c8bc" opacity=".16" d="M175 45 12 16v25l163 8z" />
+      <circle cx="216" cy="29" r="14" fill="none" stroke="#adc1bd" opacity=".44" />
+      <path fill="#779197" d="M0 116q42-16 69-8t75-3l32-13 35 2 39-19v75H0z" />
+      <path fill="url(#fyi-sea)" d="M0 120q56-15 96-8l154-16v54H0z" />
+      <path fill="#253f49" d="m68 150 38-17 17-7 13-17 27-5 12-13 13 2 17-11 23 5 22-10v73z" />
+      <g fill="#e4e9d9">
+        <path d="m166 101 5-47h9l6 42-9 3z" />
+        <path d="M169 50h13v3h-13zm3-10h7v9h-7zm-3-1 6.5-7 6.5 7z" />
+      </g>
+      <path d="m170 68 11-4 .9 8-13 5z" fill="#506b71" />
+    </svg>
   );
 }
 
@@ -71,17 +107,18 @@ export function FyiList(p: {
   };
   return (
     <main class="fyi-list" aria-labelledby="fyi-title">
-      <header class="fyi-toolbar">
-        <button type="button" class="btn" onClick={p.close}>Back to Inbox</button>
-        <h1 id="fyi-title" tabIndex={-1} ref={heading}>FYI</h1>
-        <div class="fyi-toolbar-actions">
-          <button type="button" class="btn" aria-pressed={posted} onClick={() => setPosted(!posted)}>
-            Sort: {posted ? 'Posted' : 'Priority'}
-          </button>
-          <button type="button" class="btn" disabled={!p.canWrite || p.incomplete || marking || !unseen.length || unseen.some((item) => item.sending)} onClick={() => void markAll()}>
-            Mark All Seen
-          </button>
-        </div>
+      <nav class="fyi-toolbar" aria-label="FYI list controls">
+        <button type="button" class="fyi-back" aria-label="Back to Inbox" onClick={p.close}><Icon name="fyi-back" />Inbox</button>
+        <button type="button" aria-label={posted ? 'Sort: Posted' : 'Sort: Priority'} aria-pressed={posted} onClick={() => setPosted(!posted)}>
+          <Icon name="fyi-sort" />{posted ? 'Posted' : 'Priority'}
+        </button>
+        <button type="button" disabled={!p.canWrite || p.incomplete || marking || !unseen.length || unseen.some((item) => item.sending)} onClick={() => void markAll()}>
+          Mark All Seen
+        </button>
+      </nav>
+      <header class="fyi-heading">
+        <h1 id="fyi-title" tabIndex={-1} ref={heading}>FYIs</h1>
+        <span class="fyi-unseen" aria-live="polite">{unseen.length}{p.incomplete ? '+' : ''} unseen</span>
       </header>
       {p.incomplete && <button type="button" class="btn" disabled={loading} onClick={() => void load()}>
         {loading ? 'Loading older FYIs…' : 'Load older FYIs'}
@@ -93,10 +130,12 @@ export function FyiList(p: {
             <article class={`fyi-item type-${messageType(message.payload)}`}>
               <div class="fyi-item-heading">
                 <div>
-                  <MessageHeading message={message} timestamp={postedAt(message)} />
+                  <MessageHeading message={message} timestamp={postedAt(message)}
+                    priority={{ now: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' }[message.v2?.level ?? 'normal']} />
                 </div>
                 {seen ? <span class="fyi-seen">Seen</span> : (
                   <button class="btn btn--bordered fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending} onClick={() => void p.session.markFyiSeen(message)}>
+                    <Icon name="row-check" />
                     {sending ? 'Marking…' : failed ? 'Retry Seen' : 'Seen'}
                   </button>
                 )}

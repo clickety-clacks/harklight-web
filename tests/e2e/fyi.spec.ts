@@ -33,7 +33,7 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   await expect(page.getByTestId('row').filter({ hasText: 'Quarterly report is ready' })).toHaveCount(0);
   await summary.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { name: 'FYI', exact: true })).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'FYIs', exact: true })).toBeFocused();
   await expect(page.getByRole('button', { name: /show actions/i })).toHaveCount(0);
   const headings = page.getByRole('heading', { level: 2 });
   await expect(headings.first()).toHaveText('The hosting card expires next month');
@@ -88,4 +88,36 @@ test('opening a FYI conversation reads its existing history without marking Seen
   await expect(page.getByRole('dialog').getByText('I can hold either room until 6 PM today.')).toBeVisible();
   expect(operations.some((entry) => /^GET .*\/entries$/.test(entry))).toBe(true);
   expect(operations.filter((entry) => entry.startsWith('POST '))).toEqual([]);
+});
+
+test('desktop FYI keeps the real Inbox and Replied tabs with the approved row treatments', async ({ page }) => {
+  await page.request.post('/__fake/reset');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.request.post('/__fake/standard-order');
+  await page.goto('/inbox#preview');
+  const digest = page.getByRole('button', { name: 'Open FYIs, 2 unseen' });
+  await expect(digest.locator('.fyi-digest-agent')).toBeVisible();
+  await expect(digest.locator('.fyi-digest-heading')).toHaveCSS('font-family', /Georgia/);
+
+  const request = page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' });
+  await expect(request.locator('.row-title .t')).toHaveCSS('font-weight', '650');
+  await expect(request.locator('.row-title .t')).toHaveCSS('font-size', '18px');
+  await expect(request.locator('.row-tile--request')).toBeVisible();
+
+  await digest.press('Enter');
+  await expect(page.getByRole('tab', { name: 'Inbox', exact: true })).toBeVisible();
+  await expect(page.locator('.main-col').getByRole('heading', { name: 'FYIs', exact: true })).toBeFocused();
+  await page.getByRole('button', { name: 'Back to Inbox' }).press('Enter');
+  await expect(digest).toBeFocused();
+
+  await request.click();
+  await page.getByRole('radio', { name: 'Approve' }).check();
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('answered')).toBeVisible();
+  await page.getByRole('tab', { name: 'Replied', exact: true }).click();
+  await expect(digest).toHaveCount(0);
+  await expect(request.locator('.row-tile--check')).toBeVisible();
+  await page.getByRole('tab', { name: 'Inbox', exact: true }).click();
+  await expect(digest).toBeVisible();
+  await expect(request).toHaveCount(0);
 });

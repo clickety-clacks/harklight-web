@@ -11,16 +11,20 @@ function friendlyLong(ms: number): string {
   return short;
 }
 
-export function MessageHeading({ message, timestamp }: { message: HeldMessage; timestamp: number | null }) {
+export function MessageHeading({ message, timestamp, priority }: { message: HeldMessage; timestamp: number | null; priority?: string }) {
   const sender = senderLabel(message);
   return (
     <>
       <div class="msg-head">
         <span class="initials" aria-hidden="true">{initials(sender)}</span>
-        <span>{sender}{timestamp !== null && ` · ${friendlyLong(timestamp)}`}</span>
+        {priority ? <>
+          <span class="msg-agent">{sender}</span>
+          <span class="fyi-priority">{priority}</span>
+          {timestamp !== null && <time>{friendlyTime(timestamp)}</time>}
+        </> : <span>{sender}{timestamp !== null && ` · ${friendlyLong(timestamp)}`}</span>}
       </div>
       <h2 class="msg-title" tabIndex={-1}>
-        <Icon name={TYPE_ICON[messageType(message.payload)]} />
+        {!priority && <Icon name={TYPE_ICON[messageType(message.payload)]} />}
         <span>{title(message)}</span>
       </h2>
     </>

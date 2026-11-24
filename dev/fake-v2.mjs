@@ -106,7 +106,7 @@ function placementOf(w, m) {
       key: pad(at('message') + 1, 6),
       ...(sc === null ? {} : { score: sc }),
       section: resolved ? 'resolved' : 'current',
-      ...(resolved ? {} : { group: 'common', ...(lv === null ? {} : { level: lv }) }),
+      ...(resolved ? {} : { ...(w.standardOrder ? {} : { group: 'common' }), ...(lv === null ? {} : { level: lv }) }),
     },
     replyKey: reply >= 0 && list[reply].unseen_count > 0 ? pad(reply + 1, 6) : null,
   };
