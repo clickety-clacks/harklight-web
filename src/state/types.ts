@@ -81,6 +81,7 @@ export interface V2Item {
   rev: number;
   /** Inbox order: ascending by code point (UTF-8 byte order). */
   rankKey: string;
+  createdAt?: number;
   score: number | null;
   seen: boolean;
   /** entry_id the person has read through, and the newest origin reply. */

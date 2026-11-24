@@ -7,6 +7,8 @@ import { Icon } from './Icon';
 
 export function InboxList(props: {
   tab: Tab;
+  fyiDesign: boolean;
+  fyiSummary?: import('preact').ComponentChildren;
   entries: Entry[];
   selected: string | null;
   /** Thread groups the person opened. */
@@ -43,6 +45,7 @@ export function InboxList(props: {
       unread={props.unread(r.key)}
       seen={props.seen(r.key)}
       needsAnswer={props.needsAnswer(r.key)}
+      fyiDesign={props.fyiDesign}
       submission={props.submission(r.key)}
       onOpen={props.onOpen}
     />
@@ -54,7 +57,7 @@ export function InboxList(props: {
     </div>
   );
   return (
-    <aside class="side" aria-label="Inbox">
+    <aside class={props.fyiDesign ? 'side side--fyi-design' : 'side'} aria-label="Inbox">
       <div class="side-head">
         <picture>
           <source media="(prefers-color-scheme: light)" srcSet={harklightNavy} />
@@ -74,6 +77,7 @@ export function InboxList(props: {
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) props.onNearEnd();
         }}
       >
+        {props.tab === 'inbox' && props.fyiSummary}
         {props.entries.map((e) => {
           if (e.type === 'message') return messageRow(e);
           if (e.type === 'heading')
@@ -88,6 +92,7 @@ export function InboxList(props: {
               <ReplyRowView
                 key={`r:${e.key}`}
                 row={e}
+                fyiDesign={props.fyiDesign}
                 quote={props.replyText(e.key, e.conversationSeq)}
                 onOpen={() => props.onOpenReply(e)}
               />
@@ -134,6 +139,7 @@ function MessageRow(props: {
   unread: boolean;
   seen: boolean;
   needsAnswer: boolean;
+  fyiDesign: boolean;
   submission: 'sending' | 'failed' | null;
   onOpen: (key: string) => void;
 }) {
@@ -141,6 +147,9 @@ function MessageRow(props: {
   const m = row.message;
   const type = messageType(m.payload);
   const sender = senderLabel(m);
+  const answered = m.terminal?.state === 'answered' || m.terminal?.state === 'no_comment';
+  const rowIcon = answered ? 'row-check' : type === 'request' ? 'row-reply' : type === 'error' ? 'row-error' : TYPE_ICON[type];
+  const tile = answered ? 'check' : type === 'error' ? 'error' : 'request';
   const cls = ['row', `type-${type}`];
   if (row.priority === 'urgent') cls.push('row--urgent');
   else if (row.priority === 'high') cls.push('row--high');
@@ -170,7 +179,8 @@ function MessageRow(props: {
         <span class="time">{friendlyTime(createdAt(m))}</span>
       </span>
       <span class="row-title">
-        <Icon name={TYPE_ICON[type]} class="ic" />
+        <Icon name={props.fyiDesign ? rowIcon : TYPE_ICON[type]}
+          class={props.fyiDesign && (answered || type === 'request' || type === 'error') ? `ic row-tile row-tile--${tile}` : 'ic'} />
         <span class="t">{title(m)}</span>
         {props.unread && <Icon name="flag-fill" class="flag flag--unread" />}
         {props.seen && <Icon name="check" class="seen" />}
@@ -190,7 +200,7 @@ function MessageRow(props: {
 }
 
 /** A chat reply row: the agent answered in a message's chat. */
-function ReplyRowView(p: { row: ReplyRow; quote: string | null; onOpen: () => void }) {
+function ReplyRowView(p: { row: ReplyRow; fyiDesign: boolean; quote: string | null; onOpen: () => void }) {
   const { row } = p;
   const m = row.message;
   const sender = m ? senderLabel(m) : row.key.split('\u0000')[0];
@@ -207,7 +217,7 @@ function ReplyRowView(p: { row: ReplyRow; quote: string | null; onOpen: () => vo
   return (
     <button type="button" class={cls.join(' ')} onClick={p.onOpen} data-testid="reply-row">
       <span class="row-head">
-        <Icon name="chat" class="reply-ic" />
+        <Icon name={p.fyiDesign ? 'row-chat' : 'chat'} class={p.fyiDesign ? 'reply-ic row-tile row-tile--chat' : 'reply-ic'} />
         <span class="sender">
           Reply · {sender} · {parent}
         </span>

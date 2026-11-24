@@ -1,5 +1,17 @@
 // Icon shapes from the accepted Harklight design.
+const fineStroke = (path: string) => ({
+  viewBox: '0 0 24 24',
+  body: `<path d="${path}" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>`,
+});
+
 export const ICONS: Record<string, { viewBox: string; body: string }> = {
+  'row-reply': fineStroke('M4 12h14m-9-5-5 5 5 5m10-13v8'),
+  'row-check': fineStroke('m4 12 5 5L20 6'),
+  'row-error': fineStroke('M12 3 2.8 19a1 1 0 0 0 .9 1.5h16.6a1 1 0 0 0 .9-1.5zM12 9v4m0 3v.1'),
+  'row-chat': fineStroke('M5 4.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9l-6 4v-4.4a2 2 0 0 1-1-1.6v-8a2 2 0 0 1 2-2Z'),
+  'fyi-back': fineStroke('m15 5-7 7 7 7'),
+  'fyi-sort': fineStroke('M4 6h16M4 12h11M4 18h6'),
+  'fyi-next': fineStroke('m9 5 7 7-7 7'),
   'light': { viewBox: '0 0 18 22', body: `<path fill="currentColor" d="M9 1 5.6 5h6.8ZM6.4 7h5.2l1.9 14h-9ZM2 5l4 1.4v1.2L2 6.2ZM16 5l-4 1.4v1.2l4-1.4Z"/>` },
   'request': { viewBox: '0 0 24 24', body: `<circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.3 9.4a2.8 2.8 0 1 1 4 2.5c-.9.5-1.3 1-1.3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17.2" r="1.2" fill="currentColor"/>` },
   'info': { viewBox: '0 0 24 24', body: `<circle cx="12" cy="12" r="9.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 11v6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><circle cx="12" cy="7.4" r="1.3" fill="currentColor"/>` },

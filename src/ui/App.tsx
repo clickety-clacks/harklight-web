@@ -11,6 +11,7 @@ import type { Json, WireFile } from '../state/types';
 import { imageUrlFor } from './images';
 import { Chat, type ChatDraft } from './Chat';
 import { Detail, type AnswerChoice } from './Detail';
+import { FyiList, FyiSummary, fyiItems } from './FyiList';
 import { InboxList } from './InboxList';
 import { Settings } from './Settings';
 
@@ -68,6 +69,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const layout = useLayout();
   const [page, setPage] = useState<Page>(() => pageFromPath(location.pathname));
   const [tab, setTab] = useState<Tab>('inbox');
+  const [showFyi, setShowFyi] = useState(false);
+  const restoreFyiFocus = useRef(false);
   const [selected, setSelected] = useState<string | null>(null);
   /** Whether the chat is open. Where there's room it shows as a side panel,
    * otherwise as a modal over the message; a resize switches between them and
@@ -97,7 +100,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useEffect(() => {
     const on = () => {
       setPage(pageFromPath(location.pathname));
-      const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean } | null;
+      const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean } | null;
+      if (showFyi && !st?.fyi) restoreFyiFocus.current = true;
+      setShowFyi(!!st?.fyi);
       setSelected(st?.selected ?? null);
       setChatWanted(!!st?.chat);
       setChatExplicit(!!st?.chat);
@@ -105,12 +110,13 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     };
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
-  }, []);
+  }, [showFyi]);
 
   const base = useMemo(() => location.pathname.replace(/\/(inbox|settings)\/?$/, ''), []);
   const go = (p: Page, sel: string | null, chat: boolean, fromReply = false) => {
     history.pushState({ selected: sel, chat, viaReply: fromReply }, '', `${base}/${p}`);
     setPage(p);
+    setShowFyi(false);
     setSelected(sel);
     setChatWanted(chat);
     setChatExplicit(chat);
@@ -147,8 +153,24 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     wasPanel.current = panel;
   }, [panel]);
 
-  const listEntries = useMemo(() => entriesFor(s, tab), [s, tab]);
-  const rows = useMemo(() => rowsFor(s, tab), [s, tab]);
+  const groupFyi = !!config.flags.fyiInbox;
+  const fyis = useMemo(() => groupFyi ? fyiItems(s) : [], [s, groupFyi]);
+  const listEntries = useMemo(() => entriesFor(s, tab, groupFyi), [s, tab, groupFyi]);
+  const rows = useMemo(() => rowsFor(s, tab, groupFyi), [s, tab, groupFyi]);
+  useEffect(() => {
+    if (groupFyi && s.loaded && page === 'inbox') void session.loadAllPages();
+  }, [groupFyi, s.loaded, page, session]);
+  useLayoutEffect(() => {
+    if (!showFyi && restoreFyiFocus.current) {
+      restoreFyiFocus.current = false;
+      document.querySelector<HTMLElement>('.fyi-summary')?.focus();
+    }
+  }, [showFyi]);
+  const openFyi = () => {
+    history.pushState({ fyi: true }, '', location.pathname);
+    setSelected(null);
+    setShowFyi(true);
+  };
   const message = selected ? s.messages.get(selected) : undefined;
 
   // Report the open once the detail is on screen (D-2).
@@ -224,6 +246,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const list = (
     <InboxList
       tab={tab}
+      fyiDesign={groupFyi}
+      fyiSummary={groupFyi && (fyis.length > 0 || s.morePages) &&
+        <FyiSummary items={fyis} incomplete={s.morePages} open={openFyi} />}
       entries={listEntries}
       selected={selected}
       expanded={expanded}
@@ -249,6 +274,10 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       loaded={s.loaded}
       onTab={(t) => {
         setTab(t);
+        if (showFyi && t === 'replied') {
+          history.replaceState(null, '', location.pathname);
+          setShowFyi(false);
+        }
         if (!phone) setSelected(null);
       }}
       onOpen={open}
@@ -326,6 +355,17 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const banner = <ConnectionBanner state={s} config={config} onTryAgain={() => session.tryAgain()} />;
 
+  const fyiDetail = groupFyi && showFyi && (
+    <FyiList items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
+      attachments={config.flags.attachments} close={() => history.back()}
+      openConversation={(key) => {
+        const item = s.messages.get(key);
+        if (!item) return;
+        session.readConversation(item);
+        go('inbox', key, true, true);
+      }} />
+  );
+
   const modal = chatVisible && !panel && (
     <ChatModal label={`Chat with ${sender}`} phone={phone} onClose={closeChat}>
       {chat}
@@ -336,8 +376,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     return (
       <div class="app app--phone">
         {banner}
-        {!message && list}
-        {message && detail}
+        {fyiDetail || (message ? detail : list)}
         {modal}
       </div>
     );
@@ -348,7 +387,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       {list}
       <div class="main-col">
         {banner}
-        {detail ?? (
+        {fyiDetail || (detail ?? (
           <div class="nothing">
             <picture>
               <source media="(prefers-color-scheme: light)" srcSet={heronNavy} />
@@ -356,7 +395,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
             </picture>
             <span>Select a message</span>
           </div>
-        )}
+        ))}
       </div>
       {chatVisible && panel && <div class="chat-col">{chat}</div>}
       {modal}

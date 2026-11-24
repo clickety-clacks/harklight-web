@@ -3,7 +3,7 @@
 // free-order section headings and thread groups, as the iPhone app draws it.
 // Without a view it falls back to open messages first, newest first.
 
-import { belongsToReplied, senderLabel, type Priority } from './message';
+import { belongsToReplied, isFyi, senderLabel, type Priority } from './message';
 import type { State } from './store';
 import type { HeldMessage } from './types';
 import { keyOf } from './types';
@@ -81,18 +81,18 @@ function rowDetails(s: State) {
 }
 
 /** Every row of a tab, flattened: the messages the detail can step through. */
-export function rows(s: State, tab: Tab): MessageRow[] {
+export function rows(s: State, tab: Tab, groupFyi = false): MessageRow[] {
   const out: MessageRow[] = [];
-  for (const e of entries(s, tab)) {
+  for (const e of entries(s, tab, groupFyi)) {
     if (e.type === 'message') out.push(e);
     if (e.type === 'thread') out.push(...e.members);
   }
   return out;
 }
 
-export function entries(s: State, tab: Tab): Entry[] {
+export function entries(s: State, tab: Tab, groupFyi = false): Entry[] {
   const items = s.view?.listItems;
-  return items ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox') : fallback(s, tab);
+  return items ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox', groupFyi) : fallback(s, tab, groupFyi);
 }
 
 function messageRow(s: State, key: string, m: HeldMessage, sc: ReturnType<typeof rowDetails>, history: boolean): MessageRow {
@@ -101,7 +101,7 @@ function messageRow(s: State, key: string, m: HeldMessage, sc: ReturnType<typeof
   return { type: 'message', key, message: m, priority: open ? mark : null, history };
 }
 
-function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean): Entry[] {
+function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean, groupFyi: boolean): Entry[] {
   const sc = rowDetails(s);
   const { thread } = sc;
   const flat: (MessageRow | ReplyRow | Heading)[] = [];
@@ -116,7 +116,7 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
   for (const it of items) {
     if (it.kind === 'message') {
       const m = s.messages.get(it.key);
-      if (!m || !visible(m)) continue;
+      if (!m || !visible(m) || (groupFyi && isFyi(m.payload))) continue;
       if (!freeOrder && (tab === 'replied') !== inReplied(s, it.key)) continue;
     } else {
       if (it.unseen === null) continue;
@@ -203,12 +203,12 @@ function groupThreads(s: State, flat: (MessageRow | ReplyRow | Heading)[], threa
 }
 
 /** Without a view: open messages first, newest first; finished ones after. */
-function fallback(s: State, tab: Tab): Entry[] {
+function fallback(s: State, tab: Tab, groupFyi: boolean): Entry[] {
   const sc = rowDetails(s);
   const out: MessageRow[] = [];
   for (const m of s.messages.values()) {
     const key = keyOf(m);
-    if (!visible(m)) continue;
+    if (!visible(m) || (groupFyi && isFyi(m.payload))) continue;
     if ((tab === 'replied') !== inReplied(s, key)) continue;
     out.push(messageRow(s, key, m, sc, false));
   }

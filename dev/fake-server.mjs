@@ -261,7 +261,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       if (p === '/app/config.json')
         return json(res, 200, {
           accountInfoPath: '/__fake/me',
-          flags: { webClient, attachments, answerForms: flags.includes('answer-forms') },
+          flags: { webClient, attachments, answerForms: flags.includes('answer-forms'), fyiInbox: flags.includes('fyi-inbox') },
         });
       if (p === '/sign-out' && req.method === 'POST') {
         const body = (await readBody(req)).toString();
@@ -310,6 +310,9 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         v2DropAll(world);
         world = createWorld(body.now ?? Date.now(), forms);
         world.uploadCap = UPLOAD_CAP;
+        return json(res, 200, { ok: true });
+      case 'standard-order':
+        world.standardOrder = true;
         return json(res, 200, { ok: true });
       case 'state':
         return json(res, 200, { lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [], replays: world.replays ?? 0, v2Rev: world.v2?.rev ?? 0 });

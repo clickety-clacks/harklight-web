@@ -73,6 +73,7 @@ function toHeld(item: Item): HeldMessage {
       item_id: item.item_id,
       rev: item.rev,
       rankKey: item.rank.key,
+      createdAt: item.created_at_ms,
       score: item.rank.score ?? null,
       seen: item.seen,
       readPosition: item.chat.read_position ?? null,

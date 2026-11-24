@@ -11,8 +11,11 @@ export interface ClientSession {
   nudge(): void;
   /** After a failure a retry will not fix: start again, keeping what the tab holds. */
   tryAgain(): void;
-  loadMore(): Promise<void>;
+  loadMore(): Promise<boolean>;
+  loadAllPages(): Promise<void>;
+  markFyiSeen(m: HeldMessage): Promise<void>;
   messageOpened(m: HeldMessage): void;
+  readConversation(m: HeldMessage): void;
   answer(m: HeldMessage, value: Json, label: string | null, opts?: { seen?: boolean; control: string; text?: string; draft?: unknown }): Promise<void>;
   noComment(m: HeldMessage): Promise<void>;
   retryAnswer(key: string): void;

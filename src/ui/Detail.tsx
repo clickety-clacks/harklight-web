@@ -3,21 +3,16 @@ import { useState } from 'preact/hooks';
 import {
   answerForm,
   answeredText,
-  body,
   createdAt,
-  friendlyTime,
-  initials,
   messageType,
-  senderLabel,
   title,
-  TYPE_ICON,
   type Choice,
 } from '../state/message';
 import type { LocalAnswer } from '../state/store';
 import type { HeldMessage, Json, WireFile } from '../state/types';
 import { compose, emptyDraft, summarize, terminalScene, type Draft } from '../ui1/form';
 import { Scene } from '../ui1/Ui1Form';
-import { FileRow } from './FileRow';
+import { MessageContent, MessageHeading } from './MessageContent';
 import { Icon } from './Icon';
 
 export type AnswerChoice =
@@ -58,7 +53,6 @@ export function Detail(p: DetailProps) {
   const m = p.message;
   const type = messageType(m.payload);
   const form = answerForm(m.payload, { enabled: p.answerForms, fileNames: m.firstFiles.map((f) => f.name), limits: p.ui1Limits });
-  const sender = senderLabel(m);
   // A failed or sending written answer reopens as it was sent, so its text
   // and its Retry survive leaving the message and coming back.
   const held = p.local && (p.local.state === 'failed' || p.local.state === 'sending') ? p.local : null;
@@ -220,27 +214,8 @@ export function Detail(p: DetailProps) {
       </div>
       <div class="detail-scroll">
         <div class="detail-body">
-          <div class="msg-head">
-            <span class="initials" aria-hidden="true">
-              {initials(sender)}
-            </span>
-            <span>
-              {sender}
-              {createdAt(m) !== null && ` · ${friendlyLong(createdAt(m)!)}`}
-            </span>
-          </div>
-          <h2 class="msg-title" tabIndex={-1}>
-            <Icon name={TYPE_ICON[type]} />
-            <span>{title(m)}</span>
-          </h2>
-          {body(m) && <p class="msg-body">{body(m)}</p>}
-          {m.files.length > 0 && (
-            <div class="files">
-              {m.files.map((f, i) => (
-                <FileRow key={`${i}\u0000${f.name}`} file={f} download={p.attachments} fileHref={p.fileHref} />
-              ))}
-            </div>
-          )}
+          <MessageHeading message={m} timestamp={createdAt(m)} />
+          <MessageContent message={m} attachments={p.attachments} fileHref={p.fileHref} />
 
           {m.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}
           {!m.terminal?.retracted && m.terminal?.state === 'expired' && !answered && !seenDone && (
@@ -407,14 +382,6 @@ export function Detail(p: DetailProps) {
       )}
     </section>
   );
-}
-
-function friendlyLong(ms: number): string {
-  const short = friendlyTime(ms);
-  const d = new Date(ms);
-  const now = new Date();
-  if (d.toDateString() === now.toDateString()) return `Today, ${short}`;
-  return short;
 }
 
 export function ChatButton(p: { unread: boolean; onChat: () => void }) {
