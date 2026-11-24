@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
 import { body, createdAt, initials, isFyi, messageType, senderLabel, title } from '../state/message';
 import type { State } from '../state/store';
@@ -85,7 +85,9 @@ export function FyiList(p: {
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => heading.current?.focus(), []);
+  // Before paint, so a key pressed as the list appears is not taken by a later
+  // move of focus to the heading.
+  useLayoutEffect(() => heading.current?.focus(), []);
   const items = [...p.items].sort(posted ? byPosted :
     (a, b) => level(b) - level(a) || (b.message.v2?.score ?? 0) - (a.message.v2?.score ?? 0) || byPosted(a, b));
   const unseen = items.filter((item) => !item.seen);
