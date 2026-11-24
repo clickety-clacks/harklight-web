@@ -106,7 +106,7 @@ describe('client API v2 model', () => {
     applyEntry(s, m, entry({ entry_id: 'en_2', position: 2, rev: 10, author: 'person', text: 'two', delivery: { delivered: true } }));
     applyEntry(s, m, entry({ entry_id: 'en_2', position: 2, rev: 5, author: 'person', text: 'stale' }));
     expect(s.threads.get(K)!.turns.map((t) => t.text)).toEqual(['one', 'two', 'three']);
-    expect(s.threads.get(K)!.delivered.has('en_2')).toBe(true);
+    expect(s.threads.get(K)!.turns[1].delivery).toEqual({ delivered: true });
   });
 
   it('unread chat: the newest origin reply is past the read position', () => {

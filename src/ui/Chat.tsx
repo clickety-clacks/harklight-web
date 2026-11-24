@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { ChatSend, HeldMessage, PickedFile, Thread, Turn } from '../state/types';
+import { captionOf, type Caption } from '../state/caption';
+import type { ChatSend, HeldMessage, PickedFile, Thread } from '../state/types';
 import { formatSize } from './format';
 import { FileRow } from './FileRow';
 import { Icon } from './Icon';
@@ -47,6 +48,15 @@ function uniqueName(name: string, taken: PickedFile[]): string {
     const candidate = `${stem} (${n})${ext}`;
     if (!used.has(candidate)) return candidate;
   }
+}
+
+function TurnCaption({ caption }: { caption: Caption }) {
+  return (
+    <span class={caption.bad ? 'turn-st turn-st--bad' : 'turn-st'}>
+      {(caption.ok || caption.bad) && <Icon name={caption.ok ? 'check' : 'warn'} />}
+      <span class="turn-st-text">{caption.text}</span>
+    </span>
+  );
 }
 
 export function Chat(p: ChatProps) {
@@ -104,7 +114,6 @@ export function Chat(p: ChatProps) {
     return () => io.disconnect();
   }, [turns.length, p.onReplyVisible]);
 
-  const delivered = (t: Turn) => p.thread?.delivered.has(t.id) ?? false;
   const availability = p.message.v2?.availability ?? p.thread?.availability ?? null;
   const away = availability === 'not_listening' || availability === 'gone';
   const shown = turns.filter((t) => t.kind === 'discussion' || t.kind === 'reply');
@@ -168,18 +177,7 @@ export function Chat(p: ChatProps) {
               {t.files.map((f, i) => (
                 <FileRow key={`${i}\u0000${f.name}`} file={f} download={p.attachments} fileHref={p.fileHref} />
               ))}
-              {mine && (
-                <span class="turn-st">
-                  {delivered(t) ? (
-                    <>
-                      <Icon name="check" />
-                      Delivered
-                    </>
-                  ) : (
-                    'Sent'
-                  )}
-                </span>
-              )}
+              {mine && <TurnCaption caption={captionOf(t, turns, availability)} />}
             </div>
           );
         })}

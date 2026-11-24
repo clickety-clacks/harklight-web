@@ -110,6 +110,8 @@ export interface V2Item {
 export type TurnAuthor = 'person' | 'origin' | 'agent' | 'server';
 
 export interface Turn {
+  /** The person's turn: what is recorded of it reaching the agent, as of this rev. */
+  delivery?: import('../v2/wire').Delivery;
   result?: import('../v2/wire').OriginResult;
   /** event_id when known, else a local id. */
   id: string;
@@ -134,8 +136,6 @@ export interface Thread {
   turns: Turn[];
   availability: Availability;
   retracted: boolean;
-  /** Event ids of person turns the agent has received. */
-  delivered: Set<string>;
   /** Conversation sequences already applied, so a replay never doubles a turn. */
   applied: Set<number>;
 }
