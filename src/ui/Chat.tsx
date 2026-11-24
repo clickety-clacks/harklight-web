@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { ChatSend, HeldMessage, PickedFile, Thread, Turn } from '../state/types';
+import type { ChatSend, HeldMessage, PickedFile, Thread } from '../state/types';
 import { formatSize } from './format';
 import { FileRow } from './FileRow';
 import { Icon } from './Icon';
+import { NotHanded } from './NotHanded';
 
 export interface ChatProps {
   message: HeldMessage;
@@ -104,7 +105,6 @@ export function Chat(p: ChatProps) {
     return () => io.disconnect();
   }, [turns.length, p.onReplyVisible]);
 
-  const delivered = (t: Turn) => p.thread?.delivered.has(t.id) ?? false;
   const availability = p.message.v2?.availability ?? p.thread?.availability ?? null;
   const away = availability === 'not_listening' || availability === 'gone';
   const shown = turns.filter((t) => t.kind === 'discussion' || t.kind === 'reply');
@@ -168,9 +168,10 @@ export function Chat(p: ChatProps) {
               {t.files.map((f, i) => (
                 <FileRow key={`${i}\u0000${f.name}`} file={f} download={p.attachments} fileHref={p.fileHref} />
               ))}
-              {mine && (
+              {mine && t.receipt === 'not_handed' && <NotHanded />}
+              {mine && t.receipt !== 'not_handed' && (
                 <span class="turn-st">
-                  {delivered(t) ? (
+                  {t.receipt === 'delivered' ? (
                     <>
                       <Icon name="check" />
                       Delivered

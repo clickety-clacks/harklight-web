@@ -14,6 +14,7 @@ import { compose, emptyDraft, summarize, terminalScene, type Draft } from '../ui
 import { Scene } from '../ui1/Ui1Form';
 import { MessageContent, MessageHeading } from './MessageContent';
 import { Icon } from './Icon';
+import { NotHanded } from './NotHanded';
 
 export type AnswerChoice =
   | { kind: 'value'; choice: Choice }
@@ -240,6 +241,8 @@ export function Detail(p: DetailProps) {
               Seen
             </span>
           )}
+
+          {(answered || seenDone) && m.terminal?.receipt === 'not_handed' && <NotHanded quiet />}
 
           {refusalLine && (
             <p class="msg-note" data-testid="refused-reason">

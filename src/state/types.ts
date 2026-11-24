@@ -40,11 +40,16 @@ export interface AnswerOutcome {
   choice?: { id: string; label: string };
 }
 
+/** A person's message or answer reached the agent, could not be handed to it, or neither is known. */
+export type Receipt = 'delivered' | 'not_handed' | null;
+
 export interface Terminal {
   state: LifecycleState;
   seq: number;
   retracted: boolean;
   outcome: AnswerOutcome | null;
+  /** What became of the answer's handoff to the agent. */
+  receipt?: Receipt;
 }
 
 export interface WireFile {
@@ -123,6 +128,8 @@ export interface Turn {
   in_reply_to?: string;
   /** Client API v2: the entry's resource version (entries are upserted by rev). */
   rev?: number;
+  /** The person's turn: what became of its handoff, as of this rev. */
+  receipt?: Receipt;
   /** Client API v2: active, withdrawn or retracted. */
   state?: string;
 }
@@ -134,8 +141,6 @@ export interface Thread {
   turns: Turn[];
   availability: Availability;
   retracted: boolean;
-  /** Event ids of person turns the agent has received. */
-  delivered: Set<string>;
   /** Conversation sequences already applied, so a replay never doubles a turn. */
   applied: Set<number>;
 }

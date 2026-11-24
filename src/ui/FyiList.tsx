@@ -5,6 +5,7 @@ import type { State } from '../state/store';
 import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
 import { Icon } from './Icon';
+import { NotHanded } from './NotHanded';
 import { MessageContent, MessageHeading } from './MessageContent';
 
 export function fyiItems(state: State) {
@@ -144,6 +145,7 @@ export function FyiList(p: {
               </div>
               <MessageContent message={message} attachments={p.attachments} fileHref={(id) => p.session.fileHref(id)} />
               {message.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}
+              {message.terminal?.outcome?.kind === 'seen' && message.terminal.receipt === 'not_handed' && <NotHanded quiet />}
               {message.chat && <button class="btn" type="button" onClick={() => p.openConversation(key)}>Open conversation</button>}
               {failed && !seen && <p role="status">Could not mark this FYI seen.</p>}
             </article>

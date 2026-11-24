@@ -7,10 +7,10 @@
 
 import { priorityOf } from '../state/message';
 import type { State } from '../state/store';
-import type { AnswerOutcome, HeldMessage, Terminal as HeldTerminal, Thread, Turn, WireFile } from '../state/types';
+import type { AnswerOutcome, HeldMessage, Receipt, Terminal as HeldTerminal, Thread, Turn, WireFile } from '../state/types';
 import { keyOf, splitKey } from '../state/types';
 import { freeOrderValid, type FreeSection, type ListItem, type ServerView } from '../state/view';
-import type { Entry, FileRef, Item, Terminal } from './wire';
+import type { Delivery, Entry, FileRef, Item, Terminal } from './wire';
 
 /** Bookkeeping the store does not draw: tombstones and which threads are wanted. */
 export class Model {
@@ -37,10 +37,17 @@ export function toWireFile(f: FileRef): WireFile {
   return { name: f.name, size: f.size, sha256: f.sha256, file_id: f.file_id, ...(f.content_type ? { content_type: f.content_type } : {}) };
 }
 
+/** A recorded handoff outcome wins over `delivered`, which any recorded outcome sets. `acted` is not delivery. */
+function receiptOf(d: Delivery | undefined): Receipt {
+  if (d?.outcome === 'not_handed') return 'not_handed';
+  return d?.outcome === 'handed' || d?.delivered ? 'delivered' : null;
+}
+
 /** Today's terminal state from the item's. The answer is Terminal.answer, as the person sees it. */
 function terminalOf(t: Terminal | null | undefined, rev: number): HeldTerminal | null {
   if (!t) return null;
-  if (t.state === 'retracted') return { state: 'cleared', seq: rev, retracted: true, outcome: null };
+  const receipt = receiptOf(t.delivery);
+  if (t.state === 'retracted') return { state: 'cleared', seq: rev, retracted: true, outcome: null, receipt };
   const outcome: AnswerOutcome | null = t.answer
     ? {
         kind: t.answer.kind,
@@ -49,9 +56,9 @@ function terminalOf(t: Terminal | null | undefined, rev: number): HeldTerminal |
         ...(t.answer.kind === 'choice' && t.answer.id !== undefined ? { choice: { id: t.answer.id, label: t.answer.label ?? t.answer.id } } : {}),
       }
     : null;
-  if (t.state !== 'answered') return { state: t.state, seq: rev, retracted: false, outcome };
-  if (outcome?.kind === 'no_comment') return { state: 'no_comment', seq: rev, retracted: false, outcome };
-  return { state: 'answered', seq: rev, retracted: false, outcome };
+  if (t.state !== 'answered') return { state: t.state, seq: rev, retracted: false, outcome, receipt };
+  if (outcome?.kind === 'no_comment') return { state: 'no_comment', seq: rev, retracted: false, outcome, receipt };
+  return { state: 'answered', seq: rev, retracted: false, outcome, receipt };
 }
 
 function toHeld(item: Item): HeldMessage {
@@ -140,6 +147,7 @@ function toTurn(e: Entry): Turn {
     revision: e.request_revision,
     ...(e.in_reply_to ? { in_reply_to: e.in_reply_to } : {}),
     rev: e.rev,
+    ...(e.author === 'person' ? { receipt: receiptOf(e.delivery) } : {}),
     ...(e.state ? { state: e.state } : {}),
     ...(e.result ? { result: e.result } : {}),
   };
@@ -154,7 +162,6 @@ export function wantThread(s: State, key: string): void {
     turns: [],
     availability: m?.v2?.availability ?? null,
     retracted: m?.terminal?.retracted ?? false,
-    delivered: new Set(),
     applied: new Set(),
   });
 }
@@ -170,7 +177,7 @@ export function applyEntry(s: State, model: Model, e: Entry): boolean {
   if (!held) return false;
   const i = held.turns.findIndex((t) => t.id === e.entry_id);
   if (i >= 0 && (held.turns[i].rev ?? 0) >= e.rev) return false;
-  const t: Thread = { ...held, turns: [...held.turns], delivered: new Set(held.delivered) };
+  const t: Thread = { ...held, turns: [...held.turns] };
   const turn = toTurn(e);
   if (i >= 0) t.turns[i] = turn;
   else {
@@ -179,7 +186,6 @@ export function applyEntry(s: State, model: Model, e: Entry): boolean {
     while (at > 0 && (t.turns[at - 1].seq ?? 0) > e.position) at--;
     t.turns.splice(at, 0, turn);
   }
-  if (e.delivery?.delivered || e.delivery?.acted) t.delivered.add(e.entry_id);
   if (e.kind === 'availability' && e.availability) t.availability = e.availability.state;
   s.threads.set(key, t);
   return true;

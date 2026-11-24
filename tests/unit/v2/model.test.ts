@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { entries, rows } from '../../../src/state/inbox';
 import { hasUnread, initialState } from '../../../src/state/store';
 import { applyEntry, applyItem, applyRemoved, compareCodePoints, keyOfItem, Model, viewOf, wantThread } from '../../../src/v2/model';
-import { readChange, readEntry, readInboxPage, readItem, readMe, type Entry, type Item } from '../../../src/v2/wire';
+import { readChange, readEntry, readInboxPage, readItem, readMe, readTerminal, type Entry, type Item } from '../../../src/v2/wire';
 
 function item(over: Partial<Item> = {}): Item {
   return {
@@ -106,7 +106,63 @@ describe('client API v2 model', () => {
     applyEntry(s, m, entry({ entry_id: 'en_2', position: 2, rev: 10, author: 'person', text: 'two', delivery: { delivered: true } }));
     applyEntry(s, m, entry({ entry_id: 'en_2', position: 2, rev: 5, author: 'person', text: 'stale' }));
     expect(s.threads.get(K)!.turns.map((t) => t.text)).toEqual(['one', 'two', 'three']);
-    expect(s.threads.get(K)!.delivered.has('en_2')).toBe(true);
+    expect(s.threads.get(K)!.turns[1].receipt).toBe('delivered');
+  });
+
+  it('reads a handoff outcome from entries and answers; an unknown one is absent', () => {
+    const raw = { ...entry({ author: 'person' }) };
+    const read = (delivery: unknown) => readEntry({ ...raw, delivery })!.delivery;
+    expect(read({ delivered: true, outcome: 'handed' })).toEqual({ delivered: true, acted: false, outcome: 'handed' });
+    expect(read({ delivered: true, outcome: 'not_handed' })).toEqual({ delivered: true, acted: false, outcome: 'not_handed' });
+    expect(read({ delivered: true, outcome: 'later' })).toEqual({ delivered: true, acted: false });
+    expect(read({ acted: true })).toEqual({ delivered: false, acted: true });
+    expect(read(undefined)).toBeUndefined();
+    const answer = (delivery: unknown) => readTerminal({ state: 'answered', at_ms: 1, delivery })!.delivery;
+    expect(answer({ delivered: true, outcome: 'not_handed' })).toEqual({ delivered: true, acted: false, outcome: 'not_handed' });
+    expect(answer({ outcome: 7 })).toEqual({ delivered: false, acted: false });
+    expect(answer(undefined)).toBeUndefined();
+    expect(answer('handed')).toBeUndefined();
+  });
+
+  it.each([
+    [{ delivered: true, outcome: 'handed' }, 'delivered'],
+    [{ delivered: false, outcome: 'handed' }, 'delivered'],
+    [{ delivered: true, acted: true, outcome: 'not_handed' }, 'not_handed'],
+    [{ delivered: true }, 'delivered'],
+    [{ delivered: true, outcome: 'later' }, 'delivered'],
+    [{ outcome: 'later' }, null],
+    [{ acted: true }, null],
+    [{}, null],
+    [undefined, null],
+  ])('the receipt of delivery %j is %s, for a chat turn and for an answer', (delivery, want) => {
+    const s = initialState();
+    const m = new Model();
+    applyItem(s, m, readItem(item({ terminal: { state: 'answered', at_ms: 1, answer: { kind: 'reply', text: 'ok' }, delivery: delivery as never } }))!);
+    expect(s.messages.get(K)!.terminal!.receipt).toBe(want);
+    wantThread(s, K);
+    applyEntry(s, m, readEntry(entry({ author: 'person', delivery: delivery as never }))!);
+    expect(s.threads.get(K)!.turns[0].receipt).toBe(want);
+  });
+
+  it('a receipt follows the newest rev both ways, and a stale rev does not bring an older one back', () => {
+    const s = initialState();
+    const m = new Model();
+    const answered = (rev: number, outcome?: 'handed' | 'not_handed') =>
+      applyItem(s, m, item({ rev, terminal: { state: 'answered', at_ms: 1, answer: { kind: 'seen' }, ...(outcome ? { delivery: { delivered: true, outcome } } : {}) } }));
+    const turn = (rev: number, outcome?: 'handed' | 'not_handed') =>
+      applyEntry(s, m, entry({ rev, author: 'person', delivery: outcome ? { delivered: true, outcome } : { delivered: false } }));
+    const held = () => [s.messages.get(K)!.terminal!.receipt, s.threads.get(K)!.turns[0].receipt];
+    answered(2);
+    wantThread(s, K);
+    turn(2);
+    expect(held()).toEqual([null, null]);
+    const steps = [[4, 'not_handed', 'not_handed'], [6, 'handed', 'delivered'], [5, 'not_handed', 'delivered'],
+      [6, 'not_handed', 'delivered'], [8, 'not_handed', 'not_handed'], [7, 'handed', 'not_handed'], [9, undefined, null]] as const;
+    for (const [rev, outcome, want] of steps) {
+      answered(rev, outcome);
+      turn(rev, outcome);
+      expect(held()).toEqual([want, want]);
+    }
   });
 
   it('unread chat: the newest origin reply is past the read position', () => {

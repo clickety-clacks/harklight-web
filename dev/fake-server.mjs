@@ -387,6 +387,17 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         terminate(world, key(m.sender_id, m.message_id), { state: 'cleared', terminal_reason: 'retracted' });
         return json(res, 200, { ok: true });
       }
+      case 'handoff': {
+        // Record the handoff outcome (handed, not_handed) of a chat turn by its
+        // text, or of the answer to a message by its title; null clears it.
+        const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
+        const target = body.text !== undefined
+          ? world.conv.find((e) => e.kind === 'discussion' && e.author === 'person' && e.text === body.text)
+          : m?.terminal;
+        if (!target) return json(res, 404, { error: 'no such chat turn or answer' });
+        target.handoff = body.outcome ?? undefined;
+        return json(res, 200, { ok: true });
+      }
       case 'availability': {
         // The agent stops or starts listening to a message's chat (by title).
         const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
