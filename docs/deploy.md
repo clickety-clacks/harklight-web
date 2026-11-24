@@ -70,6 +70,7 @@ the control that leads there.
 | `flags.webClient` | `false`: customers see a short "Web messaging is coming soon" note linking to `devicesPath`, and the page opens no connection |
 | `flags.answerForms` | `false`: custom answer forms (attention-client.ui/1) offer the plain Reply and No comment, and say the custom screen is not shown |
 | `flags.attachments` | `false`: no attach control; files show name and size only |
+| `flags.fyiInbox` | `true`: FYIs are grouped into an Inbox summary and a full list; `false` lists them as ordinary messages |
 
 A tester can turn every feature on in their own browser only, whatever the
 deployment's flags, by opening `/inbox#preview` (and off again with

@@ -123,6 +123,11 @@ describe('web client flag', () => {
     expect(applyPreview(live, '#preview', st).flags).toEqual({ webClient: true, answerForms: true, attachments: true, fyiInbox: true });
     expect(live.flags.attachments).toBe(false);
   });
+  it('groups FYIs by default, and a deployment can turn that off', () => {
+    expect(DEFAULT_CONFIG.flags.fyiInbox).toBe(true);
+    expect(mergeConfig(DEFAULT_CONFIG, { flags: { webClient: true } }).flags.fyiInbox).toBe(true);
+    expect(mergeConfig(DEFAULT_CONFIG, { flags: { fyiInbox: false } }).flags.fyiInbox).toBe(false);
+  });
   it('has no relay settings left: a deployment config naming them changes nothing', () => {
     const c = mergeConfig(DEFAULT_CONFIG, { relayPath: '/browser/relay', filesPath: '/browser/v1', flags: { clientApiV2: false } });
     expect(c).toEqual(DEFAULT_CONFIG);
