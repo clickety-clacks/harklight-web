@@ -8,11 +8,11 @@ export type ConnectionState =
   | 'connecting'
   | 'connected'
   | 'reconnecting'
-  /** The sign-in ended (4401). The tab leaves for sign-in. */
+  /** The sign-in ended. The tab leaves for sign-in. */
   | 'ended'
-  /** The account cannot use messaging (4403 or inactive_account). */
+  /** The account cannot use messaging (inactive_account). */
   | 'inactive'
-  /** A client defect (1008) or a protocol failure that a retry will not fix. */
+  /** A client defect or a failure that a retry will not fix. */
   | 'failed';
 
 /** sender_id + message_id; the identity of one message. */

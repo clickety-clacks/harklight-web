@@ -818,3 +818,14 @@ test('opening an expired flag-only FYI from an ordinary row files it under Seen 
   await expect(page.getByRole('button', { name: title, exact: true })).toBeVisible();
   await expect(row).toHaveCount(0);
 });
+
+test('Back after the first tab switch returns to Inbox', async ({ page }) => {
+  await fake(page, 'reset');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await tabTo(page, 'Replied');
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByText('Select a message')).toBeVisible();
+});
