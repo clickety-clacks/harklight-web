@@ -85,12 +85,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const [chatWanted, setChatWanted] = useState(false);
   /** The person closed the side panel: it stays closed until they open chat. */
   const [panelClosed, setPanelClosed] = useState(false);
-  /** The person opened the chat themselves (Chat button, reply row), as opposed
-   * to the side panel being open by default. */
-  const [chatExplicit, setChatExplicit] = useState(false);
-  /** The message whose chat the person has sent in during this visit to it.
-   * A visit ends when another message is opened. */
-  const sentThisVisit = useRef<string | null>(null);
   const panel = layout === 'wide';
   /** Unsent chat text and files per message, kept while its chat is closed. */
   const drafts = useRef(new Map<string, ChatDraft>());
@@ -127,13 +121,11 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         history.replaceState({ selected: null, chat: false, tab: to }, '', location.href);
         setSelected(null);
         setChatWanted(false);
-        setChatExplicit(false);
         setViaReply(false);
         return;
       }
       setSelected(sel);
       setChatWanted(!!st?.chat);
-      setChatExplicit(!!st?.chat);
       setViaReply(!!st?.viaReply);
     };
     if ((history.state as { fyi?: boolean } | null)?.fyi) history.replaceState(null, '', location.href);
@@ -148,7 +140,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     setShowFyi(false);
     setSelected(sel);
     setChatWanted(chat);
-    setChatExplicit(chat);
     setViaReply(fromReply);
   };
 
@@ -158,23 +149,18 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     if (panel && selected && !panelClosed && !chatWanted) setChatWanted(true);
   }, [panel, selected, panelClosed, chatWanted]);
 
-  // A visit to a message starts when it is opened.
-  useEffect(() => {
-    if (sentThisVisit.current !== selected) sentThisVisit.current = null;
-  }, [selected]);
-
-  // Narrowing below the room for the panel: the chat carries over as a modal
-  // only if the person is using it in this visit (opened it themselves, has
-  // an unsent draft, or sent in it). An untouched default panel just closes,
-  // leaving the message and its Chat button. A half-written message is never
-  // lost, since a draft counts. Decided during render, so the modal never
-  // mounts for a frame; focus stays on the message.
+  // Narrowing below the room for the panel closes the chat; it opens over
+  // the message only when the person asks for it there. A draft is kept.
+  // Decided during render, so the modal never mounts for a frame; focus stays
+  // on the message.
   const wasPanel = useRef(panel);
-  const inUse = !!selected && (chatExplicit || drafts.current.has(selected) || sentThisVisit.current === selected);
-  const dropOnNarrow = wasPanel.current && !panel && chatWanted && !inUse;
+  const dropOnNarrow = wasPanel.current && !panel && chatWanted;
   useLayoutEffect(() => {
     if (dropOnNarrow) {
       setChatWanted(false);
+      // The step that opened it no longer shows it, so stepping back to it must not either.
+      const st = history.state as { chat?: boolean } | null;
+      if (st?.chat) history.replaceState({ ...st, chat: false }, '', location.href);
       if (document.activeElement === document.body || !document.activeElement) {
         document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
       }
@@ -205,7 +191,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       history.replaceState({ selected: null, chat: false, tab }, '', location.href);
       setSelected(null);
       setChatWanted(false);
-      setChatExplicit(false);
       setViaReply(false);
     }
     if (s.messages.has(sel) || !s.morePages || sel !== selected) unchecked.current = null;
@@ -231,7 +216,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     setShowFyi(fyi);
     setSelected(sel);
     setChatWanted(false);
-    setChatExplicit(false);
     setViaReply(reply);
   };
   // Back to this tab's list: the step that opened it, if that was here.
@@ -424,7 +408,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         closeChat();
       }}
       onSend={(text, files) => {
-        sentThisVisit.current = selected;
         void session.chat(message, text, files);
       }}
       onRetry={(op) => session.retryChat(op)}
