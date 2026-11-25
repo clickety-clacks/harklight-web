@@ -674,3 +674,45 @@ test('main Inbox and Replied remember independent orders and keep their details'
   await expect(sort).toHaveAccessibleName('Sort: Posted');
   await expect(detail('Older answered')).toBeVisible();
 });
+
+test('narrowing closes FYI Chat and Back restores the list across layouts', async ({ page }) => {
+  await fake(page, 'reset');
+  for (let i = 0; i < 16; i++) await sendFyi(page, `resize-${i}`, `FYI resize ${i}`);
+  await page.setViewportSize({ width: 1280, height: 650 });
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  const toolbar = page.getByRole('navigation', { name: 'FYI list controls' });
+  await toolbar.getByRole('button', { name: 'Sort: Priority' }).click();
+  const list = page.getByRole('main', { name: 'FYIs', exact: true });
+  const target = list.locator('.fyi-open').last();
+  await target.scrollIntoViewIfNeeded();
+  const scrollTop = await list.evaluate((node) => node.scrollTop);
+  expect(scrollTop).toBeGreaterThan(0);
+  const title = await target.getAttribute('aria-label');
+  const row = list.getByRole('button', { name: title!, exact: true });
+  const detail = page.locator('.detail');
+  const chat = detail.getByRole('button', { name: /^Chat/ });
+
+  await row.click();
+  await page.locator('.chat-col').getByRole('button', { name: 'Close chat' }).click();
+  await chat.click();
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 650 });
+  await expect(chat).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await detail.getByRole('button', { name: 'Back to FYIs' }).click();
+  await expect(row).toBeFocused();
+  await expect(toolbar.getByRole('button', { name: 'Sort: Posted' })).toBeVisible();
+  expect(await list.evaluate((node) => node.scrollTop)).toBe(scrollTop);
+
+  await row.click();
+  await chat.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 650 });
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 650 });
+  await expect(chat).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.goBack();
+  await expect(row).toBeFocused();
+});

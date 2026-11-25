@@ -47,6 +47,11 @@ export function FyiSummary({ tab, items, incomplete, open }: { tab: Tab; items: 
   );
 }
 
+export interface FyiListMemory {
+  order: ListOrder;
+  opener: { tab: Tab; key: string; scrollTop: number } | null;
+}
+
 export function FyiList(p: {
   tab: Tab;
   items: Item[];
@@ -54,26 +59,30 @@ export function FyiList(p: {
   session: ClientSession;
   canWrite: boolean;
   active: boolean;
+  memory: FyiListMemory;
   close: () => void;
   openMessage: (key: string) => void;
 }) {
-  const [order, setOrder] = useState<ListOrder>('priority');
+  const [order, setOrder] = useState(p.memory.order);
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLElement>(null);
-  const opener = useRef<{ button: HTMLButtonElement; scrollTop: number } | null>(null);
 
   useLayoutEffect(() => {
     if (list.current) list.current.scrollTop = 0;
-    opener.current = null;
   }, [p.tab]);
   useLayoutEffect(() => {
     if (!p.active) return;
-    const previous = opener.current;
-    if (previous && list.current) list.current.scrollTop = previous.scrollTop;
+    const previous = p.memory.opener;
+    let opener: HTMLButtonElement | undefined;
+    if (previous?.tab === p.tab && list.current) {
+      list.current.scrollTop = previous.scrollTop;
+      opener = Array.from(list.current.querySelectorAll<HTMLButtonElement>('.fyi-open'))
+        .find((button) => button.dataset.fyiKey === previous.key);
+    }
     // When Seen removed the row, the heading is the next stable focus target.
-    (previous?.button.isConnected ? previous.button : heading.current)?.focus({ preventScroll: true });
+    (opener ?? heading.current)?.focus({ preventScroll: true });
   }, [p.active]);
   const items = [...p.items].sort(order === 'posted' ? byPosted :
     (a, b) => level(b) - level(a) || (b.message.v2?.score ?? 0) - (a.message.v2?.score ?? 0) || byPosted(a, b));
@@ -112,7 +121,10 @@ export function FyiList(p: {
           <Icon name="fyi-back" />
         </button>
         <h1 id="fyi-title" tabIndex={-1} ref={heading}>{p.tab === 'inbox' ? 'FYIs' : 'Seen FYIs'}</h1>
-        <SortButton order={order} onOrder={setOrder} />
+        <SortButton order={order} onOrder={(next) => {
+          p.memory.order = next;
+          setOrder(next);
+        }} />
         {p.tab === 'inbox' && (
           <button type="button" disabled={!p.canWrite || p.incomplete || marking || !unseen.length || unseen.some((item) => item.sending)} onClick={() => void markAll()}>
             Mark All Seen
@@ -129,10 +141,10 @@ export function FyiList(p: {
           <li key={key}>
             <article class={`fyi-item type-${messageType(message.payload)}`}>
               <div class="fyi-item-heading">
-                <button type="button" class="fyi-open" aria-label={title(message)}
-                  onClick={(event) => {
+                <button type="button" class="fyi-open" aria-label={title(message)} data-fyi-key={key}
+                  onClick={() => {
                     focused.current = null;
-                    opener.current = { button: event.currentTarget, scrollTop: list.current?.scrollTop ?? 0 };
+                    p.memory.opener = { tab: p.tab, key, scrollTop: list.current?.scrollTop ?? 0 };
                     p.openMessage(key);
                   }}>
                   <span class="row-head">

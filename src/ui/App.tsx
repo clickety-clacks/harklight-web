@@ -11,7 +11,7 @@ import type { Json, WireFile } from '../state/types';
 import { imageUrlFor } from './images';
 import { Chat, type ChatDraft } from './Chat';
 import { Detail, type AnswerChoice } from './Detail';
-import { FyiList, FyiSummary, fyiItems } from './FyiList';
+import { FyiList, FyiSummary, fyiItems, type FyiListMemory } from './FyiList';
 import { InboxList } from './InboxList';
 import { Settings } from './Settings';
 
@@ -72,6 +72,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const [orders, setOrders] = useState<Record<Tab, ListOrder>>({ inbox: 'priority', replied: 'priority' });
   const [showFyi, setShowFyi] = useState(false);
   const restoreFyiFocus = useRef(false);
+  const fyiMemory = useRef<FyiListMemory>({ order: 'priority', opener: null });
   const closingTab = useRef<Tab | null>(null);
   /** A message a step brought back before the messages had loaded. */
   const unchecked = useRef<string | null>(null);
@@ -160,8 +161,12 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     if (dropOnNarrow) {
       setChatWanted(false);
       // The step that opened it no longer shows it, so stepping back to it must not either.
-      const st = history.state as { chat?: boolean } | null;
-      if (st?.chat) history.replaceState({ ...st, chat: false }, '', location.href);
+      const st = history.state as { chat?: boolean; fyi?: boolean } | null;
+      if (st?.chat) {
+        history.replaceState({ ...st, chat: false }, '', location.href);
+        // Come back to the FYI detail so the next Back goes to the FYI list.
+        if (st.fyi) history.back();
+      }
       if (document.activeElement === document.body || !document.activeElement) {
         document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
       }
@@ -199,6 +204,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   });
   const openFyi = () => {
     if (showFyi) return;
+    fyiMemory.current = { order: 'priority', opener: null };
     history.pushState({ fyi: true, opened: true, tab }, '', location.pathname);
     setSelected(null);
     setShowFyi(true);
@@ -392,7 +398,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       onBack={showFyi ? () => history.go(history.state?.chat ? -2 : -1) : phone ? () => history.back() : null}
       onChat={() => {
         setPanelClosed(false);
-        go('inbox', selected, true, viaReply, showFyi);
+        if (showFyi && panel) setChatWanted(true);
+        else go('inbox', selected, true, viaReply, showFyi);
       }}
       onAnswer={onAnswer}
       onSeen={onSeen}
@@ -440,7 +447,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const fyiList = groupFyi && showFyi && (
     <FyiList tab={tab} items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
-      active={!message} close={closeFyi} openMessage={(key) => go('inbox', key, false, false, true)} />
+      memory={fyiMemory.current} active={!message} close={closeFyi} openMessage={(key) => go('inbox', key, false, false, true)} />
   );
 
   const modal = chatVisible && !panel && (
