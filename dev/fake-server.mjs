@@ -188,7 +188,7 @@ function listItemsOf(w) {
   const history = [];
   for (const m of w.messages.values()) {
     const item = { kind: 'message', sender_id: m.sender_id, message_id: m.message_id, at: m.arrival };
-    (m.terminal ? history : active).push(item);
+    (m.terminal || m.bounceResolved ? history : active).push(item);
     const k = key(m.sender_id, m.message_id);
     const replies = w.conv.filter((e) => e.kind === 'reply' && key(e.sender_id, e.message_id) === k);
     if (!replies.length) continue;
@@ -389,6 +389,13 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         if (m.terminal) return json(res, 409, { error: 'already_closed' });
         m.payload = { ...m.payload, ...body.message };
         m.revision += 1;
+        return json(res, 200, { ok: true });
+      }
+      case 'bounce': {
+        const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
+        if (!m) return json(res, 404, { error: 'no message with that title' });
+        m.bounced = body.bounced;
+        m.bounceResolved = body.resolved === true;
         return json(res, 200, { ok: true });
       }
       case 'expire':

@@ -64,6 +64,12 @@ export interface Terminal {
   by_this_person?: boolean;
 }
 
+export interface FullBounce {
+  kind: 'full';
+  at_ms: number;
+  reason: 'unopened';
+}
+
 export interface Item {
   item_id: string;
   rev: number;
@@ -72,6 +78,7 @@ export interface Item {
   message: JsonObject;
   files: FileRef[];
   seen: boolean;
+  bounced?: FullBounce;
   as?: 'message' | 'knock';
   chat: {
     available: boolean;
@@ -204,7 +211,7 @@ function int(v: unknown, min: number): number | null {
   return typeof v === 'number' && Number.isInteger(v) && v >= min ? v : null;
 }
 
-function readScore(v: unknown): number | undefined {
+function readFiniteNumber(v: unknown): number | undefined {
   const value = v instanceof RawNumber ? Number(v.text) : v;
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
@@ -295,6 +302,13 @@ function readDelivery(v: unknown): Delivery | undefined {
   return d;
 }
 
+function readBounce(v: unknown): FullBounce | undefined {
+  const bounce = obj(v);
+  if (bounce?.kind !== 'full' || bounce.reason !== 'unopened') return undefined;
+  const at_ms = readFiniteNumber(bounce.at_ms);
+  if (at_ms !== undefined) return { kind: 'full', at_ms, reason: 'unopened' };
+}
+
 export function readItem(v: unknown): Item | null {
   const o = obj(v);
   if (!o) return null;
@@ -308,8 +322,9 @@ export function readItem(v: unknown): Item | null {
   if (!chat || !rank || typeof rank.key !== 'string') return null;
   const replyPriority = obj(chat.reply_priority);
   const replyLevel = readLevel(replyPriority?.level);
-  const replyScore = readScore(replyPriority?.score);
-  const rankScore = readScore(rank.score);
+  const replyScore = readFiniteNumber(replyPriority?.score);
+  const rankScore = readFiniteNumber(rank.score);
+  const bounced = readBounce(o.bounced);
   return {
     item_id,
     rev,
@@ -318,6 +333,7 @@ export function readItem(v: unknown): Item | null {
     message: message as JsonObject,
     files: readFiles(o.files),
     seen: o.seen === true,
+    ...(bounced ? { bounced } : {}),
     ...(o.as === 'message' || o.as === 'knock' ? { as: o.as } : {}),
     chat: {
       available: chat.available === true,

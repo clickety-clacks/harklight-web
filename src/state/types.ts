@@ -84,6 +84,8 @@ export interface V2Item {
   createdAt?: number;
   score: number | null;
   seen: boolean;
+  /** An unopened bounce, when its display flag is enabled. */
+  bounced?: import('../v2/wire').FullBounce;
   /** entry_id the person has read through, and the newest origin reply. */
   readPosition: string | null;
   lastOriginReply: string | null;

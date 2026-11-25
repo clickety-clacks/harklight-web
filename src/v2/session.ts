@@ -106,7 +106,7 @@ function markLookalike(s: import('../state/store').State, key: string | undefine
 
 export class V2Session {
   readonly log: ErrorLog;
-  private model = new Model();
+  private readonly model: Model;
   private api: ApiDeps;
   private focus?: FocusReporter;
   /** The rev of the last change applied from the feed. */
@@ -141,6 +141,7 @@ export class V2Session {
   private answerWaiting = new Set<string>();
 
   constructor(private deps: V2Deps) {
+    this.model = new Model(deps.config.flags.fullBounces);
     this.log = deps.log ?? new ErrorLog();
     this.api = {
       base: `${deps.origin ?? ''}${deps.config.apiPath}`,
@@ -817,10 +818,14 @@ export class V2Session {
     const key = keyOfItem({ sender: m.sender_id, item_id: m.v2.item_id });
     this.readConversation(m);
     const id = `${key}\u0000${m.revision}`;
-    if (m.v2.seen || this.seenSent.has(id)) return;
+    if (m.v2.seen || m.v2.bounced || this.seenSent.has(id)) return;
     this.seenSent.add(id);
     const w: FrozenWrite = { type: 'v2', op: 'seen', method: 'POST', path: `/items/${seg(m.v2.item_id)}/seen`, body: {}, key: newKey() };
     void this.enqueue(key, async () => {
+      if (this.store.state.messages.get(key)?.v2?.bounced) {
+        this.seenSent.delete(id);
+        return;
+      }
       try {
         const r = await this.write(w);
         this.applyWrite(readWriteResult(r.body));
@@ -839,6 +844,7 @@ export class V2Session {
   ): Promise<void> {
     const body: Record<string, unknown> = { request_revision: m.revision };
     // The Seen action's id is `seen` (state/message seenValue).
+    if (opts.seen && m.v2?.bounced) return;
     if (opts.seen) body.choice = 'seen';
     else if (opts.control === 'form') body.result = value;
     else if (opts.text !== undefined) body.comment = opts.text;
@@ -858,7 +864,7 @@ export class V2Session {
     const pending = this.store.state.answers.get(key);
     if (!current?.v2 || current.revision !== m.revision || pending?.state === 'sending') return;
     // It may have ended since it was listed, while others were being marked.
-    if (current.terminal || fyiSeen(current)) return;
+    if (current.terminal || current.v2.bounced || fyiSeen(current)) return;
     if (pending?.seen && pending.state === 'failed' && pending.resend) {
       await this.retryHeld(key, pending);
       return;
@@ -928,7 +934,12 @@ export class V2Session {
   private resendAnswer(key: string, w: FrozenWrite): Promise<void> {
     this.setAnswer(key, { state: 'sending', reason: undefined }, w);
     return this.enqueue(key, async () => {
-      if (this.store.state.answers.get(key)?.resend !== w) return; // edited meanwhile
+      const answer = this.store.state.answers.get(key);
+      if (answer?.resend !== w) return; // edited meanwhile
+      if (answer.seen && this.store.state.messages.get(key)?.v2?.bounced) {
+        this.store.update((s) => void s.answers.delete(key));
+        return;
+      }
       try {
         const r = await this.write(w);
         // A replayed response is the original's: the answer went through.

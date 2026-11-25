@@ -318,3 +318,50 @@ describe('client API v2 readers', () => {
     expect(readMe({ account: { state: 'active' }, limits: { inline_decoded_bytes_per_entry: 0 }, answer_ui_limits: { inputs: 1 } })?.answerUiLimits).toBeNull();
   });
 });
+
+describe('full bounces', () => {
+  const bounce = { kind: 'full', at_ms: 1234, reason: 'unopened' } as const;
+
+  it('reads only a full unopened bounce with a finite numeric timestamp', () => {
+    expect(readItem({ ...item(), bounced: bounce })?.bounced).toEqual(bounce);
+    for (const bounced of [
+      undefined, null, 'full', [], {}, { ...bounce, kind: 'soft' },
+      { ...bounce, reason: 'expired' }, { ...bounce, at_ms: undefined },
+      { ...bounce, at_ms: '1234' }, { ...bounce, at_ms: Infinity },
+    ]) {
+      expect(readItem({ ...item(), bounced })).not.toBeNull();
+      expect(readItem({ ...item(), bounced })?.bounced).toBeUndefined();
+    }
+  });
+
+  it.each([false, true])('projects full bounces with grouped rank: %s', (grouped) => {
+    const s = initialState();
+    const m = new Model(true);
+    const add = (id: string, rank: Item['rank'], message: Item['message'], bounced?: typeof bounce) =>
+      applyItem(s, m, item({ item_id: id, rank, message, bounced }));
+    const group = grouped ? { group: 'common' as const } : {};
+    add('active', { key: 'a', ...group }, { message_type: 'request' });
+    add('fyi', { key: 'b', section: 'resolved' }, { message_type: 'fyi' }, bounce);
+    if (grouped) add('older', { key: 'c', section: 'resolved' }, { message_type: 'request' });
+    add('progress', { key: 'aa', ...group }, { message_type: 'fyi', progress: null }, bounce);
+    s.view = viewOf(s);
+    const labels = (order: 'priority' | 'posted') => entries(s, 'inbox', true, order).map((entry) =>
+      entry.type === 'heading' ? entry.title : entry.type === 'message' ? entry.message.message_id : entry.type,
+    );
+    expect(labels('priority')).toEqual(['active', 'History', 'fyi', ...(grouped ? ['older'] : [])]);
+    expect(labels('posted').slice(-2)).toEqual(['History', 'fyi']);
+    expect(s.messages.get(keyOfItem({ sender: 'agent:a', item_id: 'progress' }))?.v2?.bounced).toBeUndefined();
+
+    const noView = entries({ ...s, view: null }, 'inbox', true);
+    expect(noView.slice(-2)).toMatchObject([{ type: 'heading', title: 'History' }, { history: true, message: { message_id: 'fyi' } }]);
+  });
+
+  it('keeps the default projection and adds no History heading for an ignored bounce', () => {
+    const s = initialState();
+    const model = new Model();
+    applyItem(s, model, item({ bounced: bounce }));
+    s.view = viewOf(s);
+    expect(entries(s, 'inbox')).toMatchObject([{ type: 'message', history: false }]);
+    expect(s.messages.get(K)?.v2?.bounced).toBeUndefined();
+  });
+});

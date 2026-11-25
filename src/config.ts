@@ -18,6 +18,8 @@ export interface Flags {
   /** Group FYI messages in their dedicated Inbox list. On by default; a
    * deployment can turn it off in its config.json. */
   fyiInbox?: boolean;
+  /** Show full-bounced messages as Unopened in Inbox History. */
+  fullBounces?: boolean;
 }
 
 export interface Config {
@@ -50,7 +52,7 @@ export const DEFAULT_CONFIG: Config = {
   componentsPath: '/components',
   devicesPath: '/devices',
   accountInfoPath: '/api/profile',
-  flags: { webClient: false, attachments: false, answerForms: false, fyiInbox: true },
+  flags: { webClient: false, attachments: false, answerForms: false, fyiInbox: true, fullBounces: false },
 };
 
 export function mergeConfig(base: Config, override: unknown): Config {
@@ -97,5 +99,5 @@ export function applyPreview(config: Config, hash: string, storage: Pick<Storage
   if (hash === '#preview') storage.setItem(PREVIEW_KEY, '1');
   if (hash === '#preview-off') storage.removeItem(PREVIEW_KEY);
   if (storage.getItem(PREVIEW_KEY) !== '1') return config;
-  return { ...config, flags: { ...config.flags, webClient: true, answerForms: true, attachments: true, fyiInbox: true } };
+  return { ...config, flags: { ...config.flags, webClient: true, answerForms: true, attachments: true, fyiInbox: true, fullBounces: true } };
 }

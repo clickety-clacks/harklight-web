@@ -17,6 +17,7 @@ the Web product owner.
 | `answerForms` | Draws custom answer forms. Off offers the plain Reply and No comment, and says the custom screen is not shown. | Web client delivery owner | `wi_cf6ed278` | off | on | Custom forms pass their live check on hosted with customers on. Delete the flag and the off path. |
 | `attachments` | Chat files: attaching and uploading, and downloading files. Off sends text only and lists files without a download link. | Web client delivery owner | `wi_cf6ed278` | off | on | A live upload above 256 KB passes on hosted and files are on for customers. Delete the flag and the off path. |
 | `fyiInbox` | Groups FYIs into an Inbox summary and full list. | Web client delivery owner | `wi_ed1f7278` | on | on | The paired FYI rollout and browser verification pass. |
+| `fullBounces` | Moves full-bounced messages to Inbox History and labels them Unopened. | Web client delivery owner | `wi_94b62ca3` | off | off | The paired Server and client rollout has been verified with full bounces enabled in production. |
 
 ## The `#preview` tester switch
 

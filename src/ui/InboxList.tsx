@@ -188,7 +188,7 @@ function MessageRow(props: {
         </span>
         <span class="t">{title(m)}</span>
         {props.unread && <Icon name="flag-fill" class="flag flag--unread" />}
-        {props.seen && <Icon name="check" class="seen" />}
+        {props.seen && !row.unopened && <Icon name="check" class="seen" />}
         {props.submission === 'sending' && <span class="spinner row-spinner" role="img" aria-label="Sending" />}
         {props.submission === 'failed' && (
           <span class="row-failed" role="img" aria-label="Couldn't send">
@@ -196,10 +196,11 @@ function MessageRow(props: {
           </span>
         )}
         {props.unread && <span class="visually-hidden">Unread chat reply</span>}
-        {props.seen && <span class="visually-hidden">Seen</span>}
+        {props.seen && !row.unopened && <span class="visually-hidden">Seen</span>}
       </span>
       {meta.length > 0 && <span class="row-meta">{meta.join(' · ')}</span>}
       {body(m) && <span class="row-body">{body(m)}</span>}
+      {row.unopened && <span class="row-meta label">Unopened</span>}
     </button>
   );
 }

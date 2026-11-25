@@ -71,8 +71,7 @@ export function Detail(p: DetailProps) {
   const failed = local?.state === 'failed';
   const seenDone =
     m.terminal?.outcome?.kind === 'seen' ||
-    (!!local?.seen && local.state === 'accepted') ||
-    seenWithoutAnswer(m);
+    (!m.v2?.bounced && ((!!local?.seen && local.state === 'accepted') || seenWithoutAnswer(m)));
   const answered =
     !seenDone &&
     (m.terminal?.state === 'answered' ||
@@ -137,6 +136,7 @@ export function Detail(p: DetailProps) {
   };
 
   const isSeenForm = form.kind === 'seen';
+  const unopened = open && !!m.v2?.bounced;
   const writing = pickedChoice?.kind === 'text';
 
   return (
@@ -206,7 +206,7 @@ export function Detail(p: DetailProps) {
               {barSpins ? <span class="spinner" aria-hidden="true" /> : <Icon name="check" />}
             </button>
           )}
-          {open && isSeenForm && (
+          {open && isSeenForm && !unopened && (
             <SeenButton
               status={statusOf('seen')}
               bar
@@ -221,6 +221,11 @@ export function Detail(p: DetailProps) {
         <div class="detail-body">
           <MessageHeading message={m} timestamp={createdAt(m)} />
           <MessageContent message={m} attachments={p.attachments} fileHref={p.fileHref} />
+          {unopened && (
+            <p class="msg-note">
+              Moved out of your inbox because it wasn’t opened.{!isSeenForm && ' You can still answer.'}
+            </p>
+          )}
 
           {m.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}
           {!m.terminal?.retracted && m.terminal?.state === 'expired' && !answered && !seenDone && (
@@ -252,7 +257,7 @@ export function Detail(p: DetailProps) {
             </p>
           )}
 
-          {open && isSeenForm && (
+          {open && isSeenForm && !unopened && (
             <SeenButton
               status={statusOf('seen')}
               disabled={!canAnswer && !failed}

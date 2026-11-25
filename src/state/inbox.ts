@@ -18,6 +18,7 @@ export interface MessageRow {
   message: HeldMessage;
   priority: Priority;
   history: boolean;
+  unopened?: boolean;
 }
 
 export interface ReplyRow {
@@ -72,7 +73,7 @@ export function inReplied(s: State, key: string): boolean {
  */
 export function fyiTab(s: State, key: string): Tab | null {
   const m = s.messages.get(key);
-  if (!m || !visible(m) || !isFyi(m.payload)) return null;
+  if (!m || !visible(m) || m.v2?.bounced || !isFyi(m.payload)) return null;
   if (fyiSeen(m)) return 'replied';
   return m.terminal || inReplied(s, key) ? null : 'inbox';
 }
@@ -123,8 +124,8 @@ export function entries(s: State, tab: Tab, groupFyi = false, order: ListOrder =
     : fallback(s, tab, groupFyi);
   if (order === 'priority') return priority;
 
-  // Chronological order spans the whole projection. Headings and thread
-  // groups belong to Priority; equal and undated rows stay in Server order.
+  // In Posted order, flatten the server groups and sort each part of the list.
+  // Equal and undated rows stay in Server order, and unopened rows stay in History.
   const chronological = [];
   for (const entry of priority) {
     if (entry.type === 'heading') continue;
@@ -135,14 +136,24 @@ export function entries(s: State, tab: Tab, groupFyi = false, order: ListOrder =
       chronological.push({ row: entry, at });
     }
   }
-  return chronological
+  const posted = chronological
     .sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity))
     .map(({ row }) => row);
+  return atFootOfInbox(posted);
+}
+
+const historyHeading: Heading = { type: 'heading', title: 'History' };
+
+function atFootOfInbox(list: (MessageRow | ReplyRow)[]): Entry[] {
+  const unopened = list.filter((row): row is MessageRow => row.type === 'message' && !!row.unopened);
+  if (!unopened.length) return list;
+  return [...list.filter((row) => row.type !== 'message' || !row.unopened), historyHeading, ...unopened];
 }
 
 function messageRow(s: State, key: string, m: HeldMessage, sc: ReturnType<typeof rowDetails>, history: boolean): MessageRow {
   const open = m.terminal === null && !inReplied(s, key);
   const mark = sc.priority.get(key) ?? null;
+  if (open && m.v2?.bounced) return { type: 'message', key, message: m, priority: null, history: true, unopened: true };
   return { type: 'message', key, message: m, priority: open ? mark : null, history };
 }
 
@@ -150,6 +161,7 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
   const sc = rowDetails(s);
   const { thread } = sc;
   const flat: (MessageRow | ReplyRow | Heading)[] = [];
+  const unopened: MessageRow[] = [];
   const headed = new Set<string>();
   let lastSection: FreeSection | null = null;
   const heading = (title: string, note?: string) => {
@@ -159,19 +171,26 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
   };
 
   for (const it of items) {
+    let row: MessageRow | undefined;
     if (it.kind === 'message') {
       const m = s.messages.get(it.key);
       if (!m || !visible(m) || (groupFyi && fyiTab(s, it.key) !== null)) continue;
-      // An FYI answered some other way is in Replied only, History or not.
-      if (groupFyi && tab === 'inbox' && isFyi(m.payload) && inReplied(s, it.key)) continue;
-      if (!freeOrder && (tab === 'replied') !== inReplied(s, it.key)) continue;
+      const replied = inReplied(s, it.key);
+      // Answered FYIs and previously unopened messages leave the Inbox entirely.
+      if (replied && tab === 'inbox' && (m.v2?.bounced || (groupFyi && isFyi(m.payload)))) continue;
+      if (!freeOrder && (tab === 'replied') !== replied) continue;
+      row = messageRow(s, it.key, m, sc, it.section?.state === 'history');
+      if (row.unopened && (!freeOrder || it.section?.state !== 'history')) {
+        unopened.push(row);
+        continue;
+      }
     } else {
       if (it.unseen === null) continue;
       if (!freeOrder && (tab === 'inbox') !== it.unseen > 0) continue;
     }
     if (freeOrder && it.section && (lastSection === null || it.section.state !== lastSection.state || it.section.group !== lastSection.group)) {
       const sec = it.section;
-      if (sec.state === 'history') heading('History');
+      if (sec.state === 'history') heading(historyHeading.title);
       if (sec.group !== 'common') {
         heading(
           'Earlier activity',
@@ -190,9 +209,8 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
       lastSection = sec;
     }
     const history = it.section?.state === 'history';
-    if (it.kind === 'message') {
-      flat.push(messageRow(s, it.key, s.messages.get(it.key)!, sc, history));
-    } else {
+    if (row) flat.push(row);
+    if (it.kind === 'reply') {
       const message = s.messages.get(it.key);
       const reply = s.threads.get(it.key)?.turns.find((turn) =>
         it.conversationSeq > 0 ? turn.seq === it.conversationSeq : turn.id === message?.v2?.lastOriginReply
@@ -210,6 +228,11 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
         history,
       });
     }
+  }
+  if (unopened.length) {
+    const historyAt = flat.findIndex((entry) => entry.type === 'heading' && entry.title === historyHeading.title);
+    if (historyAt === -1) flat.push(historyHeading, ...unopened);
+    else flat.splice(historyAt + 1, 0, ...unopened);
   }
   return groupThreads(s, flat, thread);
 }
@@ -279,5 +302,5 @@ function fallback(s: State, tab: Tab, groupFyi: boolean): Entry[] {
     if (a.message.acceptedSeq !== b.message.acceptedSeq) return b.message.acceptedSeq - a.message.acceptedSeq;
     return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
   });
-  return out;
+  return atFootOfInbox(out);
 }

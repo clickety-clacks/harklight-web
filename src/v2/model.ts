@@ -5,7 +5,7 @@
 //
 // A message key is the item's sender plus its item_id.
 
-import { priorityOf } from '../state/message';
+import { isProgress, priorityOf } from '../state/message';
 import type { State } from '../state/store';
 import type { AnswerOutcome, HeldMessage, Terminal as HeldTerminal, Thread, Turn, WireFile } from '../state/types';
 import { keyOf, splitKey } from '../state/types';
@@ -18,6 +18,8 @@ export class Model {
   readonly tombstones = new Map<string, number>();
   /** item_id -> message key, for entries and removals, which carry only the item_id. */
   readonly keys = new Map<string, string>();
+
+  constructor(readonly fullBounces = false) {}
 
   keyFor(itemId: string): string | undefined {
     return this.keys.get(itemId);
@@ -54,7 +56,7 @@ function terminalOf(t: Terminal | null | undefined, rev: number): HeldTerminal |
   return { state: 'answered', seq: rev, retracted: false, outcome };
 }
 
-function toHeld(item: Item): HeldMessage {
+function toHeld(item: Item, fullBounces: boolean): HeldMessage {
   const files = item.files.map(toWireFile);
   return {
     sender_id: item.sender,
@@ -76,6 +78,7 @@ function toHeld(item: Item): HeldMessage {
       createdAt: item.created_at_ms,
       score: item.rank.score ?? null,
       seen: item.seen,
+      ...(fullBounces && item.bounced && !isProgress(item.message) ? { bounced: item.bounced } : {}),
       readPosition: item.chat.read_position ?? null,
       lastOriginReply: item.chat.last_origin_reply ?? null,
       availability: item.availability?.state ?? null,
@@ -105,7 +108,7 @@ export function applyItem(s: State, model: Model, item: Item): boolean {
   if (prev?.v2 && prev.v2.rev >= item.rev) return false;
   model.keys.set(item.item_id, key);
   const thread = s.threads.get(key);
-  const held = toHeld(item);
+  const held = toHeld(item, model.fullBounces);
   s.messages.set(key, held);
   if (thread) {
     const retracted = item.terminal?.state === 'retracted';

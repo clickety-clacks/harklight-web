@@ -247,6 +247,7 @@ function itemOf(w, m) {
     ...(typeof m.payload.thread === 'string' ? { thread: m.payload.thread } : {}),
     ...(m.session_handle ? { availability: { state: m.availability ?? 'listening' } } : {}),
     terminal: terminalOf(w, m),
+    ...(m.bounced !== undefined ? { bounced: m.bounced } : {}),
     rank: placed.rank,
   };
 }
