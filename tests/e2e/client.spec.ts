@@ -167,24 +167,26 @@ test('at wide width the chat stays a column beside the message: close hides it, 
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('the chat switches between side panel and modal as the window resizes, keeping the chat open and its draft', async ({ page }) => {
+test('the chat closes when the window narrows and comes back as the side panel, draft intact', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await expect(page.locator('.chat-col')).toBeVisible();
   await page.getByRole('textbox', { name: 'Write a message' }).fill('Still writing');
-  // No room beside the message: the open chat becomes a modal over it.
+  // No room beside the message: the chat closes; it never opens over it by itself.
   await page.setViewportSize({ width: 900, height: 800 });
-  await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('Still writing');
-  // Room again: back to the side panel, still open, draft intact.
-  await page.setViewportSize({ width: 1200, height: 800 });
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.chat-col')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
+  // Room again: the side panel, draft intact.
+  await page.setViewportSize({ width: 1200, height: 800 });
   await expect(page.locator('.chat-col')).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('Still writing');
-  // A modal reached by resizing closes back to the message.
+  // Opened by the person when narrow, it shows over the message and closes back to it.
   await page.setViewportSize({ width: 900, height: 800 });
+  await page.locator('.detail').getByRole('button', { name: /^Chat/ }).click();
   await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('Still writing');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
@@ -213,7 +215,7 @@ test('narrowing past the untouched default panel shows just the message, with th
   await expect(page.locator('.chat-col')).toBeVisible();
 });
 
-test('narrowing carries a chat the person opened themselves over as a modal', async ({ page }) => {
+test('narrowing closes a chat the person opened themselves; it opens again only when asked', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
@@ -221,18 +223,23 @@ test('narrowing carries a chat the person opened themselves over as a modal', as
   await page.locator('.detail').getByRole('button', { name: /^Chat/ }).click();
   await expect(page.locator('.chat-col')).toBeVisible();
   await page.setViewportSize({ width: 900, height: 800 });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('.detail').getByRole('button', { name: /^Chat/ }).click();
   await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
 });
 
-test('narrowing carries the default panel over as a modal once the person has sent in it', async ({ page }) => {
+test('narrowing closes the panel even after sending in it, and keeps a draft', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);
   await openRow(page, 'Which hotel should I book for Lisbon?');
   await page.getByRole('textbox', { name: 'Write a message' }).fill('Is parking included?');
   await page.keyboard.press('Enter');
   await expect(page.locator('.turn--me', { hasText: 'Is parking included?' })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Write a message' }).fill('And breakfast?');
   await page.setViewportSize({ width: 900, height: 800 });
-  await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.locator('.detail').getByRole('button', { name: /^Chat/ }).click();
+  await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveValue('And breakfast?');
 });
 
 test('use counts only for this visit: a cleared draft or an earlier send does not carry the chat over', async ({ page }) => {
