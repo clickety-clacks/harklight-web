@@ -23,13 +23,13 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
         item.rank.level = 'high';
         item.rank.score = 0.8;
       }
-      if (item.message.title === 'Quarterly report is ready') delete item.message.answer_ui;
     }
     await route.fulfill({ response, json });
   });
   await page.goto('/inbox#preview');
   const summary = page.getByRole('button', { name: 'Open FYIs, 2 unseen' });
-  await expect(summary).toContainText('Nine meetings, two of them moved.');
+  await expect(summary).toContainText('All twelve sections are written');
+  await expect(summary).not.toContainText('Nine meetings');
   await expect(page.getByTestId('row').filter({ hasText: 'Quarterly report is ready' })).toHaveCount(0);
   await summary.focus();
   await page.keyboard.press('Enter');
@@ -39,7 +39,8 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   await expect(headings.first()).toHaveText('The hosting card expires next month');
   await expect(page.getByText('Renewals after December 1 will fail unless the card is replaced.')).toBeVisible();
   await page.getByRole('button', { name: 'Sort: Priority' }).press('Space');
-  await expect(headings.first()).toHaveText('Your week ahead');
+  await expect(headings.first()).toHaveText('Quarterly report is ready');
+  await expect(headings).toHaveCount(2);
   expect(writes).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
 
@@ -49,18 +50,29 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   const seenBox = await seenButton.boundingBox();
   expect(seenBox!.x).toBeGreaterThanOrEqual(titleBox!.x + titleBox!.width);
   await seenButton.press('Enter');
-  const report = page.getByRole('article').filter({ hasText: 'Quarterly report is ready' });
-  await expect(report.getByText('Seen', { exact: true })).toBeVisible();
+  await expect(headings).toHaveCount(1);
+  // Focus goes to the one that took its place, not to the top of the page.
+  await expect(page.getByRole('button', { name: 'Mark seen: The hosting card expires next month' })).toBeFocused();
   await page.getByRole('button', { name: 'Back to Inbox' }).press('Enter');
   await expect(page.getByRole('button', { name: 'Open FYIs, 1 unseen' })).toBeFocused();
   await page.keyboard.press('Enter');
   await page.getByRole('button', { name: 'Mark All Seen' }).press('Enter');
+  await expect(page.getByText('All FYIs are seen')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mark All Seen' })).toBeDisabled();
-  await expect(page.getByRole('article').filter({ hasText: 'The hosting card expires next month' }).getByText('Seen', { exact: true })).toBeVisible();
-  await expect(headings).toHaveCount(3);
-  expect(writes.map((url) => new URL(url).pathname.split('/').at(-1))).toEqual(['seen', 'answer']);
+  await expect(headings).toHaveCount(0);
+  expect(writes.map((url) => new URL(url).pathname.split('/').at(-1))).toEqual(['answer', 'answer']);
   await page.getByRole('button', { name: 'Back to Inbox' }).press('Enter');
-  await expect(page.getByRole('button', { name: 'Open FYIs, 0 unseen' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toBeFocused();
+  await expect(page.locator('.fyi-summary')).toHaveCount(0);
+  // All three are in Replied's own list, with nothing left to mark.
+  await page.getByRole('tab', { name: 'Replied' }).click();
+  await page.getByRole('button', { name: 'Open seen FYIs' }).press('Enter');
+  await expect(page.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeFocused();
+  await expect(headings).toHaveCount(3);
+  await expect(page.getByRole('button', { name: /^Mark/ })).toHaveCount(0);
+  await expect(page.getByText(/unseen/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back to Replied' }).press('Enter');
+  await expect(page.getByRole('button', { name: 'Open seen FYIs' })).toBeFocused();
 });
 
 test('opening a FYI conversation reads its existing history without marking Seen', async ({ page }) => {
@@ -116,6 +128,8 @@ test('desktop FYI keeps the real Inbox and Replied tabs with the approved row tr
   await expect(page.getByTestId('answered')).toBeVisible();
   await page.getByRole('tab', { name: 'Replied', exact: true }).click();
   await expect(digest).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Open seen FYIs' })).toContainText('Your week ahead');
+  await expect(page.getByTestId('row').filter({ hasText: 'Your week ahead' })).toHaveCount(0);
   await expect(request.locator('.row-tile--check')).toBeVisible();
   await page.getByRole('tab', { name: 'Inbox', exact: true }).click();
   await expect(digest).toBeVisible();
@@ -165,7 +179,7 @@ test('Seen and Mark All Seen leave unfinished Progress open, so the agent can ke
   const writes = seenWrites(page);
   await openFyis(page);
   await page.getByRole('button', { name: 'Mark seen: Progress one' }).click();
-  await expect(article(page, 'Progress one').getByText('Seen', { exact: true })).toBeVisible();
+  await expect(article(page, 'Progress one')).toHaveCount(0);
   expect(writes).toEqual(['p-one seen']);
   await page.getByRole('button', { name: 'Mark All Seen' }).click();
   await expect(page.getByRole('button', { name: 'Mark All Seen' })).toBeDisabled();
@@ -189,6 +203,23 @@ test('Seen on the message itself leaves unfinished Progress open', async ({ page
   expect(writes).toEqual(['p-one seen']);
 });
 
+test('finished Progress that is already marked Seen offers nothing on its own page', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendProgress(page, 'p-done', 'Progress done', 100);
+  const id = `it_${Buffer.from('agent:build\u0000p-done').toString('base64url')}`;
+  await page.goto('/inbox#preview');
+  await page.request.post(`/v2/items/${id}/seen`, { data: {}, headers: { 'idempotency-key': crypto.randomUUID(), origin: new URL(page.url()).origin } });
+  const writes = seenWrites(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.reload();
+  await page.getByRole('tab', { name: 'Replied', exact: true }).click();
+  await page.getByRole('button', { name: 'Open seen FYIs' }).click();
+  await article(page, 'Progress done').getByRole('button', { name: 'Open conversation' }).click();
+  await expect(page.getByTestId('seen-done')).toBeVisible();
+  await expect(page.locator('button.seen-under')).toHaveCount(0);
+  expect(writes).toEqual([]);
+});
+
 test('a Seen that failed while Progress was unfinished is sent as the answer once it has finished', async ({ page }) => {
   await fake(page, 'reset');
   await sendProgress(page, 'p-one', 'Progress one', 30);
@@ -200,7 +231,7 @@ test('a Seen that failed while Progress was unfinished is sent as the answer onc
   await fake(page, 'revise', { title: 'Progress one', message: { progress: progressAt(100), body: 'Finished now' } });
   await expect(article(page, 'Progress one')).toContainText('Finished now');
   await page.getByRole('button', { name: 'Mark seen: Progress one' }).click();
-  await expect(article(page, 'Progress one').getByText('Seen', { exact: true })).toBeVisible();
+  await expect(article(page, 'Progress one')).toHaveCount(0);
   expect(writes).toEqual(['p-one seen', 'p-one answer']);
 });
 
@@ -234,23 +265,321 @@ test('Progress that is closed, or offers no Seen, reads as any other message', a
   await sendProgress(page, 'p-plain', 'No Seen action', 30, null);
   await openFyis(page);
   await page.getByRole('button', { name: 'Mark All Seen' }).click();
-  await expect(page.locator('.fyi-unseen')).toHaveText('0 unseen');
+  await expect(page.getByText('All FYIs are seen')).toBeVisible();
   await fake(page, 'answer-elsewhere', { title: 'Answered elsewhere', text: 'From the phone' });
   await fake(page, 'retract', { title: 'Retracted later' });
-  await expect(article(page, 'Retracted later')).toContainText('The sender retracted this message.');
-  await page.reload();
-  const open = async (t: string) => {
-    await page.goto('/inbox#preview');
-    await page.getByRole('button', { name: /Open FYIs/ }).click();
-    await article(page, t).getByRole('button', { name: 'Open conversation' }).click();
-  };
-  await open('Answered elsewhere');
-  await expect(page.getByTestId('answered')).toContainText('From the phone');
-  await expect(page.getByTestId('seen-done')).toHaveCount(0);
-  await open('Retracted later');
+  await page.goto('/inbox#preview');
+  const row = (t: string) => page.getByTestId('row').filter({ hasText: t });
+  await row('Retracted later').click();
   await expect(page.getByText('The sender retracted this message.')).toBeVisible();
   await expect(page.getByTestId('seen-done')).toHaveCount(0);
-  await open('No Seen action');
+  await page.getByRole('tab', { name: 'Replied', exact: true }).click();
+  await row('Answered elsewhere').click();
+  await expect(page.getByTestId('answered')).toContainText('From the phone');
+  await expect(page.getByTestId('seen-done')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open seen FYIs' }).click();
+  await expect(article(page, 'Answered elsewhere')).toHaveCount(0);
+  await expect(article(page, 'Retracted later')).toHaveCount(0);
+  await article(page, 'No Seen action').getByRole('button', { name: 'Open conversation' }).click();
   await expect(page.getByRole('radio', { name: 'Reply' }).or(page.getByRole('textbox', { name: 'Reply' })).first()).toBeVisible();
   await expect(page.getByTestId('seen-done')).toHaveCount(0);
+});
+
+const tabTo = (page: Page, name: 'Inbox' | 'Replied') => page.getByRole('tab', { name, exact: true }).click();
+const sendFyi = (page: Page, message_id: string, title: string, answer_ui: unknown = SEEN_ACTION) =>
+  fake(page, 'send', { chat: true, message: { sender_id: 'agent:build', message_id, title, message_type: 'fyi', ...(answer_ui ? { answer_ui } : {}) } });
+
+test('a FYI stays in Inbox until Seen is confirmed, then moves to Replied', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'hold-answers');
+  await openFyis(page);
+  const report = article(page, 'Quarterly report is ready');
+  await report.getByRole('button', { name: /Mark seen/ }).click();
+  await expect(report.getByText('Marking…')).toBeVisible();
+  await expect(page.locator('.fyi-unseen')).toHaveText('2 unseen');
+  await fake(page, 'release-answers');
+  await expect(report).toHaveCount(0);
+  await expect(page.locator('.fyi-unseen')).toHaveText('1 unseen');
+  await expect(page.getByRole('button', { name: 'Open FYIs, 1 unseen' })).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(report).toBeVisible();
+  await expect(article(page, 'The hosting card expires next month')).toHaveCount(0);
+});
+
+test('opening a FYI that offers Seen does not take it out of Inbox', async ({ page }) => {
+  await fake(page, 'reset');
+  await page.goto('/inbox#preview');
+  await expect(page.getByRole('button', { name: 'Open FYIs, 2 unseen' })).toBeVisible();
+  // Another client reports that the person opened it.
+  const id = `it_${Buffer.from('agent:build\u0000quarterly').toString('base64url')}`;
+  const res = await page.request.post(`/v2/items/${id}/seen`, { data: {}, headers: { 'idempotency-key': crypto.randomUUID(), origin: new URL(page.url()).origin } });
+  expect(res.status()).toBe(200);
+  const item = await (await page.request.get(`/v2/items/${id}`)).json();
+  expect((item.item ?? item).seen).toBe(true);
+  const writes = seenWrites(page);
+  await openFyis(page);
+  await article(page, 'Quarterly report is ready').getByRole('button', { name: /Mark seen/ }).click();
+  await expect(article(page, 'Quarterly report is ready')).toHaveCount(0);
+  expect(writes).toEqual(['quarterly answer']);
+});
+
+test('FYIs that ended or were answered without Seen stay reachable and uncounted', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendFyi(page, 'f-ret', 'Retracted notice');
+  await sendFyi(page, 'f-ans', 'Answered notice');
+  await fake(page, 'retract', { title: 'Retracted notice' });
+  await fake(page, 'answer-elsewhere', { title: 'Answered notice', text: 'From the phone' });
+  await openFyis(page);
+  await expect(page.locator('.fyi-unseen')).toHaveText('2 unseen');
+  const ended = article(page, 'Retracted notice');
+  await expect(ended).toHaveCount(0);
+  await expect(article(page, 'Answered notice')).toHaveCount(0);
+  const endedRow = page.getByTestId('row').filter({ hasText: 'Retracted notice' });
+  await expect(endedRow).toContainText(/Retracted/i);
+  await endedRow.click();
+  await expect(page.getByText('The sender retracted this message.')).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(page.getByTestId('row').filter({ hasText: 'Answered notice' })).toBeVisible();
+  await expect(page.getByTestId('row').filter({ hasText: 'Retracted notice' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open seen FYIs' }).click();
+  await expect(article(page, 'Answered notice')).toHaveCount(0);
+  await expect(ended).toHaveCount(0);
+});
+
+test('the open FYI list follows the tab, and Back restores the tab with the pane', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'answer-elsewhere', { title: 'Approve the survey questions?', text: 'Approved' });
+  await openFyis(page);
+  const pane = page.locator('.main-col');
+  await expect(pane.getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(pane.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeVisible();
+  await expect(article(page, 'Your week ahead')).toBeVisible();
+  await expect(article(page, 'Quarterly report is ready')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Replied' })).toBeFocused();
+  await tabTo(page, 'Inbox');
+  await expect(pane.getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
+  await expect(article(page, 'Your week ahead')).toHaveCount(0);
+  // A message opened on Inbox, then the list on Replied, then Back: Inbox again, with its message.
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await expect(pane.getByText('Production deploy failed').first()).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(pane.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeVisible();
+  await page.getByTestId('row').first().click();
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Replied' })).toHaveAttribute('aria-selected', 'true');
+  await expect(pane.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  await expect(pane.getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
+});
+
+test('a message open beside the list gives way to what was last open on the other tab', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  const pane = page.locator('.main-col');
+  const empty = pane.getByText('Select a message');
+  const title = (t: string) => pane.getByRole('heading', { name: t }).first();
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await expect(title('Production deploy failed')).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(empty).toBeVisible();
+  await tabTo(page, 'Inbox');
+  await expect(title('Production deploy failed')).toBeVisible();
+  // Answered, it is no longer on Inbox: coming back shows the empty state, and Replied has it.
+  await page.getByRole('radio', { name: 'Reply' }).click();
+  await page.getByRole('textbox', { name: 'Reply' }).fill('Roll it back');
+  await page.getByRole('button', { name: 'Send answer' }).click();
+  await expect(page.getByTestId('answered')).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(empty).toBeVisible();
+  await tabTo(page, 'Inbox');
+  await expect(empty).toBeVisible();
+  await tabTo(page, 'Replied');
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await tabTo(page, 'Inbox');
+  await expect(empty).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(title('Production deploy failed')).toBeVisible();
+});
+
+test('at phone width each tab has its own FYI card and list', async ({ page }) => {
+  await fake(page, 'reset');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/inbox#preview');
+  await tabTo(page, 'Replied');
+  await page.getByRole('button', { name: 'Open seen FYIs' }).click();
+  await expect(article(page, 'Your week ahead')).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Replied' })).toHaveAttribute('aria-selected', 'true');
+  await tabTo(page, 'Inbox');
+  await page.getByRole('button', { name: 'Open FYIs, 2 unseen' }).click();
+  await expect(article(page, 'Your week ahead')).toHaveCount(0);
+});
+
+test('an answered message the Inbox still lists under History is still shown on return', async ({ page }) => {
+  await fake(page, 'reset');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  const pane = page.locator('.main-col');
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await fake(page, 'answer-elsewhere', { title: 'Production deploy failed', text: 'Rolled back' });
+  await expect(page.getByTestId('answered')).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(pane.getByText('Select a message')).toBeVisible();
+  await tabTo(page, 'Inbox');
+  await expect(pane.getByRole('heading', { name: 'Production deploy failed' }).first()).toBeVisible();
+  await expect(page.getByTestId('row').filter({ hasText: 'Production deploy failed' })).toBeVisible();
+});
+
+test('Back to the list never leaves Harklight, however the FYI list was reached', async ({ page }) => {
+  await fake(page, 'reset');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/__fake/state');
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await tabTo(page, 'Replied');
+  await page.getByRole('button', { name: 'Back to Replied' }).click();
+  await tabTo(page, 'Inbox');
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toBeVisible();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe('/inbox');
+  // From a message on Inbox to Replied's remembered list: its button goes to Replied.
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await tabTo(page, 'Replied');
+  await tabTo(page, 'Inbox');
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await tabTo(page, 'Replied');
+  await page.getByRole('button', { name: 'Back to Replied' }).click();
+  await expect(page.getByRole('tab', { name: 'Replied' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.main-col').getByText('Select a message')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open seen FYIs' })).toBeFocused();
+  // Browser Back still walks the steps, each with its own tab and pane.
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.main-col').getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  // Forward to a list whose earlier step has changed tab: its button still stays on its tab.
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.goBack();
+  await tabTo(page, 'Replied');
+  await page.goForward();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  // A reload shows no list, and one opened after it closes the same way.
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.reload();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.getByRole('button', { name: /Open FYIs/ })).toBeVisible();
+});
+
+test('Forward does not bring back a message that has left the tab', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  const row = page.getByTestId('row').filter({ hasText: 'Production deploy failed' });
+  await row.click();
+  await expect(page.locator('.main-col').getByRole('heading', { name: 'Production deploy failed' }).first()).toBeVisible();
+  await page.goBack();
+  await fake(page, 'answer-elsewhere', { title: 'Production deploy failed', text: 'Rolled back' });
+  await expect(row).toHaveCount(0);
+  await page.goForward();
+  await expect(page.getByText('Select a message')).toBeVisible();
+  await expect(page.locator('.chat-col')).toHaveCount(0);
+});
+
+test('a step taken before the messages load does not bring back one that has left the tab', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await page.goBack();
+  await fake(page, 'answer-elsewhere', { title: 'Production deploy failed', text: 'Rolled back' });
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/v2\/inbox(?:\?|$)/, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toBeVisible();
+  await page.goForward();
+  release();
+  await expect(page.getByTestId('row').first()).toBeVisible();
+  await expect(page.getByText('Select a message')).toBeVisible();
+  await expect(page.locator('.chat-col')).toHaveCount(0);
+});
+
+test('a FYI answered some other way is one Replied row, under History or not', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendFyi(page, 'f-ans', 'Answered notice');
+  await sendFyi(page, 'f-flag', 'Flagged notice', null);
+  await openFyis(page);
+  await article(page, 'Flagged notice').getByRole('button', { name: /Mark seen/ }).click();
+  await expect(article(page, 'Flagged notice')).toHaveCount(0);
+  for (const t of ['Answered notice', 'Flagged notice']) await fake(page, 'answer-elsewhere', { title: t, text: 'In writing' });
+  const row = (t: string) => page.getByTestId('row').filter({ hasText: t });
+  for (const order of ['free', 'standard']) {
+    if (order === 'standard') await fake(page, 'standard-order');
+    await page.goto('/inbox#preview');
+    await expect(page.getByRole('button', { name: /Open FYIs/ })).toBeVisible();
+    for (const t of ['Answered notice', 'Flagged notice']) await expect(row(t), `${order} inbox`).toHaveCount(0);
+    await tabTo(page, 'Replied');
+    for (const t of ['Answered notice', 'Flagged notice']) await expect(row(t), `${order} replied`).toHaveCount(1);
+  }
+});
+
+test('a Seen FYI whose chat reply is still in Inbox comes back with the tab', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  await sendFyi(page, 'f-flag', 'Flagged notice', null);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.route(/\/read-position$/, () => {}); // The reply stays unread.
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await article(page, 'Flagged notice').getByRole('button', { name: /Mark seen/ }).click();
+  await expect(article(page, 'Flagged notice')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await fake(page, 'reply', { sender_id: 'agent:build', message_id: 'f-flag', text: 'One more thing' });
+  await page.getByTestId('reply-row').filter({ hasText: 'Flagged notice' }).click();
+  await page.keyboard.press('Escape');
+  const title = page.locator('.main-col').getByRole('heading', { name: 'Flagged notice' }).first();
+  await expect(title).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(title).toHaveCount(0);
+  await tabTo(page, 'Inbox');
+  await expect(title).toBeVisible();
+});
+
+test('Mark All Seen skips a FYI that is retracted while it runs', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendFyi(page, 'f-a', 'First notice');
+  await sendFyi(page, 'f-b', 'Second notice', null);
+  await fake(page, 'hold-answers');
+  const writes = seenWrites(page);
+  await openFyis(page);
+  await page.getByRole('button', { name: 'Sort: Priority' }).click(); // newest first
+  await page.getByRole('button', { name: 'Mark All Seen' }).click();
+  await expect.poll(() => writes.length).toBeGreaterThan(0);
+  const pending = ['First notice', 'Second notice', 'Quarterly report is ready', 'The hosting card expires next month'];
+  const later = pending.filter((t) => !writes.some((w) => w.startsWith({ 'First notice': 'f-a', 'Second notice': 'f-b', 'Quarterly report is ready': 'quarterly', 'The hosting card expires next month': 'card-expiry' }[t]!)));
+  expect(later.length).toBeGreaterThan(0);
+  for (const t of later) await fake(page, 'retract', { title: t });
+  for (const t of later) await expect(article(page, t)).toHaveCount(0);
+  const before = writes.length;
+  await fake(page, 'release-answers');
+  await expect(page.getByText('All FYIs are seen')).toBeVisible();
+  await page.waitForTimeout(400);
+  expect(writes.length).toBe(before);
 });

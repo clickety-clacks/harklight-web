@@ -3,7 +3,7 @@
 // free-order section headings and thread groups, as the iPhone app draws it.
 // Without a view it falls back to open messages first, newest first.
 
-import { belongsToReplied, isFyi, senderLabel, type Priority } from './message';
+import { belongsToReplied, fyiSeen, isFyi, senderLabel, type Priority } from './message';
 import type { State } from './store';
 import type { HeldMessage } from './types';
 import { keyOf } from './types';
@@ -63,6 +63,26 @@ export function inReplied(s: State, key: string): boolean {
   return belongsToReplied(m, localAnswered(s, key));
 }
 
+/**
+ * The FYI list that holds this message: Replied's once marked Seen, Inbox's
+ * while it waits for that. Null for one that is not an FYI, or that ended or
+ * was answered some other way, which is an ordinary row.
+ */
+export function fyiTab(s: State, key: string): Tab | null {
+  const m = s.messages.get(key);
+  if (!m || !visible(m) || !isFyi(m.payload)) return null;
+  if (fyiSeen(m)) return 'replied';
+  return m.terminal || inReplied(s, key) ? null : 'inbox';
+}
+
+/** Whether a message is on a tab: in its list, its FYI list, or a chat reply row there. */
+export function onTab(s: State, key: string, tab: Tab, groupFyi: boolean): boolean {
+  if (groupFyi && fyiTab(s, key) === tab) return true;
+  return entries(s, tab, groupFyi).some((e) =>
+    e.type === 'thread' ? e.members.some((m) => m.key === key) : e.type !== 'heading' && e.key === key,
+  );
+}
+
 /** A newer revision replaces a superseded one; everything else stays listed, retracted messages included. */
 function visible(m: HeldMessage): boolean {
   return m.terminal?.state !== 'superseded';
@@ -116,7 +136,9 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
   for (const it of items) {
     if (it.kind === 'message') {
       const m = s.messages.get(it.key);
-      if (!m || !visible(m) || (groupFyi && isFyi(m.payload))) continue;
+      if (!m || !visible(m) || (groupFyi && fyiTab(s, it.key) !== null)) continue;
+      // An FYI answered some other way is in Replied only, History or not.
+      if (groupFyi && tab === 'inbox' && isFyi(m.payload) && inReplied(s, it.key)) continue;
       if (!freeOrder && (tab === 'replied') !== inReplied(s, it.key)) continue;
     } else {
       if (it.unseen === null) continue;
@@ -208,7 +230,7 @@ function fallback(s: State, tab: Tab, groupFyi: boolean): Entry[] {
   const out: MessageRow[] = [];
   for (const m of s.messages.values()) {
     const key = keyOf(m);
-    if (!visible(m) || (groupFyi && isFyi(m.payload))) continue;
+    if (!visible(m) || (groupFyi && fyiTab(s, key) !== null)) continue;
     if ((tab === 'replied') !== inReplied(s, key)) continue;
     out.push(messageRow(s, key, m, sc, false));
   }
