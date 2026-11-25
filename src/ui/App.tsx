@@ -71,6 +71,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const [tab, setTab] = useState<Tab>('inbox');
   const [showFyi, setShowFyi] = useState(false);
   const restoreFyiFocus = useRef(false);
+  const closingTab = useRef<Tab | null>(null);
   // For the Back listener, which is added once and must see the current value.
   const fyiShown = useRef(showFyi);
   fyiShown.current = showFyi;
@@ -104,8 +105,15 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useEffect(() => {
     const on = () => {
       setPage(pageFromPath(location.pathname));
-      const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean; tab?: Tab } | null;
+      let st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean; tab?: Tab } | null;
       const now = current.current;
+      // Closing a list stays on its tab, whatever the step before it has become.
+      const stay = closingTab.current;
+      closingTab.current = null;
+      if (stay && (st?.tab ?? stay) !== stay) {
+        st = { selected: null, tab: stay };
+        history.replaceState(st, '', location.href);
+      }
       const to = st?.tab ?? now.tab;
       setTab(to);
       if (fyiShown.current && !st?.fyi) restoreFyiFocus.current = true;
@@ -187,7 +195,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     }
   }, [showFyi]);
   const openFyi = () => {
-    history.pushState({ fyi: true, tab }, '', location.pathname);
+    history.pushState({ fyi: true, opened: true, tab }, '', location.pathname);
     setSelected(null);
     setShowFyi(true);
   };
@@ -202,14 +210,24 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     const sel = !fyi && last?.selected && onTab(s, last.selected, to, groupFyi) ? last.selected : null;
     const reply = !!sel && !!last?.viaReply;
     const state = { selected: sel, chat: false, viaReply: reply, ...(fyi ? { fyi: true } : {}), tab: to };
-    // A list is closed by stepping back, so showing one takes a step to come back from.
-    if (fyi && !showFyi) history.pushState(state, '', location.pathname);
-    else history.replaceState(state, '', location.pathname);
+    history.replaceState(state, '', location.pathname);
     setShowFyi(fyi);
     setSelected(sel);
     setChatWanted(false);
     setChatExplicit(false);
     setViaReply(reply);
+  };
+  // Back to this tab's list: the step that opened it, if that was here.
+  // Otherwise the tab was switched under it, and the step before may be
+  // another tab's or another site's, so it just closes.
+  const closeFyi = () => {
+    if ((history.state as { opened?: boolean } | null)?.opened) {
+      closingTab.current = tab;
+      return history.back();
+    }
+    history.replaceState({ selected: null, tab }, '', location.pathname);
+    restoreFyiFocus.current = true;
+    setShowFyi(false);
   };
   const message = selected ? s.messages.get(selected) : undefined;
 
@@ -404,7 +422,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const fyiDetail = groupFyi && showFyi && (
     <FyiList tab={tab} items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
-      attachments={config.flags.attachments} close={() => history.back()}
+      attachments={config.flags.attachments} close={closeFyi}
       openConversation={(key) => {
         const item = s.messages.get(key);
         if (!item) return;

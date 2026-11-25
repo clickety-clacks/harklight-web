@@ -371,8 +371,6 @@ test('the open FYI list follows the tab, and Back restores the tab with the pane
   await expect(pane.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
-  await expect(pane.getByRole('heading', { name: 'Production deploy failed' }).first()).toBeVisible();
-  await page.goBack();
   await expect(pane.getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
 });
 
@@ -449,6 +447,32 @@ test('Back to the list never leaves Harklight, however the FYI list was reached'
   await expect(page.getByRole('tab', { name: 'Inbox' })).toBeVisible();
   await expect(page.locator('.fyi-list')).toHaveCount(0);
   expect(new URL(page.url()).pathname).toBe('/inbox');
+  // From a message on Inbox to Replied's remembered list: its button goes to Replied.
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await tabTo(page, 'Replied');
+  await tabTo(page, 'Inbox');
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await tabTo(page, 'Replied');
+  await page.getByRole('button', { name: 'Back to Replied' }).click();
+  await expect(page.getByRole('tab', { name: 'Replied' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.main-col').getByText('Select a message')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open seen FYIs' })).toBeFocused();
+  // Browser Back still walks the steps, each with its own tab and pane.
+  await page.goBack();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.main-col').getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  // Forward to a list whose earlier step has changed tab: its button still stays on its tab.
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.goBack();
+  await tabTo(page, 'Replied');
+  await page.goForward();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
   // A reload shows no list, and one opened after it closes the same way.
   await page.getByRole('button', { name: /Open FYIs/ }).click();
   await page.reload();
