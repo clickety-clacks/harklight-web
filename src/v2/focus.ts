@@ -1,3 +1,4 @@
+import { FocusTabs } from './focusTabs';
 import { ApiError, call, type ApiDeps } from './http';
 
 export type FocusScreen =
@@ -42,9 +43,11 @@ export class FocusReporter {
   private debounce?: ReturnType<typeof setTimeout>;
   private refresh?: ReturnType<typeof setInterval>;
   private closed = false;
+  private tabs = new FocusTabs(() => this.dispose());
 
   constructor(private api: Pick<ApiDeps, 'base' | 'fetch' | 'log'>, private deviceName: string) {
     document.addEventListener('visibilitychange', this.visibilityChanged);
+    window.addEventListener('focus', this.foreground);
   }
 
   update(report: FocusScreen): void {
@@ -57,8 +60,8 @@ export class FocusReporter {
           ('visible_entry_id' in report ? report.visible_entry_id : undefined)) return;
     this.current = report;
     if (!previous) {
-      this.visibilityChanged();
-    } else if (document.visibilityState === 'visible') {
+      this.foreground();
+    } else if (document.visibilityState === 'visible' && this.tabs.owns()) {
       this.clearDebounce();
       if (sameScreen) {
         this.pending = undefined;
@@ -73,16 +76,25 @@ export class FocusReporter {
   }
 
   private visibilityChanged = (): void => {
-    if (this.closed || !this.current) return;
-    this.clearDebounce();
-    clearInterval(this.refresh);
-    if (document.visibilityState !== 'visible') {
-      void this.offer({ screen: 'not_in_front' });
+    if (document.visibilityState === 'visible') {
+      this.foreground();
       return;
     }
+    this.clearDebounce();
+    clearInterval(this.refresh);
+    if (!this.closed && this.current && this.tabs.owns()) {
+      void this.offer({ screen: 'not_in_front' });
+    }
+  };
+
+  private foreground = (): void => {
+    if (this.closed || !this.current || document.visibilityState !== 'visible' || !document.hasFocus()) return;
+    this.tabs.claim();
+    this.clearDebounce();
+    clearInterval(this.refresh);
     void this.offer(this.current);
     this.refresh = setInterval(() => {
-      if (document.visibilityState === 'visible' && this.debounce === undefined && this.current) {
+      if (document.visibilityState === 'visible' && this.tabs.owns() && this.debounce === undefined && this.current) {
         void this.offer(this.current);
       }
     }, REFRESH_MS);
@@ -95,27 +107,47 @@ export class FocusReporter {
 
   private flush(): Promise<void> | undefined {
     if (this.inFlight || !this.pending) return this.inFlight;
-    const report = this.pending;
-    this.pending = undefined;
+    if (!this.tabs.owns()) {
+      this.pending = undefined;
+      return;
+    }
+    this.inFlight = this.tabs.write(async () => {
+      const report = this.pending;
+      this.pending = undefined;
+      if (report) await this.send(report);
+    }).then((sent) => {
+      if (!sent) this.pending = undefined;
+    }).catch(() => {
+      this.pending = undefined;
+    }).finally(() => {
+      this.inFlight = undefined;
+      if (!this.tabs.owns()) this.pending = undefined;
+      return this.flush();
+    });
+    return this.inFlight;
+  }
+
+  private async send(report: FocusReport): Promise<void> {
     const controller = new AbortController();
     this.controller = controller;
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-    this.inFlight = call(this.api, '/devices/me/focus', {
-      op: 'focus',
-      method: 'PUT',
-      json: { ...report, ttl_s: 120, ...(report.screen === 'signed_out' ? {} : { device_name: this.deviceName }) },
-      signal: controller.signal,
-    }).catch((error: unknown) => {
-      // The transport logged the error. An older Server has no focus route.
-      if (error instanceof ApiError && (error.status === 404 || error.status === 405)) this.dispose();
-    }).finally(() => {
+    try {
+      await call(this.api, '/devices/me/focus', {
+        op: 'focus',
+        method: 'PUT',
+        json: { ...report, ttl_s: 120, ...(report.screen === 'signed_out' ? {} : { device_name: this.deviceName }) },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      // The transport logged the error. Older Servers may forbid the route.
+      if (error instanceof ApiError && [403, 404, 405].includes(error.status)) {
+        if (!this.closed) this.tabs.unsupported();
+        this.dispose();
+      }
+    } finally {
       clearTimeout(timeout);
       this.controller = undefined;
-      this.inFlight = undefined;
-      return this.flush();
-    }).then(() => undefined);
-    return this.inFlight;
+    }
   }
 
   private clearDebounce(): void {
@@ -126,6 +158,7 @@ export class FocusReporter {
   private stopUpdates(): void {
     this.closed = true;
     document.removeEventListener('visibilitychange', this.visibilityChanged);
+    window.removeEventListener('focus', this.foreground);
     this.clearDebounce();
     clearInterval(this.refresh);
   }
@@ -133,6 +166,7 @@ export class FocusReporter {
   dispose(): void {
     this.stopUpdates();
     this.pending = undefined;
+    this.tabs.close();
     this.controller?.abort();
   }
 

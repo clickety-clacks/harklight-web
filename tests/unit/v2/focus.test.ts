@@ -22,6 +22,10 @@ describe('browser focus', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true, value: { request: (_name: string, run: () => unknown) => run() },
+    });
     visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
     log = new ErrorLog();
     fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => ok());
@@ -85,7 +89,7 @@ describe('browser focus', () => {
     expect(reports().map((r) => [r.screen, r.item_id])).toEqual([['inbox', undefined], ['message', 'second']]);
   });
 
-  it.each([404, 405])('stops for this session after a %s', async (status) => {
+  it.each([403, 404, 405])('stops for this session after a %s', async (status) => {
     fetch.mockResolvedValueOnce(new Response('{}', { status }));
     reporter.update({ screen: 'inbox' });
     reporter.update({ screen: 'settings' });
