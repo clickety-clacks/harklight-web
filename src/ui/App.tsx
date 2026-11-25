@@ -74,6 +74,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   // For the Back listener, which is added once and must see the current value.
   const fyiShown = useRef(showFyi);
   fyiShown.current = showFyi;
+  const current = useRef({ tab, selected: null as string | null, split: layout !== 'phone', groupFyi: false });
   const [selected, setSelected] = useState<string | null>(null);
   /** Whether the chat is open. Where there's room it shows as a side panel,
    * otherwise as a modal over the message; a resize switches between them and
@@ -104,14 +105,27 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     const on = () => {
       setPage(pageFromPath(location.pathname));
       const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean; tab?: Tab } | null;
-      if (st?.tab) setTab(st.tab);
+      const now = current.current;
+      const to = st?.tab ?? now.tab;
+      setTab(to);
       if (fyiShown.current && !st?.fyi) restoreFyiFocus.current = true;
       setShowFyi(!!st?.fyi);
-      setSelected(st?.selected ?? null);
+      // Beside the list, a step never brings back a message that has since left that tab.
+      const sel = st?.selected ?? null;
+      if (sel && store.state.loaded && now.split && sel !== now.selected && !onTab(store.state, sel, to, now.groupFyi)) {
+        history.replaceState({ selected: null, chat: false, tab: to }, '', location.href);
+        setSelected(null);
+        setChatWanted(false);
+        setChatExplicit(false);
+        setViaReply(false);
+        return;
+      }
+      setSelected(sel);
       setChatWanted(!!st?.chat);
       setChatExplicit(!!st?.chat);
       setViaReply(!!st?.viaReply);
     };
+    if ((history.state as { fyi?: boolean } | null)?.fyi) history.replaceState(null, '', location.href);
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
   }, []);
@@ -158,6 +172,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   }, [panel]);
 
   const groupFyi = !!config.flags.fyiInbox;
+  current.current = { tab, selected, split: layout !== 'phone', groupFyi };
   const fyis = useMemo(() => groupFyi ? fyiItems(s, tab) : [], [s, groupFyi, tab]);
   const listEntries = useMemo(() => entriesFor(s, tab, groupFyi), [s, tab, groupFyi]);
   const rows = useMemo(() => rowsFor(s, tab, groupFyi), [s, tab, groupFyi]);
@@ -186,7 +201,10 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     const fyi = showFyi || !!last?.fyi;
     const sel = !fyi && last?.selected && onTab(s, last.selected, to, groupFyi) ? last.selected : null;
     const reply = !!sel && !!last?.viaReply;
-    history.replaceState({ selected: sel, chat: false, viaReply: reply, ...(fyi ? { fyi: true } : {}), tab: to }, '', location.pathname);
+    const state = { selected: sel, chat: false, viaReply: reply, ...(fyi ? { fyi: true } : {}), tab: to };
+    // A list is closed by stepping back, so showing one takes a step to come back from.
+    if (fyi && !showFyi) history.pushState(state, '', location.pathname);
+    else history.replaceState(state, '', location.pathname);
     setShowFyi(fyi);
     setSelected(sel);
     setChatWanted(false);

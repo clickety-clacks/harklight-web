@@ -371,6 +371,8 @@ test('the open FYI list follows the tab, and Back restores the tab with the pane
   await expect(pane.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeVisible();
   await page.goBack();
   await expect(page.getByRole('tab', { name: 'Inbox' })).toHaveAttribute('aria-selected', 'true');
+  await expect(pane.getByRole('heading', { name: 'Production deploy failed' }).first()).toBeVisible();
+  await page.goBack();
   await expect(pane.getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
 });
 
@@ -432,4 +434,83 @@ test('an answered message the Inbox still lists under History is still shown on 
   await tabTo(page, 'Inbox');
   await expect(pane.getByRole('heading', { name: 'Production deploy failed' }).first()).toBeVisible();
   await expect(page.getByTestId('row').filter({ hasText: 'Production deploy failed' })).toBeVisible();
+});
+
+test('Back to the list never leaves Harklight, however the FYI list was reached', async ({ page }) => {
+  await fake(page, 'reset');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/__fake/state');
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await tabTo(page, 'Replied');
+  await page.getByRole('button', { name: 'Back to Replied' }).click();
+  await tabTo(page, 'Inbox');
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toBeVisible();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  expect(new URL(page.url()).pathname).toBe('/inbox');
+  // A reload shows no list, and one opened after it closes the same way.
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.reload();
+  await expect(page.locator('.fyi-list')).toHaveCount(0);
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await expect(page.getByRole('button', { name: /Open FYIs/ })).toBeVisible();
+});
+
+test('Forward does not bring back a message that has left the tab', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  const row = page.getByTestId('row').filter({ hasText: 'Production deploy failed' });
+  await row.click();
+  await expect(page.locator('.main-col').getByRole('heading', { name: 'Production deploy failed' }).first()).toBeVisible();
+  await page.goBack();
+  await fake(page, 'answer-elsewhere', { title: 'Production deploy failed', text: 'Rolled back' });
+  await expect(row).toHaveCount(0);
+  await page.goForward();
+  await expect(page.getByText('Select a message')).toBeVisible();
+  await expect(page.locator('.chat-col')).toHaveCount(0);
+});
+
+test('a FYI answered some other way is one Replied row, under History or not', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendFyi(page, 'f-ans', 'Answered notice');
+  await sendFyi(page, 'f-flag', 'Flagged notice', null);
+  await openFyis(page);
+  await article(page, 'Flagged notice').getByRole('button', { name: /Mark seen/ }).click();
+  await expect(article(page, 'Flagged notice')).toHaveCount(0);
+  for (const t of ['Answered notice', 'Flagged notice']) await fake(page, 'answer-elsewhere', { title: t, text: 'In writing' });
+  const row = (t: string) => page.getByTestId('row').filter({ hasText: t });
+  for (const order of ['free', 'standard']) {
+    if (order === 'standard') await fake(page, 'standard-order');
+    await page.goto('/inbox#preview');
+    await expect(page.getByRole('button', { name: /Open FYIs/ })).toBeVisible();
+    for (const t of ['Answered notice', 'Flagged notice']) await expect(row(t), `${order} inbox`).toHaveCount(0);
+    await tabTo(page, 'Replied');
+    for (const t of ['Answered notice', 'Flagged notice']) await expect(row(t), `${order} replied`).toHaveCount(1);
+  }
+});
+
+test('a Seen FYI whose chat reply is still in Inbox comes back with the tab', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  await sendFyi(page, 'f-flag', 'Flagged notice', null);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.route(/\/read-position$/, () => {}); // The reply stays unread.
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await article(page, 'Flagged notice').getByRole('button', { name: /Mark seen/ }).click();
+  await expect(article(page, 'Flagged notice')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await fake(page, 'reply', { sender_id: 'agent:build', message_id: 'f-flag', text: 'One more thing' });
+  await page.getByTestId('reply-row').filter({ hasText: 'Flagged notice' }).click();
+  await page.keyboard.press('Escape');
+  const title = page.locator('.main-col').getByRole('heading', { name: 'Flagged notice' }).first();
+  await expect(title).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(title).toHaveCount(0);
+  await tabTo(page, 'Inbox');
+  await expect(title).toBeVisible();
 });

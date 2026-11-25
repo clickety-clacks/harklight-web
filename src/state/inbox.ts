@@ -77,7 +77,7 @@ export function fyiTab(s: State, key: string): Tab | null {
 
 /** Whether a message is on a tab: in its list, its FYI list, or a chat reply row there. */
 export function onTab(s: State, key: string, tab: Tab, groupFyi: boolean): boolean {
-  if (groupFyi && fyiTab(s, key) !== null) return fyiTab(s, key) === tab;
+  if (groupFyi && fyiTab(s, key) === tab) return true;
   return entries(s, tab, groupFyi).some((e) =>
     e.type === 'thread' ? e.members.some((m) => m.key === key) : e.type !== 'heading' && e.key === key,
   );
@@ -137,6 +137,8 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
     if (it.kind === 'message') {
       const m = s.messages.get(it.key);
       if (!m || !visible(m) || (groupFyi && fyiTab(s, it.key) !== null)) continue;
+      // An FYI answered some other way is in Replied only, History or not.
+      if (groupFyi && tab === 'inbox' && isFyi(m.payload) && inReplied(s, it.key)) continue;
       if (!freeOrder && (tab === 'replied') !== inReplied(s, it.key)) continue;
     } else {
       if (it.unseen === null) continue;
