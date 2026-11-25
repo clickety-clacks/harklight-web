@@ -27,7 +27,7 @@ function world() {
       applyEntry(s, m, readEntry({ ...base, entry_id: 'en_r', position: 9, rev, author: 'origin', in_reply_to: to, ...over })!),
     text: (availability: Availability = 'listening', id = 'en_1') => {
       const turns = s.threads.get(K)!.turns;
-      return captionOf(turns.find((t) => t.id === id)!, turns, availability).text;
+      return captionOf(turns.find((t) => t.id === id)!, turns, availability)?.text ?? null;
     },
   };
 }
@@ -36,7 +36,7 @@ const SERVED = { delivered: true, acted: false };
 const NOT = { ...SERVED, outcome: 'not_handed' };
 
 describe('the caption under a chat turn the person sent', () => {
-  it.each<[unknown, string]>([
+  it.each<[unknown, string | null]>([
     // Served alone is not evidence, and neither is the Server's acted.
     [SERVED, 'Sending…'],
     [{ delivered: true, acted: true }, 'Sending…'],
@@ -79,6 +79,15 @@ describe('the caption under a chat turn the person sent', () => {
     [{ legacy_caption: true }, 'Sent'],
     [{ ...SERVED, legacy_caption: false }, 'Sending…'],
     [{ ...SERVED, legacy_caption: true, outcome: 'handed' }, 'Delivered'],
+    // Newer Servers: an old turn no receipt will come for shows nothing, until evidence does.
+    [{ ...NOT, receipt_expected: false }, 'Not delivered'],
+    [{ ...SERVED, receipt_expected: false }, null],
+    [{ acted: true, receipt_expected: false }, null],
+    [{ receipt_expected: false }, null],
+    [{ ...SERVED, receipt_expected: true }, 'Sending…'],
+    [{ ...SERVED, receipt_expected: false, outcome: 'handed' }, 'Delivered'],
+    [{ ...SERVED, receipt_expected: false, agent_seen: true }, 'Delivered'],
+    [{ ...SERVED, receipt_expected: 0 }, 'Sending…'],
     // Values this client does not know are absent.
     [{ ...SERVED, outcome: 'later' }, 'Sending…'],
     [{ ...SERVED, ack2_expected: 'false', listener_received: true }, 'Sending…'],
@@ -92,7 +101,7 @@ describe('the caption under a chat turn the person sent', () => {
     expect(w.text()).toBe(want);
   });
 
-  it.each<[Availability, unknown, string]>([
+  it.each<[Availability, unknown, string | null]>([
     [null, {}, 'Sent'],
     ['not_listening', {}, 'Not delivered yet'],
     ['gone', {}, 'No one will get this'],
@@ -111,6 +120,7 @@ describe('the caption under a chat turn the person sent', () => {
     ['unsupported', NOT, 'No one will get this'],
     ['gone', { outcome: 'handed' }, 'Delivered'],
     ['gone', { ...SERVED, legacy_caption: true }, 'Delivered'],
+    ['gone', { ...SERVED, receipt_expected: false }, null],
   ])('with the agent %s, %j reads %s', (availability, delivery, want) => {
     const w = world();
     w.mine(2, delivery);
