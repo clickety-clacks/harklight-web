@@ -82,11 +82,11 @@ describe('inbox from the items’ rank', () => {
 });
 
 describe('type colours, shared with the app', () => {
-  it('keeps a successful request violet and applies kinds to legacy messages after their base type', () => {
+  it('keeps a successful request violet and applies kinds after the base type', () => {
     const seen = { schema: 'attention-client.actions/1', actions: [{ id: 'seen', label: 'Seen', kind: 'value', value: { acknowledgment: 'seen' } }] };
     expect(messageType({ message_type: 'request', message_kind: 'success' })).toBe('request');
-    expect(messageType({ answer_ui: seen, message_kind: 'blocker' })).toBe('warn');
-    expect(messageType({ title: 'legacy', message_kind: 'blocker' })).toBe('error');
-    expect(messageType({ answer_ui: seen, message_kind: 'success' })).toBe('done');
+    expect(messageType({ message_type: 'fyi', answer_ui: seen, message_kind: 'blocker' })).toBe('warn');
+    expect(messageType({ title: 'untyped', message_kind: 'blocker' })).toBe('error');
+    expect(messageType({ message_type: 'fyi', answer_ui: seen, message_kind: 'success' })).toBe('done');
   });
 });

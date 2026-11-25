@@ -46,8 +46,8 @@ export interface Delivery {
   listener_received?: boolean;
   agent_seen?: boolean;
   agent_acted?: boolean;
-  /** Served before handoffs were recorded: keeps the old caption. */
-  legacy_caption?: boolean;
+  /** False on an old turn for which no receipt will come: it shows no caption. */
+  receipt_expected?: boolean;
   /** Agent-written text, shown as plain text. */
   reason?: string;
   agent?: string;
@@ -277,7 +277,7 @@ function readAvailability(v: unknown): { state: AvailabilityState } | undefined 
   return o && AVAILABILITY.includes(o.state as AvailabilityState) ? { state: o.state as AvailabilityState } : undefined;
 }
 
-const DELIVERY_FLAGS = ['delivered', 'acted', 'ack2_expected', 'listener_received', 'agent_seen', 'agent_acted', 'legacy_caption', 'rerouted'] as const;
+const DELIVERY_FLAGS = ['delivered', 'acted', 'ack2_expected', 'listener_received', 'agent_seen', 'agent_acted', 'receipt_expected', 'rerouted'] as const;
 
 function readDelivery(v: unknown): Delivery | undefined {
   const o = obj(v);

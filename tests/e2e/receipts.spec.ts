@@ -118,10 +118,10 @@ for (const [name, delivery, want] of [
   });
 }
 
-test('a message from before handoffs were recorded keeps its caption, and a later outcome applies', async ({ page }) => {
+test('an old message no receipt will come for shows no caption, and a later outcome applies', async ({ page }) => {
   const c = await sendChat(page, TEXT);
-  await set(page, { delivered: true, legacy_caption: true });
-  await expect(c).toHaveText('Delivered');
+  await set(page, { delivered: true, receipt_expected: false });
+  await expect(c).toHaveCount(0);
   await set(page, { outcome: 'not_handed' });
   await expect(c).toHaveText('Not delivered');
   await set(page, { outcome: 'handed' });
