@@ -39,6 +39,7 @@ export interface DetailProps {
   canAct: boolean;
   onPrev: (() => void) | null;
   onNext: (() => void) | null;
+  backLabel?: string;
   onBack: (() => void) | null;
   onChat: () => void;
   onAnswer: (a: AnswerChoice) => void;
@@ -143,7 +144,7 @@ export function Detail(p: DetailProps) {
       <div class="detail-bar">
         <div class="bar-group">
           {p.onBack && (
-            <button type="button" class="tool tool--square" aria-label="Back to inbox" onClick={p.onBack}>
+            <button type="button" class="tool tool--square" aria-label={p.backLabel ?? 'Back to inbox'} onClick={p.onBack}>
               <Icon name="back" />
             </button>
           )}
@@ -218,7 +219,7 @@ export function Detail(p: DetailProps) {
       </div>
       <div class="detail-scroll">
         <div class="detail-body">
-          <MessageHeading message={m} timestamp={createdAt(m)} showMessageId />
+          <MessageHeading message={m} timestamp={createdAt(m)} />
           <MessageContent message={m} attachments={p.attachments} fileHref={p.fileHref} />
 
           {m.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}

@@ -1,12 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
 import { fyiTab, type Tab } from '../state/inbox';
-import { body, createdAt, fyiSeen, messageType, title } from '../state/message';
+import { body, createdAt, fyiSeen, friendlyTime, initials, messageType, senderLabel, title, TYPE_ICON } from '../state/message';
 import type { State } from '../state/store';
 import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
 import { Icon } from './Icon';
-import { MessageContent, MessageHeading } from './MessageContent';
 
 /** One tab's FYIs: Inbox's are not marked Seen, Replied's are. */
 export function fyiItems(state: State, tab: Tab) {
@@ -58,21 +57,28 @@ export function FyiList(p: {
   incomplete: boolean;
   session: ClientSession;
   canWrite: boolean;
-  attachments: boolean;
+  active: boolean;
   close: () => void;
-  openConversation: (key: string) => void;
+  openMessage: (key: string) => void;
 }) {
   const [posted, setPosted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
-  // Before paint, so a key pressed as the list appears is not taken by a later
-  // move of focus to the heading.
-  useLayoutEffect(() => heading.current?.focus(), []);
   const list = useRef<HTMLElement>(null);
+  const opener = useRef<{ button: HTMLButtonElement; scrollTop: number } | null>(null);
+
   useLayoutEffect(() => {
     if (list.current) list.current.scrollTop = 0;
+    opener.current = null;
   }, [p.tab]);
+  useLayoutEffect(() => {
+    if (!p.active) return;
+    const previous = opener.current;
+    if (previous && list.current) list.current.scrollTop = previous.scrollTop;
+    // When Seen removed the row, the heading is the next stable focus target.
+    (previous?.button.isConnected ? previous.button : heading.current)?.focus({ preventScroll: true });
+  }, [p.active]);
   const items = [...p.items].sort(posted ? byPosted :
     (a, b) => level(b) - level(a) || (b.message.v2?.score ?? 0) - (a.message.v2?.score ?? 0) || byPosted(a, b));
   const unseen = p.tab === 'inbox' ? items : [];
@@ -81,7 +87,7 @@ export function FyiList(p: {
   const focused = useRef<{ key: string; index: number } | null>(null);
   useLayoutEffect(() => {
     const was = focused.current;
-    if (!was || items.some((item) => item.key === was.key)) return;
+    if (!p.active || !was || items.some((item) => item.key === was.key)) return;
     focused.current = null;
     if (document.activeElement && document.activeElement !== document.body) return;
     const next = list.current?.querySelectorAll<HTMLElement>('button.fyi-seen:not(:disabled)')[was.index];
@@ -104,7 +110,7 @@ export function FyiList(p: {
     }
   };
   return (
-    <main class="fyi-list" aria-labelledby="fyi-title" ref={list}>
+    <main class="fyi-list" aria-labelledby="fyi-title" ref={list} hidden={!p.active}>
       <nav class="fyi-toolbar" aria-label="FYI list controls">
         <button type="button" class="fyi-back" aria-label={`Back to ${p.tab === 'inbox' ? 'Inbox' : 'Replied'}`} onClick={p.close}>
           <Icon name="fyi-back" />
@@ -126,23 +132,37 @@ export function FyiList(p: {
       {!items.length && !p.incomplete && <p class="fyi-empty">{p.tab === 'inbox' ? 'All FYIs are seen' : 'No seen FYIs yet'}</p>}
       <ul class="fyi-entries">
         {items.map(({ key, message, seen, sending, failed }) => (
-          <li key={key} onFocusCapture={() => (focused.current = seen ? null : { key, index: unseen.findIndex((item) => item.key === key) })}>
+          <li key={key}>
             <article class={`fyi-item type-${messageType(message.payload)}`}>
               <div class="fyi-item-heading">
-                <div>
-                  <MessageHeading message={message} timestamp={postedAt(message)}
-                    priority={{ now: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' }[message.v2?.level ?? 'normal']} />
-                </div>
+                <button type="button" class="fyi-open" aria-label={title(message)}
+                  onClick={(event) => {
+                    focused.current = null;
+                    opener.current = { button: event.currentTarget, scrollTop: list.current?.scrollTop ?? 0 };
+                    p.openMessage(key);
+                  }}>
+                  <span class="row-head">
+                    <span class="initials" aria-hidden="true">{initials(senderLabel(message))}</span>
+                    <span class="sender">{senderLabel(message)}</span>
+                    <time class="time">{friendlyTime(postedAt(message))}</time>
+                  </span>
+                  <span class="row-title">
+                    <span class="row-symbol"><Icon name={TYPE_ICON[messageType(message.payload)]} /></span>
+                    <span class="t">{title(message)}</span>
+                  </span>
+                  {(message.v2?.level === 'now' || message.v2?.level === 'high') && (
+                    <span class="row-meta">{message.v2.level === 'now' ? 'Urgent' : 'High priority'}</span>
+                  )}
+                  {body(message) && <span class="row-body">{body(message)}</span>}
+                </button>
                 {seen ? <span class="fyi-seen">Seen</span> : (
-                  <button class="btn btn--bordered fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending} onClick={() => void p.session.markFyiSeen(message)}>
+                  <button class="btn btn--bordered fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending}
+                    onFocus={() => (focused.current = { key, index: unseen.findIndex((item) => item.key === key) })} onClick={() => void p.session.markFyiSeen(message)}>
                     <Icon name="row-check" />
                     {sending ? 'Marking…' : failed ? 'Retry Seen' : 'Seen'}
                   </button>
                 )}
               </div>
-              <MessageContent message={message} attachments={p.attachments} fileHref={(id) => p.session.fileHref(id)} />
-              {message.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}
-              {message.chat && <button class="btn" type="button" onClick={() => p.openConversation(key)}>Open conversation</button>}
               {failed && !seen && <p role="status">Could not mark this FYI seen.</p>}
             </article>
           </li>

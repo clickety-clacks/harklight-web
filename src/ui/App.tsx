@@ -118,7 +118,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       const sel = st?.selected ?? null;
       if (sel && !store.state.loaded) unchecked.current = sel;
       if (sel && store.state.loaded && now.split && sel !== now.selected && !onTab(store.state, sel, to, now.groupFyi)) {
-        history.replaceState({ selected: null, chat: false, tab: to }, '', location.href);
+        history.replaceState({ selected: null, chat: false, fyi: !!st?.fyi, tab: to }, '', location.href);
         setSelected(null);
         setChatWanted(false);
         setViaReply(false);
@@ -134,10 +134,10 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   }, []);
 
   const base = useMemo(() => location.pathname.replace(/\/(inbox|settings)\/?$/, ''), []);
-  const go = (p: Page, sel: string | null, chat: boolean, fromReply = false) => {
-    history.pushState({ selected: sel, chat, viaReply: fromReply, tab }, '', `${base}/${p}`);
+  const go = (p: Page, sel: string | null, chat: boolean, fromReply = false, fyi = false) => {
+    history.pushState({ selected: sel, chat, viaReply: fromReply, fyi, tab }, '', `${base}/${p}`);
     setPage(p);
-    setShowFyi(false);
+    setShowFyi(fyi);
     setSelected(sel);
     setChatWanted(chat);
     setViaReply(fromReply);
@@ -188,7 +188,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     const sel = unchecked.current;
     if (!s.loaded || !sel) return;
     if (sel === selected && layout !== 'phone' && s.messages.has(sel) && !onTab(s, sel, tab, groupFyi)) {
-      history.replaceState({ selected: null, chat: false, tab }, '', location.href);
+      history.replaceState({ selected: null, chat: false, fyi: showFyi, tab }, '', location.href);
       setSelected(null);
       setChatWanted(false);
       setViaReply(false);
@@ -242,8 +242,15 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   // Report the open once the detail is on screen (D-2).
   useEffect(() => {
-    if (message && page === 'inbox' && !viaReply) session.messageOpened(message);
-  }, [message?.sender_id, message?.message_id, message?.revision, page, s.connection, viaReply]);
+    if (!message || page !== 'inbox' || viaReply) return;
+    // In the FYI list, Seen is explicit even when opening the full message.
+    if (showFyi) session.readConversation(message);
+    else session.messageOpened(message);
+  }, [message?.sender_id, message?.message_id, message?.revision, page, s.connection, viaReply, showFyi]);
+
+  useLayoutEffect(() => {
+    if (showFyi && selected) document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
+  }, [showFyi, selected]);
 
   const open = (key: string) => go('inbox', key, false);
   const index = selected ? rows.findIndex((r) => r.key === selected) : -1;
@@ -377,10 +384,11 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       canAct={canWrite}
       onPrev={index > 0 ? () => open(rows[index - 1].key) : null}
       onNext={index >= 0 && index < rows.length - 1 ? () => open(rows[index + 1].key) : null}
-      onBack={phone ? () => history.back() : null}
+      backLabel={showFyi ? 'Back to FYIs' : undefined}
+      onBack={showFyi ? () => history.go(history.state?.chat ? -2 : -1) : phone ? () => history.back() : null}
       onChat={() => {
         setPanelClosed(false);
-        go('inbox', selected, true, viaReply);
+        go('inbox', selected, true, viaReply, showFyi);
       }}
       onAnswer={onAnswer}
       onSeen={onSeen}
@@ -426,15 +434,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const banner = <ConnectionBanner state={s} config={config} onTryAgain={() => session.tryAgain()} />;
 
-  const fyiDetail = groupFyi && showFyi && (
+  const fyiList = groupFyi && showFyi && (
     <FyiList tab={tab} items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
-      attachments={config.flags.attachments} close={closeFyi}
-      openConversation={(key) => {
-        const item = s.messages.get(key);
-        if (!item) return;
-        session.readConversation(item);
-        go('inbox', key, true, true);
-      }} />
+      active={!message} close={closeFyi} openMessage={(key) => go('inbox', key, false, false, true)} />
   );
 
   const modal = chatVisible && !panel && (
@@ -447,7 +449,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     return (
       <div class="app app--phone">
         {banner}
-        {fyiDetail || (message ? detail : list)}
+        {fyiList}
+        {message ? detail : !fyiList && list}
         {modal}
       </div>
     );
@@ -458,7 +461,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       {list}
       <div class="main-col">
         {banner}
-        {fyiDetail || (detail ?? (
+        {fyiList}
+        {detail || (!fyiList && (
           <div class="nothing">
             <picture>
               <source media="(prefers-color-scheme: light)" srcSet={heronNavy} />

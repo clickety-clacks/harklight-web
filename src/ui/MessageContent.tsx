@@ -12,11 +12,9 @@ function friendlyLong(ms: number): string {
   return short;
 }
 
-export function MessageHeading({ message, timestamp, priority, showMessageId }: {
+export function MessageHeading({ message, timestamp }: {
   message: HeldMessage;
   timestamp: number | null;
-  priority?: string;
-  showMessageId?: boolean;
 }) {
   const sender = senderLabel(message);
   const heading = (
@@ -27,17 +25,12 @@ export function MessageHeading({ message, timestamp, priority, showMessageId }: 
   );
   return (
     <>
-      {showMessageId && heading}
+      {heading}
       <div class="msg-head">
         <span class="initials" aria-hidden="true">{initials(sender)}</span>
-        {priority ? <>
-          <span class="msg-agent">{sender}</span>
-          <span class="fyi-priority">{priority}</span>
-          {timestamp !== null && <time>{friendlyTime(timestamp)}</time>}
-        </> : <span>{sender}{timestamp !== null && ` · ${friendlyLong(timestamp)}`}</span>}
-        {showMessageId && <CopyMessageId id={message.message_id} />}
+        <span>{sender}{timestamp !== null && ` · ${friendlyLong(timestamp)}`}</span>
+        <CopyMessageId id={message.message_id} />
       </div>
-      {!showMessageId && heading}
     </>
   );
 }

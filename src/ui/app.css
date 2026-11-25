@@ -296,8 +296,7 @@
   gap: 8px;
   overflow-wrap: anywhere;
 }
-.row-title .t,
-.fyi-item .msg-title {
+.row-title .t {
   font: var(--type-row-title-weight) var(--type-row-title-size)/var(--type-row-title-line) var(--type-row-title-family);
   letter-spacing: var(--type-row-title-tracking);
 }
@@ -1423,49 +1422,26 @@ a.grow:hover .grow-l {
   gap: 14px;
 }
 
-.fyi-item-heading > div {
+.fyi-open {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
 }
-
-.fyi-item .msg-head {
-  flex-wrap: wrap;
-  gap: 5px 6px;
-  font-family: var(--type-row-byline-family);
-  font-size: var(--type-row-byline-size);
-  font-weight: var(--type-row-sender-weight);
-  letter-spacing: normal;
+.fyi-open .row-head {
+  align-self: stretch;
 }
-
-.fyi-item .msg-head .initials {
-  flex: none;
-  width: 24px;
-  height: 24px;
+.fyi-open:hover .t {
+  text-decoration: underline;
 }
-
-.fyi-item .msg-head .msg-agent {
-  font-weight: var(--type-row-byline-weight);
-}
-
-.fyi-priority {
-  color: var(--sky);
-  font-weight: 600;
-}
-
-.fyi-item .msg-head time {
-  margin-inline-start: auto;
-  color: var(--label);
-  font: var(--type-row-time-weight) var(--type-row-time-size) var(--type-row-time-family);
-}
-
-.fyi-item .msg-title {
-  gap: 10px;
-  margin-top: 5px;
-}
-.fyi-item .msg-title svg.icon {
-  width: 17px;
-  height: 17px;
-  margin-top: 3px;
+.fyi-open .row-meta {
+  margin-inline-start: 31px;
 }
 
 .fyi-seen {
@@ -1478,6 +1454,7 @@ span.fyi-seen {
 }
 
 .fyi-item button.fyi-seen {
+  padding-inline: 8px;
   color: var(--teal);
   font-weight: 600;
 }

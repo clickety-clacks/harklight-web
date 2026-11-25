@@ -34,23 +34,23 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   await summary.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'FYIs', exact: true })).toBeFocused();
-  await expect(page.getByRole('button', { name: /show actions/i })).toHaveCount(0);
-  const headings = page.getByRole('heading', { level: 2 });
-  await expect(headings.first()).toHaveText('The hosting card expires next month');
+  await expect(page.getByRole('button', { name: 'Open conversation' })).toHaveCount(0);
+  const rows = page.locator('.fyi-open');
+  await expect(rows.first()).toHaveAccessibleName('The hosting card expires next month');
   await expect(page.getByText('Renewals after December 1 will fail unless the card is replaced.')).toBeVisible();
   await page.getByRole('button', { name: 'Sort: Priority' }).press('Space');
-  await expect(headings.first()).toHaveText('Quarterly report is ready');
-  await expect(headings).toHaveCount(2);
+  await expect(rows.first()).toHaveAccessibleName('Quarterly report is ready');
+  await expect(rows).toHaveCount(2);
   expect(writes).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(320);
 
   const seenButton = page.getByRole('button', { name: 'Mark seen: Quarterly report is ready' });
   await expect(seenButton).toBeVisible();
-  const titleBox = await headings.filter({ hasText: 'Quarterly report is ready' }).boundingBox();
+  const titleBox = await page.getByRole('button', { name: 'Quarterly report is ready', exact: true }).boundingBox();
   const seenBox = await seenButton.boundingBox();
   expect(seenBox!.x).toBeGreaterThanOrEqual(titleBox!.x + titleBox!.width);
   await seenButton.press('Enter');
-  await expect(headings).toHaveCount(1);
+  await expect(rows).toHaveCount(1);
   // Focus goes to the one that took its place, not to the top of the page.
   await expect(page.getByRole('button', { name: 'Mark seen: The hosting card expires next month' })).toBeFocused();
   await page.getByRole('button', { name: 'Back to Inbox' }).press('Enter');
@@ -59,7 +59,7 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   await page.getByRole('button', { name: 'Mark All Seen' }).press('Enter');
   await expect(page.getByText('All FYIs are seen')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Mark All Seen' })).toBeDisabled();
-  await expect(headings).toHaveCount(0);
+  await expect(rows).toHaveCount(0);
   expect(writes.map((url) => new URL(url).pathname.split('/').at(-1))).toEqual(['answer', 'answer']);
   await page.getByRole('button', { name: 'Back to Inbox' }).press('Enter');
   await expect(page.getByRole('tab', { name: 'Inbox' })).toBeFocused();
@@ -68,14 +68,14 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   await page.getByRole('tab', { name: 'Replied' }).click();
   await page.getByRole('button', { name: 'Open seen FYIs' }).press('Enter');
   await expect(page.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeFocused();
-  await expect(headings).toHaveCount(3);
+  await expect(rows).toHaveCount(3);
   await expect(page.getByRole('button', { name: /^Mark/ })).toHaveCount(0);
   await expect(page.getByText(/unseen/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Back to Replied' }).press('Enter');
   await expect(page.getByRole('button', { name: 'Open seen FYIs' })).toBeFocused();
 });
 
-test('opening a FYI conversation reads its existing history without marking Seen', async ({ page }) => {
+test('opening a FYI shows detail and reads its history without marking Seen', async ({ page }) => {
   await page.request.post('/__fake/reset');
   await page.setViewportSize({ width: 320, height: 700 });
   await page.route(/\/v2\/inbox(?:\?|$)/, async (route) => {
@@ -96,7 +96,10 @@ test('opening a FYI conversation reads its existing history without marking Seen
   await page.goto('/inbox#preview');
   await page.getByRole('button', { name: 'Open FYIs, 3 unseen' }).press('Enter');
   await page.getByRole('article').filter({ hasText: 'Which hotel should I book for Lisbon?' })
-    .getByRole('button', { name: 'Open conversation' }).press('Enter');
+    .getByRole('button', { name: 'Which hotel should I book for Lisbon?', exact: true }).press('Enter');
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeFocused();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Chat/ }).press('Enter');
   await expect(page.getByRole('dialog').getByText('I can hold either room until 6 PM today.')).toBeVisible();
   expect(operations.some((entry) => /^GET .*\/entries$/.test(entry))).toBe(true);
   expect(operations.filter((entry) => entry.startsWith('POST '))).toEqual([]);
@@ -194,7 +197,7 @@ test('Seen on the message itself leaves unfinished Progress open', async ({ page
   await sendProgress(page, 'p-one', 'Progress one', 30);
   const writes = seenWrites(page);
   await openFyis(page);
-  await article(page, 'Progress one').getByRole('button', { name: 'Open conversation' }).click();
+  await article(page, 'Progress one').getByRole('button', { name: 'Progress one', exact: true }).click();
   expect(writes).toEqual([]);
   await page.locator('button.seen-under').click();
   await expect(page.getByTestId('seen-done')).toBeVisible();
@@ -213,7 +216,7 @@ test('finished Progress that is already marked Seen offers nothing on its own pa
   await page.reload();
   await page.getByRole('tab', { name: 'Replied', exact: true }).click();
   await page.getByRole('button', { name: 'Open seen FYIs' }).click();
-  await article(page, 'Progress done').getByRole('button', { name: 'Open conversation' }).click();
+  await article(page, 'Progress done').getByRole('button', { name: 'Progress done', exact: true }).click();
   await expect(page.getByTestId('seen-done')).toBeVisible();
   await expect(page.locator('button.seen-under')).toHaveCount(0);
   expect(writes).toEqual([]);
@@ -279,7 +282,7 @@ test('Progress that is closed, or offers no Seen, reads as any other message', a
   await page.getByRole('button', { name: 'Open seen FYIs' }).click();
   await expect(article(page, 'Answered elsewhere')).toHaveCount(0);
   await expect(article(page, 'Retracted later')).toHaveCount(0);
-  await article(page, 'No Seen action').getByRole('button', { name: 'Open conversation' }).click();
+  await article(page, 'No Seen action').getByRole('button', { name: 'No Seen action', exact: true }).click();
   await expect(page.getByRole('radio', { name: 'Reply' }).or(page.getByRole('textbox', { name: 'Reply' })).first()).toBeVisible();
   await expect(page.getByTestId('seen-done')).toHaveCount(0);
 });
@@ -582,3 +585,32 @@ test('Mark All Seen skips a FYI that is retracted while it runs', async ({ page 
   await page.waitForTimeout(400);
   expect(writes.length).toBe(before);
 });
+
+for (const width of [390, 1280]) {
+  test(`FYI detail Back restores the sort, scroll and row focus at ${width}px`, async ({ page }) => {
+    await fake(page, 'reset');
+    for (let i = 0; i < 16; i++) await sendFyi(page, `scroll-${i}`, `FYI notice ${i}`);
+    await page.setViewportSize({ width, height: 650 });
+    await page.goto('/inbox#preview');
+    await page.getByRole('button', { name: /Open FYIs/ }).click();
+    await page.getByRole('button', { name: 'Sort: Priority' }).click();
+    const list = page.getByRole('main', { name: 'FYIs', exact: true });
+    const row = list.locator('.fyi-open').last();
+    await row.scrollIntoViewIfNeeded();
+    const scroll = await list.evaluate((node) => node.scrollTop);
+    expect(scroll).toBeGreaterThan(0);
+    const name = await row.getAttribute('aria-label');
+    const detail = page.getByRole('heading', { name: name!, exact: true });
+    await row.click();
+    await expect(detail).toBeFocused();
+    await page.getByRole('button', { name: 'Back to FYIs' }).press('Enter');
+    await expect(row).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Sort: Posted' })).toBeVisible();
+    expect(await list.evaluate((node) => node.scrollTop)).toBe(scroll);
+    await page.goForward();
+    await expect(detail).toBeFocused();
+    await page.goBack();
+    await expect(row).toBeFocused();
+    expect(await list.evaluate((node) => node.scrollTop)).toBe(scroll);
+  });
+}
