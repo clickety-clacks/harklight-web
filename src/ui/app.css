@@ -1424,6 +1424,9 @@ a.grow:hover .grow-l {
   overflow-wrap: anywhere;
 }
 
+.fyi-item--ended {
+  opacity: 0.7;
+}
 .fyi-item-heading {
   display: flex;
   align-items: start;

@@ -1,4 +1,4 @@
-import { answerForm, isProgress, seenKeepsOpen, seenValue } from '../state/message';
+import { answerForm, fyiSeen, isProgress, seenKeepsOpen, seenValue } from '../state/message';
 // The tab's session with Harklight Server over client API v2, behind the
 // store and the actions the UI calls:
 //
@@ -845,7 +845,7 @@ export class V2Session {
     const current = this.store.state.messages.get(key);
     const pending = this.store.state.answers.get(key);
     if (!current?.v2 || current.revision !== m.revision || pending?.state === 'sending') return;
-    if (current.v2.seen || current.terminal?.outcome?.kind === 'seen') return;
+    if (fyiSeen(current)) return;
     if (pending?.seen && pending.state === 'failed' && pending.resend) {
       await this.retryHeld(key, pending);
       return;

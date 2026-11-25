@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parse } from '../../src/state/json';
-import { isProgress, progressFinished, seenKeepsOpen } from '../../src/state/message';
-import type { JsonObject } from '../../src/state/types';
+import { fyiSeen, isProgress, progressFinished, seenKeepsOpen } from '../../src/state/message';
+import type { HeldMessage, JsonObject } from '../../src/state/types';
 
 const progress = (over: JsonObject = {}): JsonObject => ({
   percent: 100,
@@ -70,5 +70,21 @@ describe('Progress messages', () => {
     expect(open(fyi(unfinished))).toBe(false);
     expect(open({ message_type: 'fyi', ...seen })).toBe(false);
     expect(open({ message_type: 'request', progress: unfinished, ...seen })).toBe(false);
+  });
+});
+
+describe('which FYIs count as marked Seen', () => {
+  const action = { answer_ui: { schema: 'attention-client.actions/1', actions: [{ id: 'seen', label: 'Seen', kind: 'value', value: 'seen' }] } };
+  const held = (payload: JsonObject, seen: boolean, kind?: string) =>
+    ({ payload: { message_type: 'fyi', ...payload }, terminal: kind ? { state: 'answered', outcome: { kind } } : null, v2: { seen } }) as unknown as HeldMessage;
+  it('needs the Seen answer where one is offered, and the item mark otherwise', () => {
+    expect(fyiSeen(held(action, true))).toBe(false);
+    expect(fyiSeen(held(action, false, 'seen'))).toBe(true);
+    expect(fyiSeen(held(action, true, 'reply'))).toBe(false);
+    expect(fyiSeen(held({ ...action, progress: progress() }, true))).toBe(true);
+    expect(fyiSeen(held({ ...action, progress: 'x' }, true))).toBe(true);
+    expect(fyiSeen(held({ ...action, progress: progress() }, false))).toBe(false);
+    expect(fyiSeen(held({}, true))).toBe(true);
+    expect(fyiSeen(held({}, false))).toBe(false);
   });
 });

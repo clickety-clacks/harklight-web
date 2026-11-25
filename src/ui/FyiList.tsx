@@ -1,20 +1,31 @@
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
-import { body, createdAt, initials, isFyi, messageType, senderLabel, title } from '../state/message';
+import { fyiTab, type Tab } from '../state/inbox';
+import { body, createdAt, fyiSeen, initials, messageType, senderLabel, title } from '../state/message';
 import type { State } from '../state/store';
 import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
 import { Icon } from './Icon';
 import { MessageContent, MessageHeading } from './MessageContent';
 
-export function fyiItems(state: State) {
+/** One tab's FYIs: Inbox's are not marked Seen, Replied's are. */
+export function fyiItems(state: State, tab: Tab) {
   return [...state.messages].flatMap(([key, message]) => {
-    if (!isFyi(message.payload) || message.terminal?.state === 'superseded') return [];
+    if (fyiTab(state, key) !== tab) return [];
     const local = state.answers.get(key);
-    const seen = !!message.v2?.seen || message.terminal?.outcome?.kind === 'seen';
-    return [{ key, message, seen, sending: local?.state === 'sending', failed: !!(local?.seen && local.state === 'failed') }];
+    return [{
+      key,
+      message,
+      seen: fyiSeen(message),
+      ended: !!message.terminal,
+      sending: local?.state === 'sending',
+      failed: !!(local?.seen && local.state === 'failed'),
+    }];
   });
 }
+
+/** The FYIs still waiting to be marked Seen. */
+const waiting = (items: Item[]) => items.filter((item) => !item.seen && !item.ended);
 
 function postedAt(message: HeldMessage) {
   return message.v2?.createdAt ?? createdAt(message);
@@ -26,16 +37,17 @@ const byPosted = (a: Item, b: Item) =>
 const priority = { now: 3, high: 2, normal: 1, low: 0 } as const;
 const level = (item: Item) => priority[item.message.v2?.level ?? 'normal'];
 
-export function FyiSummary({ items, incomplete, open }: { items: Item[]; incomplete: boolean; open: () => void }) {
-  const latest = [...items].sort(byPosted)[0]?.message;
-  const unseen = items.filter((item) => !item.seen).length;
+export function FyiSummary({ tab, items, incomplete, open }: { tab: Tab; items: Item[]; incomplete: boolean; open: () => void }) {
+  const unseen = waiting(items).length;
+  const latest = [...(unseen ? waiting(items) : items)].sort(byPosted)[0]?.message;
   const sender = latest ? senderLabel(latest) : '';
   return (
-    <button class="fyi-summary row" type="button" aria-label={`Open FYIs, ${incomplete ? 'at least ' : ''}${unseen} unseen`}
+    <button class="fyi-summary row" type="button"
+      aria-label={tab === 'replied' ? 'Open seen FYIs' : `Open FYIs, ${incomplete ? 'at least ' : ''}${unseen} unseen`}
       aria-describedby={latest ? 'fyi-digest-content' : undefined} onClick={open}>
       <DigestCoast />
       <span class="fyi-digest-text">
-        <span class="fyi-summary-title">FYI digest <span class="fyi-count">{unseen}{incomplete ? '+' : ''} unseen</span></span>
+        <span class="fyi-summary-title">{tab === 'replied' ? 'Seen FYIs' : <>FYI digest <span class="fyi-count">{unseen}{incomplete ? '+' : ''} unseen</span></>}</span>
         {latest && <span id="fyi-digest-content">
           <strong class="fyi-digest-heading">{title(latest)}</strong>
           {body(latest) && <span class="fyi-preview">{body(latest)}</span>}
@@ -72,7 +84,14 @@ function DigestCoast() {
   );
 }
 
+/** Why an FYI that was never marked Seen can no longer be. */
+function endedLabel(message: HeldMessage): string {
+  if (message.terminal?.retracted) return 'Retracted';
+  return message.terminal?.state === 'expired' ? 'Expired' : message.terminal?.state === 'cleared' ? 'Cleared' : 'Closed';
+}
+
 export function FyiList(p: {
+  tab: Tab;
   items: Item[];
   incomplete: boolean;
   session: ClientSession;
@@ -88,9 +107,26 @@ export function FyiList(p: {
   // Before paint, so a key pressed as the list appears is not taken by a later
   // move of focus to the heading.
   useLayoutEffect(() => heading.current?.focus(), []);
+  const list = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (list.current) list.current.scrollTop = 0;
+  }, [p.tab]);
   const items = [...p.items].sort(posted ? byPosted :
     (a, b) => level(b) - level(a) || (b.message.v2?.score ?? 0) - (a.message.v2?.score ?? 0) || byPosted(a, b));
-  const unseen = items.filter((item) => !item.seen);
+  // Ended without being marked Seen: still here to read, after the rest.
+  if (p.tab === 'inbox') items.sort((a, b) => Number(a.ended) - Number(b.ended));
+  const unseen = waiting(items);
+  // Marking one Seen takes it off this list. Focus that was on it goes to the
+  // one that took its place, or to the heading.
+  const focused = useRef<{ key: string; index: number } | null>(null);
+  useLayoutEffect(() => {
+    const was = focused.current;
+    if (!was || items.some((item) => item.key === was.key)) return;
+    focused.current = null;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const next = list.current?.querySelectorAll<HTMLElement>('button.fyi-seen:not(:disabled)')[was.index];
+    (next ?? heading.current)?.focus();
+  });
   const markAll = async () => {
     setMarking(true);
     try {
@@ -108,34 +144,36 @@ export function FyiList(p: {
     }
   };
   return (
-    <main class="fyi-list" aria-labelledby="fyi-title">
+    <main class="fyi-list" aria-labelledby="fyi-title" ref={list}>
       <nav class="fyi-toolbar" aria-label="FYI list controls">
-        <button type="button" class="fyi-back" aria-label="Back to Inbox" onClick={p.close}><Icon name="fyi-back" />Inbox</button>
+        <button type="button" class="fyi-back" aria-label={`Back to ${p.tab === 'inbox' ? 'Inbox' : 'Replied'}`} onClick={p.close}><Icon name="fyi-back" />{p.tab === 'inbox' ? 'Inbox' : 'Replied'}</button>
         <button type="button" aria-label={posted ? 'Sort: Posted' : 'Sort: Priority'} aria-pressed={posted} onClick={() => setPosted(!posted)}>
           <Icon name="fyi-sort" />{posted ? 'Posted' : 'Priority'}
         </button>
-        <button type="button" disabled={!p.canWrite || p.incomplete || marking || !unseen.length || unseen.some((item) => item.sending)} onClick={() => void markAll()}>
-          Mark All Seen
-        </button>
+        {p.tab === 'inbox' && (
+          <button type="button" disabled={!p.canWrite || p.incomplete || marking || !unseen.length || unseen.some((item) => item.sending)} onClick={() => void markAll()}>
+            Mark All Seen
+          </button>
+        )}
       </nav>
       <header class="fyi-heading">
-        <h1 id="fyi-title" tabIndex={-1} ref={heading}>FYIs</h1>
-        <span class="fyi-unseen" aria-live="polite">{unseen.length}{p.incomplete ? '+' : ''} unseen</span>
+        <h1 id="fyi-title" tabIndex={-1} ref={heading}>{p.tab === 'inbox' ? 'FYIs' : 'Seen FYIs'}</h1>
+        {p.tab === 'inbox' && <span class="fyi-unseen" aria-live="polite">{unseen.length}{p.incomplete ? '+' : ''} unseen</span>}
       </header>
       {p.incomplete && <button type="button" class="btn" disabled={loading} onClick={() => void load()}>
         {loading ? 'Loading older FYIs…' : 'Load older FYIs'}
       </button>}
-      {!items.length && !p.incomplete && <p>No FYIs yet.</p>}
+      {!items.length && !p.incomplete && <p class="fyi-empty">{p.tab === 'inbox' ? 'No unseen FYIs.' : 'No seen FYIs yet.'}</p>}
       <ul class="fyi-entries">
-        {items.map(({ key, message, seen, sending, failed }) => (
-          <li key={key}>
-            <article class={`fyi-item type-${messageType(message.payload)}`}>
+        {items.map(({ key, message, seen, ended, sending, failed }) => (
+          <li key={key} onFocusCapture={() => (focused.current = seen || ended ? null : { key, index: unseen.findIndex((item) => item.key === key) })}>
+            <article class={`fyi-item type-${messageType(message.payload)}${ended && !seen ? ' fyi-item--ended' : ''}`}>
               <div class="fyi-item-heading">
                 <div>
                   <MessageHeading message={message} timestamp={postedAt(message)}
                     priority={{ now: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' }[message.v2?.level ?? 'normal']} />
                 </div>
-                {seen ? <span class="fyi-seen">Seen</span> : (
+                {seen ? <span class="fyi-seen">Seen</span> : ended ? <span class="fyi-seen">{endedLabel(message)}</span> : (
                   <button class="btn btn--bordered fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending} onClick={() => void p.session.markFyiSeen(message)}>
                     <Icon name="row-check" />
                     {sending ? 'Marking…' : failed ? 'Retry Seen' : 'Seen'}

@@ -77,7 +77,7 @@ export function InboxList(props: {
           if (el.scrollHeight - el.scrollTop - el.clientHeight < 80) props.onNearEnd();
         }}
       >
-        {props.tab === 'inbox' && props.fyiSummary}
+        {props.fyiSummary}
         {props.entries.map((e) => {
           if (e.type === 'message') return messageRow(e);
           if (e.type === 'heading')

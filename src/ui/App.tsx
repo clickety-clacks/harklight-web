@@ -4,7 +4,7 @@ import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Config } from '../config';
 import type { ClientSession } from '../client';
-import { entries as entriesFor, rows as rowsFor, type ReplyRow, type Tab } from '../state/inbox';
+import { onTab, entries as entriesFor, rows as rowsFor, type ReplyRow, type Tab } from '../state/inbox';
 import { answerForm, seenKeepsOpen, seenWithoutAnswer, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
 import type { Json, WireFile } from '../state/types';
@@ -103,7 +103,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useEffect(() => {
     const on = () => {
       setPage(pageFromPath(location.pathname));
-      const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean } | null;
+      const st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean; tab?: Tab } | null;
+      if (st?.tab) setTab(st.tab);
       if (fyiShown.current && !st?.fyi) restoreFyiFocus.current = true;
       setShowFyi(!!st?.fyi);
       setSelected(st?.selected ?? null);
@@ -117,7 +118,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const base = useMemo(() => location.pathname.replace(/\/(inbox|settings)\/?$/, ''), []);
   const go = (p: Page, sel: string | null, chat: boolean, fromReply = false) => {
-    history.pushState({ selected: sel, chat, viaReply: fromReply }, '', `${base}/${p}`);
+    history.pushState({ selected: sel, chat, viaReply: fromReply, tab }, '', `${base}/${p}`);
     setPage(p);
     setShowFyi(false);
     setSelected(sel);
@@ -157,7 +158,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   }, [panel]);
 
   const groupFyi = !!config.flags.fyiInbox;
-  const fyis = useMemo(() => groupFyi ? fyiItems(s) : [], [s, groupFyi]);
+  const fyis = useMemo(() => groupFyi ? fyiItems(s, tab) : [], [s, groupFyi, tab]);
   const listEntries = useMemo(() => entriesFor(s, tab, groupFyi), [s, tab, groupFyi]);
   const rows = useMemo(() => rowsFor(s, tab, groupFyi), [s, tab, groupFyi]);
   useEffect(() => {
@@ -166,13 +167,31 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useLayoutEffect(() => {
     if (!showFyi && restoreFyiFocus.current) {
       restoreFyiFocus.current = false;
-      document.querySelector<HTMLElement>('.fyi-summary')?.focus();
+      // The card goes when its list empties; the tab is then the nearest place.
+      (document.querySelector<HTMLElement>('.fyi-summary') ?? document.querySelector<HTMLElement>('[role=tab][aria-selected=true]'))?.focus();
     }
   }, [showFyi]);
   const openFyi = () => {
-    history.pushState({ fyi: true }, '', location.pathname);
+    history.pushState({ fyi: true, tab }, '', location.pathname);
     setSelected(null);
     setShowFyi(true);
+  };
+  // Where the list and the detail show together, the detail follows the tab:
+  // an open FYI list becomes the other tab's, and a message gives way to what
+  // was last open there, if that is still on that tab.
+  const panes = useRef<Partial<Record<Tab, { selected: string | null; fyi: boolean; viaReply: boolean }>>>({});
+  const switchPane = (to: Tab) => {
+    panes.current[tab] = { selected, fyi: showFyi, viaReply };
+    const last = panes.current[to];
+    const fyi = showFyi || !!last?.fyi;
+    const sel = !fyi && last?.selected && onTab(s, last.selected, to, groupFyi) ? last.selected : null;
+    const reply = !!sel && !!last?.viaReply;
+    history.replaceState({ selected: sel, chat: false, viaReply: reply, ...(fyi ? { fyi: true } : {}), tab: to }, '', location.pathname);
+    setShowFyi(fyi);
+    setSelected(sel);
+    setChatWanted(false);
+    setChatExplicit(false);
+    setViaReply(reply);
   };
   const message = selected ? s.messages.get(selected) : undefined;
 
@@ -254,8 +273,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     <InboxList
       tab={tab}
       fyiDesign={groupFyi}
-      fyiSummary={groupFyi && (fyis.length > 0 || s.morePages) &&
-        <FyiSummary items={fyis} incomplete={s.morePages} open={openFyi} />}
+      fyiSummary={groupFyi && (fyis.length > 0 || (tab === 'inbox' && s.morePages)) &&
+        <FyiSummary tab={tab} items={fyis} incomplete={s.morePages} open={openFyi} />}
       entries={listEntries}
       selected={selected}
       expanded={expanded}
@@ -280,12 +299,15 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       submission={submission}
       loaded={s.loaded}
       onTab={(t) => {
-        setTab(t);
-        if (showFyi && t === 'replied') {
-          history.replaceState(null, '', location.pathname);
-          setShowFyi(false);
+        if (t === tab) {
+          if (!phone && !showFyi) setSelected(null);
+          return;
         }
-        if (!phone) setSelected(null);
+        setTab(t);
+        if (phone || !groupFyi) {
+          history.replaceState({ ...(history.state as object | null), tab: t }, '', location.pathname);
+          if (!phone) setSelected(null);
+        } else switchPane(t);
       }}
       onOpen={open}
       onSettings={() => go('settings', selected, false)}
@@ -363,7 +385,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const banner = <ConnectionBanner state={s} config={config} onTryAgain={() => session.tryAgain()} />;
 
   const fyiDetail = groupFyi && showFyi && (
-    <FyiList items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
+    <FyiList tab={tab} items={fyis} incomplete={s.morePages} session={session} canWrite={canWrite}
       attachments={config.flags.attachments} close={() => history.back()}
       openConversation={(key) => {
         const item = s.messages.get(key);
