@@ -845,7 +845,8 @@ export class V2Session {
     const current = this.store.state.messages.get(key);
     const pending = this.store.state.answers.get(key);
     if (!current?.v2 || current.revision !== m.revision || pending?.state === 'sending') return;
-    if (fyiSeen(current)) return;
+    // It may have ended since it was listed, while others were being marked.
+    if (current.terminal || fyiSeen(current)) return;
     if (pending?.seen && pending.state === 'failed' && pending.resend) {
       await this.retryHeld(key, pending);
       return;

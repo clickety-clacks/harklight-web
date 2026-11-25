@@ -514,3 +514,25 @@ test('a Seen FYI whose chat reply is still in Inbox comes back with the tab', as
   await tabTo(page, 'Inbox');
   await expect(title).toBeVisible();
 });
+
+test('Mark All Seen skips a FYI that is retracted while it runs', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendFyi(page, 'f-a', 'First notice');
+  await sendFyi(page, 'f-b', 'Second notice', null);
+  await fake(page, 'hold-answers');
+  const writes = seenWrites(page);
+  await openFyis(page);
+  await page.getByRole('button', { name: 'Sort: Priority' }).click(); // newest first
+  await page.getByRole('button', { name: 'Mark All Seen' }).click();
+  await expect.poll(() => writes.length).toBeGreaterThan(0);
+  const pending = ['First notice', 'Second notice', 'Quarterly report is ready', 'The hosting card expires next month'];
+  const later = pending.filter((t) => !writes.some((w) => w.startsWith({ 'First notice': 'f-a', 'Second notice': 'f-b', 'Quarterly report is ready': 'quarterly', 'The hosting card expires next month': 'card-expiry' }[t]!)));
+  expect(later.length).toBeGreaterThan(0);
+  for (const t of later) await fake(page, 'retract', { title: t });
+  for (const t of later) await expect(article(page, t)).toHaveCount(0);
+  const before = writes.length;
+  await fake(page, 'release-answers');
+  await expect(page.getByText('All FYIs are seen')).toBeVisible();
+  await page.waitForTimeout(400);
+  expect(writes.length).toBe(before);
+});
