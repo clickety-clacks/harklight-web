@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Config } from '../config';
 import type { ClientSession } from '../client';
 import { onTab, entries as entriesFor, messageRows, type ListOrder, type ReplyRow, type Tab } from '../state/inbox';
-import { answerForm, seenKeepsOpen, seenWithoutAnswer, senderLabel } from '../state/message';
+import { answerForm, isFyi, seenKeepsOpen, seenWithoutAnswer, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
 import type { Json, WireFile } from '../state/types';
 import { imageUrlFor } from './images';
@@ -59,6 +59,17 @@ function useLayout(): Layout {
 
 type Page = 'inbox' | 'settings';
 
+interface HistoryPane {
+  selected?: string | null;
+  chat?: boolean;
+  viaReply?: boolean;
+  fyi?: boolean;
+  tab?: Tab;
+  opened?: boolean;
+  /** Steps to the FYI list, including any Chat steps that no longer show Chat. */
+  fyiBack?: number;
+}
+
 function pageFromPath(path: string): Page {
   return /\/settings\/?$/.test(path) ? 'settings' : 'inbox';
 }
@@ -68,23 +79,27 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const s = useStore(store);
   const layout = useLayout();
   const [page, setPage] = useState<Page>(() => pageFromPath(location.pathname));
-  const [tab, setTab] = useState<Tab>('inbox');
+  const [restoredFyi] = useState(() => {
+    const state = history.state as HistoryPane | null;
+    return state?.fyi && state.selected ? state : null;
+  });
+  const [tab, setTab] = useState<Tab>(restoredFyi?.tab ?? 'inbox');
   const [orders, setOrders] = useState<Record<Tab, ListOrder>>({ inbox: 'priority', replied: 'priority' });
-  const [showFyi, setShowFyi] = useState(false);
+  const [showFyi, setShowFyi] = useState(!!restoredFyi);
   const restoreFyiFocus = useRef(false);
   const fyiMemory = useRef<FyiListMemory>({ order: 'priority', opener: null });
   const closingTab = useRef<Tab | null>(null);
   /** A message a step brought back before the messages had loaded. */
-  const unchecked = useRef<string | null>(null);
+  const unchecked = useRef<string | null>(restoredFyi?.selected ?? null);
   // For the Back listener, which is added once and must see the current value.
   const fyiShown = useRef(showFyi);
   fyiShown.current = showFyi;
   const current = useRef({ tab, selected: null as string | null, split: layout !== 'phone', groupFyi: false });
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(restoredFyi?.selected ?? null);
   /** Whether the chat is open. Where there's room it shows as a side panel,
    * otherwise as a modal over the message; a resize switches between them and
    * keeps it open. */
-  const [chatWanted, setChatWanted] = useState(false);
+  const [chatWanted, setChatWanted] = useState(!!restoredFyi?.chat);
   /** The person closed the side panel: it stays closed until they open chat. */
   const [panelClosed, setPanelClosed] = useState(false);
   const panel = layout === 'wide';
@@ -103,7 +118,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useEffect(() => {
     const on = () => {
       setPage(pageFromPath(location.pathname));
-      let st = history.state as { selected?: string | null; chat?: boolean; viaReply?: boolean; fyi?: boolean; tab?: Tab } | null;
+      let st = history.state as HistoryPane | null;
       const now = current.current;
       // Closing a list stays on its tab, whatever the step before it has become.
       const stay = closingTab.current;
@@ -130,14 +145,21 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       setChatWanted(!!st?.chat);
       setViaReply(!!st?.viaReply);
     };
-    if ((history.state as { fyi?: boolean } | null)?.fyi) history.replaceState(null, '', location.href);
+    // A reload restores FYI detail, while an open list still starts fresh.
+    if ((history.state as HistoryPane | null)?.fyi && !restoredFyi) {
+      history.replaceState(null, '', location.href);
+    }
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
   }, []);
 
   const base = useMemo(() => location.pathname.replace(/\/(inbox|settings)\/?$/, ''), []);
   const go = (p: Page, sel: string | null, chat: boolean, fromReply = false, fyi = false) => {
-    history.pushState({ selected: sel, chat, viaReply: fromReply, fyi, tab }, '', `${base}/${p}`);
+    const previous = history.state as HistoryPane | null;
+    const fyiBack = p === 'inbox' && fyi && sel
+      ? chat ? previous?.fyiBack && previous.fyiBack + 1 : 1
+      : undefined;
+    history.pushState({ selected: sel, chat, viaReply: fromReply, fyi, tab, fyiBack }, '', `${base}/${p}`);
     setPage(p);
     setShowFyi(fyi);
     setSelected(sel);
@@ -216,8 +238,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const switchPane = (to: Tab) => {
     panes.current[tab] = { selected, fyi: showFyi, viaReply };
     const last = panes.current[to];
-    const fyi = showFyi || !!last?.fyi;
-    const sel = !fyi && last?.selected && onTab(s, last.selected, to, groupFyi) ? last.selected : null;
+    const showingFyiList = showFyi && !selected;
+    const sel = !showingFyiList && last?.selected && onTab(s, last.selected, to, groupFyi) ? last.selected : null;
+    const fyi = showingFyiList || !!last?.fyi;
     const reply = !!sel && !!last?.viaReply;
     const state = { selected: sel, chat: false, viaReply: reply, ...(fyi ? { fyi: true } : {}), tab: to };
     history.replaceState(state, '', location.pathname);
@@ -238,6 +261,15 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     restoreFyiFocus.current = true;
     setShowFyi(false);
   };
+  const backToFyi = () => {
+    const steps = (history.state as HistoryPane | null)?.fyiBack;
+    if (steps) return history.go(-steps);
+    // A detail restored by a tab switch can have a different tab behind it.
+    history.replaceState({ fyi: true, tab }, '', location.href);
+    setSelected(null);
+    setChatWanted(false);
+    setViaReply(false);
+  };
   const message = selected ? s.messages.get(selected) : undefined;
   const chatVisible = !!message && chatWanted && !dropOnNarrow;
   const focusItem = message?.v2?.item_id;
@@ -252,13 +284,13 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useEffect(() => {
     if (!message || page !== 'inbox' || viaReply) return;
     // In the FYI list, Seen is explicit even when opening the full message.
-    if (showFyi) session.readConversation(message);
+    if (showFyi || (groupFyi && isFyi(message.payload))) session.readConversation(message);
     else session.messageOpened(message);
-  }, [message?.sender_id, message?.message_id, message?.revision, page, s.connection, viaReply, showFyi]);
+  }, [message?.sender_id, message?.message_id, message?.revision, page, s.connection, viaReply, showFyi, groupFyi]);
 
   useLayoutEffect(() => {
-    if (showFyi && selected) document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
-  }, [showFyi, selected]);
+    if (page === 'inbox' && showFyi && message) document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
+  }, [page, showFyi, message?.message_id]);
 
   const open = (key: string) => go('inbox', key, false);
   const index = selected ? rows.findIndex((r) => r.key === selected) : -1;
@@ -317,7 +349,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         config={config}
         displayName={s.displayName}
         connection={s.connection}
-        onBack={() => go('inbox', selected, false)}
+        onBack={() => showFyi ? history.back() : go('inbox', selected, false)}
         onSignOut={() => session.stop()}
       />
     );
@@ -370,7 +402,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         } else switchPane(t);
       }}
       onOpen={open}
-      onSettings={() => go('settings', selected, false)}
+      onSettings={() => go('settings', selected, false, viaReply, showFyi)}
       onNearEnd={() => void session.loadMore()}
       phone={phone}
     />
@@ -395,7 +427,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       onPrev={index > 0 ? () => open(rows[index - 1].key) : null}
       onNext={index >= 0 && index < rows.length - 1 ? () => open(rows[index + 1].key) : null}
       backLabel={showFyi ? 'Back to FYIs' : undefined}
-      onBack={showFyi ? () => history.go(history.state?.chat ? -2 : -1) : phone ? () => history.back() : null}
+      onBack={showFyi ? backToFyi : phone ? () => history.back() : null}
       onChat={() => {
         setPanelClosed(false);
         if (showFyi && panel) setChatWanted(true);

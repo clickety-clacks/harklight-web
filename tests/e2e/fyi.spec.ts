@@ -716,3 +716,86 @@ test('narrowing closes FYI Chat and Back restores the list across layouts', asyn
   await page.goBack();
   await expect(row).toBeFocused();
 });
+
+test('review: a flag-only FYI stays unseen through Settings, reload and Forward', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendFyi(page, 'flag-only', 'Flag-only FYI', null);
+  const writes = seenWrites(page);
+  await openFyis(page);
+  const heading = page.locator('.detail').getByRole('heading', { name: 'Flag-only FYI', exact: true });
+  await page.getByRole('button', { name: 'Flag-only FYI', exact: true }).click();
+  await expect(heading).toBeVisible();
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Back to inbox' }).click();
+  await expect(heading).toBeVisible();
+  await expect(page.getByRole('button', { name: /Open FYIs, 3 unseen/ })).toBeVisible();
+  expect(writes).toEqual([]);
+  await page.reload();
+  await expect(heading).toBeVisible();
+  await page.getByRole('button', { name: 'Back to FYIs' }).click();
+  await page.goForward();
+  await expect(heading).toBeVisible();
+  expect(writes).toEqual([]);
+  await page.getByRole('button', { name: 'Back to FYIs' }).click();
+  await page.getByRole('button', { name: 'Mark seen: Flag-only FYI' }).click();
+  await expect.poll(() => writes).toEqual(['flag-only seen']);
+});
+
+test('review: switching away from FYI detail restores the other tab pane', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'answer-elsewhere', { title: 'Approve the survey questions?', text: 'Approved' });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  const pane = page.locator('.main-col');
+  const fyiTitle = 'Quarterly report is ready';
+  const fyiDetail = pane.getByRole('heading', { name: fyiTitle, exact: true });
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  await page.getByRole('button', { name: fyiTitle, exact: true }).click();
+  await tabTo(page, 'Replied');
+  await expect(pane.getByText('Select a message')).toBeVisible();
+  await page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' }).click();
+  const remembered = pane.getByRole('heading', { name: 'Approve the survey questions?', exact: true });
+  await expect(remembered).toBeVisible();
+  await tabTo(page, 'Inbox');
+  await expect(fyiDetail).toBeVisible();
+  await tabTo(page, 'Replied');
+  await expect(remembered).toBeVisible();
+  await page.getByRole('button', { name: 'Open seen FYIs' }).click();
+  await expect(pane.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeVisible();
+  await page.goBack();
+  await expect(remembered).toBeVisible();
+  // Open the list again and remember that pane when leaving the tab.
+  await page.getByRole('button', { name: 'Open seen FYIs' }).click();
+  await tabTo(page, 'Inbox');
+  await expect(pane.getByRole('heading', { name: 'FYIs', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: fyiTitle, exact: true }).click();
+  await tabTo(page, 'Replied');
+  await expect(pane.getByRole('heading', { name: 'Seen FYIs', exact: true })).toBeVisible();
+});
+
+test('review: Back from a Forward-revisited collapsed FYI Chat restores row focus', async ({ page }) => {
+  await fake(page, 'reset');
+  await sendFyi(page, 'forward-resize', 'Forward resize FYI', null);
+  await page.setViewportSize({ width: 390, height: 650 });
+  await page.goto('/inbox#preview');
+  await page.getByRole('button', { name: /Open FYIs/ }).click();
+  const row = page.getByRole('button', { name: 'Forward resize FYI', exact: true });
+  const detail = page.locator('.detail');
+  const chat = detail.getByRole('button', { name: /^Chat/ });
+  await row.click();
+  await chat.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 650 });
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 650 });
+  await expect(chat).toBeVisible();
+  await page.goBack();
+  await expect(row).toBeFocused();
+  await page.goForward();
+  await expect(detail).toBeVisible();
+  await page.goForward();
+  await expect(chat).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await detail.getByRole('button', { name: 'Back to FYIs' }).click();
+  await expect(row).toBeFocused();
+});
