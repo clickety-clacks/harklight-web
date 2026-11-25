@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'preact/hooks';
 import { body, friendlyTime, initials, messageType, senderLabel, title, TYPE_ICON } from '../state/message';
 import type { HeldMessage } from '../state/types';
 import { FileRow } from './FileRow';
@@ -11,10 +12,22 @@ function friendlyLong(ms: number): string {
   return short;
 }
 
-export function MessageHeading({ message, timestamp, priority }: { message: HeldMessage; timestamp: number | null; priority?: string }) {
+export function MessageHeading({ message, timestamp, priority, showMessageId }: {
+  message: HeldMessage;
+  timestamp: number | null;
+  priority?: string;
+  showMessageId?: boolean;
+}) {
   const sender = senderLabel(message);
+  const heading = (
+    <h2 class="msg-title" tabIndex={-1}>
+      <Icon name={TYPE_ICON[messageType(message.payload)]} />
+      <span>{title(message)}</span>
+    </h2>
+  );
   return (
     <>
+      {showMessageId && heading}
       <div class="msg-head">
         <span class="initials" aria-hidden="true">{initials(sender)}</span>
         {priority ? <>
@@ -22,11 +35,37 @@ export function MessageHeading({ message, timestamp, priority }: { message: Held
           <span class="fyi-priority">{priority}</span>
           {timestamp !== null && <time>{friendlyTime(timestamp)}</time>}
         </> : <span>{sender}{timestamp !== null && ` · ${friendlyLong(timestamp)}`}</span>}
+        {showMessageId && <CopyMessageId id={message.message_id} />}
       </div>
-      <h2 class="msg-title" tabIndex={-1}>
-        <Icon name={TYPE_ICON[messageType(message.payload)]} />
-        <span>{title(message)}</span>
-      </h2>
+      {!showMessageId && heading}
+    </>
+  );
+}
+
+function CopyMessageId({ id }: { id: string }) {
+  const [feedback, setFeedback] = useState('');
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(''), 1600);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(id);
+      setFeedback('Copied');
+    } catch {
+      setFeedback('Could not copy');
+    }
+  }
+
+  return (
+    <>
+      <button type="button" class="message-id" aria-label="Copy message ID" aria-description={id}
+        onClick={() => void copy()}>
+        {feedback || id}
+      </button>
+      <span class="visually-hidden" role="status">{feedback}</span>
     </>
   );
 }

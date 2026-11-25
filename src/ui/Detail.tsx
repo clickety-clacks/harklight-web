@@ -218,7 +218,7 @@ export function Detail(p: DetailProps) {
       </div>
       <div class="detail-scroll">
         <div class="detail-body">
-          <MessageHeading message={m} timestamp={createdAt(m)} />
+          <MessageHeading message={m} timestamp={createdAt(m)} showMessageId />
           <MessageContent message={m} attachments={p.attachments} fileHref={p.fileHref} />
 
           {m.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}

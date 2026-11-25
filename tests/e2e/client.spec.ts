@@ -37,6 +37,22 @@ test('lists the inbox and opens a message, reporting the open', async ({ page })
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+test('copies the Server item ID from the message byline using the keyboard', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openInbox(page);
+  const copy = page.getByRole('button', { name: 'Copy message ID', exact: true });
+  await expect(copy).toHaveCount(0);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  const itemId = 'it_YWdlbnQ6cmVzZWFyY2gAbGlzYm9u';
+  await expect(page.locator('.detail-body > .msg-title + .msg-head').getByRole('button')).toHaveText(itemId);
+  await copy.focus();
+  await copy.press('Enter');
+  await expect(copy).toHaveText('Copied');
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(itemId);
+  await expect(copy).toHaveText(itemId);
+});
+
 test('answers with a choice and shows the answered card', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);

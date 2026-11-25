@@ -50,7 +50,7 @@ export function InboxList(props: {
     />
   );
   const tabs = (
-    <div class="message-tabs" role="tablist" aria-label="Messages">
+    <div class={props.phone ? 'tabbar' : 'seg'} role="tablist" aria-label="Messages">
       <TabButton tab="inbox" label="Inbox" icon="mail" current={props.tab} onTab={props.onTab} />
       <TabButton tab="replied" label="Replied" icon="mail-open" current={props.tab} onTab={props.onTab} />
     </div>
@@ -60,7 +60,7 @@ export function InboxList(props: {
       <div class="side-head">
         <picture>
           <source media="(prefers-color-scheme: light)" srcSet={harklightNavy} />
-          <img class="brand" src={harklightMist} width="128" height="30" alt="Harklight" />
+          <img class="brand" src={harklightMist} width="126" height="30" alt="Harklight" />
         </picture>
         <button type="button" class="icon-btn" aria-label="Settings" onClick={props.onSettings}>
           <Icon name="gear" />
@@ -192,12 +192,7 @@ function MessageRow(props: {
         {props.unread && <span class="visually-hidden">Unread chat reply</span>}
         {props.seen && <span class="visually-hidden">Seen</span>}
       </span>
-      {meta.length > 0 && (
-        <span class="row-meta">
-          {row.priority && <Icon name="flag-fill" />}
-          {meta.join(' · ')}
-        </span>
-      )}
+      {meta.length > 0 && <span class="row-meta">{meta.join(' · ')}</span>}
       {body(m) && <span class="row-body">{body(m)}</span>}
     </button>
   );
