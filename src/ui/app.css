@@ -434,12 +434,14 @@
 }
 .message-id {
   max-width: 100%;
-  padding: 2px 8px;
+  padding: var(--message-id-padding-block) var(--message-id-padding-inline);
   border: var(--line-width) solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--message-id-radius);
   background: var(--raised);
   color: var(--label);
-  font-size: var(--type-row-time-size);
+  font-family: var(--type-message-id-family);
+  font-size: var(--type-message-id-size);
+  font-weight: var(--type-message-id-weight);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   cursor: pointer;
