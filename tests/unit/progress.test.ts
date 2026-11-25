@@ -85,6 +85,8 @@ describe('which FYIs count as marked Seen', () => {
     expect(fyiSeen(held({ ...action, progress: 'x' }, true))).toBe(true);
     expect(fyiSeen(held({ ...action, progress: progress() }, false))).toBe(false);
     expect(fyiSeen(held({}, true))).toBe(true);
+    expect(fyiSeen(held({}, true, 'reply'))).toBe(false);
+    expect(fyiSeen(held({ ...action, progress: progress() }, true, 'reply'))).toBe(false);
     expect(fyiSeen(held({}, false))).toBe(false);
   });
 });

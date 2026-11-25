@@ -17,15 +17,11 @@ export function fyiItems(state: State, tab: Tab) {
       key,
       message,
       seen: fyiSeen(message),
-      ended: !!message.terminal,
       sending: local?.state === 'sending',
       failed: !!(local?.seen && local.state === 'failed'),
     }];
   });
 }
-
-/** The FYIs still waiting to be marked Seen. */
-const waiting = (items: Item[]) => items.filter((item) => !item.seen && !item.ended);
 
 function postedAt(message: HeldMessage) {
   return message.v2?.createdAt ?? createdAt(message);
@@ -38,8 +34,8 @@ const priority = { now: 3, high: 2, normal: 1, low: 0 } as const;
 const level = (item: Item) => priority[item.message.v2?.level ?? 'normal'];
 
 export function FyiSummary({ tab, items, incomplete, open }: { tab: Tab; items: Item[]; incomplete: boolean; open: () => void }) {
-  const unseen = waiting(items).length;
-  const latest = [...(unseen ? waiting(items) : items)].sort(byPosted)[0]?.message;
+  const unseen = items.length;
+  const latest = [...items].sort(byPosted)[0]?.message;
   const sender = latest ? senderLabel(latest) : '';
   return (
     <button class="fyi-summary row" type="button"
@@ -84,12 +80,6 @@ function DigestCoast() {
   );
 }
 
-/** Why an FYI that was never marked Seen can no longer be. */
-function endedLabel(message: HeldMessage): string {
-  if (message.terminal?.retracted) return 'Retracted';
-  return message.terminal?.state === 'expired' ? 'Expired' : message.terminal?.state === 'cleared' ? 'Cleared' : 'Closed';
-}
-
 export function FyiList(p: {
   tab: Tab;
   items: Item[];
@@ -113,9 +103,7 @@ export function FyiList(p: {
   }, [p.tab]);
   const items = [...p.items].sort(posted ? byPosted :
     (a, b) => level(b) - level(a) || (b.message.v2?.score ?? 0) - (a.message.v2?.score ?? 0) || byPosted(a, b));
-  // Ended without being marked Seen: still here to read, after the rest.
-  if (p.tab === 'inbox') items.sort((a, b) => Number(a.ended) - Number(b.ended));
-  const unseen = waiting(items);
+  const unseen = p.tab === 'inbox' ? items : [];
   // Marking one Seen takes it off this list. Focus that was on it goes to the
   // one that took its place, or to the heading.
   const focused = useRef<{ key: string; index: number } | null>(null);
@@ -163,17 +151,17 @@ export function FyiList(p: {
       {p.incomplete && <button type="button" class="btn" disabled={loading} onClick={() => void load()}>
         {loading ? 'Loading older FYIs…' : 'Load older FYIs'}
       </button>}
-      {!items.length && !p.incomplete && <p class="fyi-empty">{p.tab === 'inbox' ? 'No unseen FYIs.' : 'No seen FYIs yet.'}</p>}
+      {!items.length && !p.incomplete && <p class="fyi-empty">{p.tab === 'inbox' ? 'All FYIs are seen' : 'No seen FYIs yet'}</p>}
       <ul class="fyi-entries">
-        {items.map(({ key, message, seen, ended, sending, failed }) => (
-          <li key={key} onFocusCapture={() => (focused.current = seen || ended ? null : { key, index: unseen.findIndex((item) => item.key === key) })}>
-            <article class={`fyi-item type-${messageType(message.payload)}${ended && !seen ? ' fyi-item--ended' : ''}`}>
+        {items.map(({ key, message, seen, sending, failed }) => (
+          <li key={key} onFocusCapture={() => (focused.current = seen ? null : { key, index: unseen.findIndex((item) => item.key === key) })}>
+            <article class={`fyi-item type-${messageType(message.payload)}`}>
               <div class="fyi-item-heading">
                 <div>
                   <MessageHeading message={message} timestamp={postedAt(message)}
                     priority={{ now: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' }[message.v2?.level ?? 'normal']} />
                 </div>
-                {seen ? <span class="fyi-seen">Seen</span> : ended ? <span class="fyi-seen">{endedLabel(message)}</span> : (
+                {seen ? <span class="fyi-seen">Seen</span> : (
                   <button class="btn btn--bordered fyi-seen" type="button" aria-label={`Mark seen: ${title(message)}`} disabled={!p.canWrite || marking || sending} onClick={() => void p.session.markFyiSeen(message)}>
                     <Icon name="row-check" />
                     {sending ? 'Marking…' : failed ? 'Retry Seen' : 'Seen'}

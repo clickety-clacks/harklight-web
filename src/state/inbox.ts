@@ -64,15 +64,15 @@ export function inReplied(s: State, key: string): boolean {
 }
 
 /**
- * The FYI list that holds this message: Replied's once marked Seen, else
- * Inbox's. Null for one that is not an FYI, or that was answered some other
- * way, which is an ordinary row in Replied.
+ * The FYI list that holds this message: Replied's once marked Seen, Inbox's
+ * while it waits for that. Null for one that is not an FYI, or that ended or
+ * was answered some other way, which is an ordinary row.
  */
 export function fyiTab(s: State, key: string): Tab | null {
   const m = s.messages.get(key);
   if (!m || !visible(m) || !isFyi(m.payload)) return null;
   if (fyiSeen(m)) return 'replied';
-  return inReplied(s, key) ? null : 'inbox';
+  return m.terminal || inReplied(s, key) ? null : 'inbox';
 }
 
 /** Whether a message is on a tab: in its list, its FYI list, or a chat reply row there. */

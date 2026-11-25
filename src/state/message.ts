@@ -184,11 +184,12 @@ export function seenKeepsOpen(m: { payload: JsonObject; terminal: unknown }): bo
 /**
  * The person marked this FYI Seen. One that offers Seen needs that answer, so
  * opening it never counts; Progress also counts the item's own mark, which is
- * how it is marked while unfinished, and so does one that offers no Seen.
+ * how it is marked while unfinished, and so does one that offers no Seen. The
+ * mark counts only while the FYI is open, so opening an ended one changes nothing.
  */
 export function fyiSeen(m: HeldMessage): boolean {
   if (m.terminal?.outcome?.kind === 'seen') return true;
-  return !!m.v2?.seen && (seenValue(m.payload) === null || isProgress(m.payload));
+  return !m.terminal && !!m.v2?.seen && (seenValue(m.payload) === null || isProgress(m.payload));
 }
 
 /** Progress the person has marked Seen without ending it, finished since or not: nothing is left to mark. */
