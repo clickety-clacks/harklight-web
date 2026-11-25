@@ -21,7 +21,7 @@ export function Settings(props: {
   displayName: string | null;
   connection: ConnectionState;
   onBack: () => void;
-  onSignOut: () => void;
+  onSignOut: () => void | Promise<void>;
 }) {
   const { config, displayName, connection } = props;
   const [asking, setAsking] = useState(false);

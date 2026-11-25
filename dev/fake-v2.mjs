@@ -331,7 +331,9 @@ export async function serveV2(req, res, url, w, ctx) {
       !(p === '/changes' && String(req.headers.accept ?? '').includes('text/event-stream'))) {
     return fail(res, 500, 'internal_error');
   }
-  if (p.startsWith('/devices/me')) return fail(res, 403, 'forbidden');
+  if (p.startsWith('/devices/me') && !(method === 'PUT' && p === '/devices/me/focus')) {
+    return fail(res, 403, 'forbidden');
+  }
   if (w.refuseReads && method === 'GET' && (p === '/inbox' || p === '/changes')) return fail(res, 400, 'invalid_field');
   if (w.badGateway && method === 'GET' && (p === '/inbox' || p === '/changes')) {
     res.writeHead(502, { 'content-type': 'text/html' });
@@ -342,6 +344,26 @@ export async function serveV2(req, res, url, w, ctx) {
     if (origin && origin !== `http://${req.headers.host}`) return fail(res, 403, 'forbidden');
   }
   syncV2(w);
+
+  if (method === 'PUT' && p === '/devices/me/focus') {
+    const body = JSON.parse((await readBody(req)).toString());
+    if (!w.sessionLive) return fail(res, 401, 'unauthorized');
+    const { screen, ttl_s, device_name, item_id, visible_entry_id } = body;
+    if (!['inbox', 'fyi', 'message', 'chat', 'settings', 'signed_out', 'not_in_front'].includes(screen) ||
+        !Number.isInteger(ttl_s) || ttl_s < 1 || ttl_s > 3600 ||
+        ((device_name !== undefined || screen !== 'signed_out') &&
+          (typeof device_name !== 'string' || !device_name.trim() || Buffer.byteLength(device_name) > 128))) {
+      return fail(res, 400, 'invalid_field');
+    }
+    if (screen === 'message' || screen === 'chat') {
+      if (!findItem(w, item_id)) return fail(res, 400, 'invalid_field');
+    } else if (item_id !== undefined) return fail(res, 400, 'invalid_field');
+    if (visible_entry_id !== undefined && (screen !== 'chat' || typeof visible_entry_id !== 'string')) {
+      return fail(res, 400, 'invalid_field');
+    }
+    (w.focusReports ??= []).push(body);
+    return send(res, 200, { rev: v.rev });
+  }
 
   if (method === 'GET' && p === '/changes') return changes(req, res, url, w);
   if (method === 'GET' && p === '/me') {

@@ -54,6 +54,7 @@ export interface CallOptions {
   fileName?: string;
   responseBytes?: boolean;
   automatic?: boolean;
+  signal?: AbortSignal;
 }
 
 /** RFC 5987 ext-value: UTF-8, percent-encoded outside attr-char. */
@@ -94,6 +95,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
       cache: 'no-store',
       headers,
       body,
+      signal: o.signal,
     });
   } catch {
     deps.log.record({ op: o.op, status: null, token: 'network', requestId: null });

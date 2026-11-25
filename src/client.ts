@@ -3,10 +3,12 @@
 
 import type { State } from './state/store';
 import type { ChatSend, HeldMessage, Json } from './state/types';
+import type { FocusScreen } from './v2/focus';
 
 export interface ClientSession {
   start(): void;
-  stop(): void;
+  stop(): void | Promise<void>;
+  reportFocus?(screen: FocusScreen): void;
   /** Try now instead of waiting, for example when the network comes back. */
   nudge(): void;
   /** After a failure a retry will not fix: start again, keeping what the tab holds. */
