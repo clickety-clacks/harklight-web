@@ -50,7 +50,8 @@ function uniqueName(name: string, taken: PickedFile[]): string {
   }
 }
 
-function TurnCaption({ caption }: { caption: Caption }) {
+function TurnCaption({ caption }: { caption: Caption | null }) {
+  if (!caption) return null;
   return (
     <span class={caption.bad ? 'turn-st turn-st--bad' : 'turn-st'}>
       {(caption.ok || caption.bad) && <Icon name={caption.ok ? 'check' : 'warn'} />}

@@ -144,7 +144,7 @@ export { sameJson } from './json';
  * a success is done and a blocker is a warning.
  */
 export function isFyi(payload: JsonObject): boolean {
-  return payload.message_type === 'fyi' || (payload.message_type !== 'request' && seenValue(payload) !== null);
+  return payload.message_type === 'fyi';
 }
 
 /** An FYI the agent keeps updating. The Server's own test: it has `progress`, readable or not. */

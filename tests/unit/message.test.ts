@@ -19,8 +19,9 @@ describe('message type', () => {
     expect(messageType({ message_type: 'fyi', message_kind: 'success', answer_ui: seen })).toBe('done');
     expect(messageType({ message_type: 'fyi', message_kind: 'blocker', answer_ui: seen })).toBe('warn');
   });
-  it('reads an untyped message by its answer form', () => {
-    expect(messageType({ answer_ui: seen })).toBe('info');
+  it('reads only a typed FYI as information; an untyped one is a request', () => {
+    expect(messageType({ message_type: 'fyi', answer_ui: seen })).toBe('info');
+    expect(messageType({ answer_ui: seen })).toBe('request');
     expect(messageType({ title: 'x' })).toBe('request');
   });
 });

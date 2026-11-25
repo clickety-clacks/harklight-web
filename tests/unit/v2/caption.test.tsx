@@ -27,7 +27,7 @@ function world() {
       applyEntry(s, m, readEntry({ ...base, entry_id: 'en_r', position: 9, rev, author: 'origin', in_reply_to: to, ...over })!),
     text: (availability: Availability = 'listening', id = 'en_1') => {
       const turns = s.threads.get(K)!.turns;
-      return captionOf(turns.find((t) => t.id === id)!, turns, availability).text;
+      return captionOf(turns.find((t) => t.id === id)!, turns, availability)?.text ?? null;
     },
   };
 }
@@ -36,7 +36,7 @@ const SERVED = { delivered: true, acted: false };
 const NOT = { ...SERVED, outcome: 'not_handed' };
 
 describe('the caption under a chat turn the person sent', () => {
-  it.each<[unknown, string]>([
+  it.each<[unknown, string | null]>([
     // Served alone is not evidence, and neither is the Server's acted.
     [SERVED, 'Sending…'],
     [{ delivered: true, acted: true }, 'Sending…'],
@@ -65,25 +65,25 @@ describe('the caption under a chat turn the person sent', () => {
     [{ ...NOT, reason: ' ' }, 'Not delivered'],
     [{ ...NOT, reason: '**busy** <b>' }, 'Not delivered: **busy** <b>'],
     [{ ...NOT, rerouted: true, agent: 'Night desk' }, 'Not delivered'],
-    [{ ...NOT, legacy_caption: true }, 'Not delivered'],
+    [{ ...NOT, receipt_expected: false }, 'Not delivered'],
     [{ ...NOT, ack2_expected: false, listener_received: true }, 'Not delivered'],
     // No receipt can come: only a confirmed listener counts.
     [{ ...SERVED, ack2_expected: false }, 'Sending…'],
     [{ ...SERVED, ack2_expected: false, listener_received: true }, 'Delivered'],
     [{ ...SERVED, ack2_expected: false, listener_received: false }, 'Sending…'],
-    [{ ...SERVED, ack2_expected: false, legacy_caption: true }, 'Sending…'],
     [{ ack2_expected: false }, 'Sent'],
-    // Old history keeps the old caption.
-    [{ ...SERVED, legacy_caption: true }, 'Delivered'],
-    [{ acted: true, legacy_caption: true }, 'Delivered'],
-    [{ legacy_caption: true }, 'Sent'],
-    [{ ...SERVED, legacy_caption: false }, 'Sending…'],
-    [{ ...SERVED, legacy_caption: true, outcome: 'handed' }, 'Delivered'],
+    // An old turn no receipt will come for shows nothing, until evidence does.
+    [{ ...SERVED, receipt_expected: false }, null],
+    [{ acted: true, receipt_expected: false }, null],
+    [{ receipt_expected: false }, null],
+    [{ ...SERVED, receipt_expected: true }, 'Sending…'],
+    [{ ...SERVED, receipt_expected: false, outcome: 'handed' }, 'Delivered'],
+    [{ ...SERVED, receipt_expected: false, agent_seen: true }, 'Delivered'],
     // Values this client does not know are absent.
     [{ ...SERVED, outcome: 'later' }, 'Sending…'],
     [{ ...SERVED, ack2_expected: 'false', listener_received: true }, 'Sending…'],
     [{ ...SERVED, ack2_expected: null, listener_received: true }, 'Sending…'],
-    [{ ...SERVED, agent_seen: 'yes', agent_acted: 1, legacy_caption: 1 }, 'Sending…'],
+    [{ ...SERVED, agent_seen: 'yes', agent_acted: 1, receipt_expected: 0 }, 'Sending…'],
     [{ ...NOT, reason: 7 }, 'Not delivered'],
     [{ delivered: 'true' }, 'Sent'],
   ])('%j reads %s', (delivery, want) => {
@@ -92,7 +92,7 @@ describe('the caption under a chat turn the person sent', () => {
     expect(w.text()).toBe(want);
   });
 
-  it.each<[Availability, unknown, string]>([
+  it.each<[Availability, unknown, string | null]>([
     [null, {}, 'Sent'],
     ['not_listening', {}, 'Not delivered yet'],
     ['gone', {}, 'No one will get this'],
@@ -110,7 +110,7 @@ describe('the caption under a chat turn the person sent', () => {
     ['gone', NOT, 'No one will get this'],
     ['unsupported', NOT, 'No one will get this'],
     ['gone', { outcome: 'handed' }, 'Delivered'],
-    ['gone', { ...SERVED, legacy_caption: true }, 'Delivered'],
+    ['gone', { ...SERVED, receipt_expected: false }, null],
   ])('with the agent %s, %j reads %s', (availability, delivery, want) => {
     const w = world();
     w.mine(2, delivery);
@@ -159,7 +159,7 @@ describe('the caption under a chat turn the person sent', () => {
     const HANDED = { ...SERVED, outcome: 'handed' };
     for (const [rev, delivery, want] of [
       [2, SERVED, 'Sending…'], [4, NOT, 'Not delivered'], [3, SERVED, 'Not delivered'], [6, HANDED, 'Delivered'],
-      [5, NOT, 'Delivered'], [6, NOT, 'Delivered'], [8, NOT, 'Not delivered'], [9, { ...SERVED, legacy_caption: true }, 'Delivered'],
+      [5, NOT, 'Delivered'], [6, NOT, 'Delivered'], [8, NOT, 'Not delivered'], [9, { ...SERVED, receipt_expected: false }, null],
       [10, undefined, 'Sent'],
     ] as const) {
       w.mine(rev, delivery);

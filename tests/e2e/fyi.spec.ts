@@ -19,7 +19,6 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
     for (const item of json.items) {
       item.created_at_ms = item.message.created_at;
       if (item.message.title === 'The hosting card expires next month') {
-        delete item.message.message_type; // Legacy Seen-descriptor FYI.
         item.rank.level = 'high';
         item.rank.score = 0.8;
       }
