@@ -72,6 +72,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const [showFyi, setShowFyi] = useState(false);
   const restoreFyiFocus = useRef(false);
   const closingTab = useRef<Tab | null>(null);
+  /** A message a step brought back before the messages had loaded. */
+  const unchecked = useRef<string | null>(null);
   // For the Back listener, which is added once and must see the current value.
   const fyiShown = useRef(showFyi);
   fyiShown.current = showFyi;
@@ -120,6 +122,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       setShowFyi(!!st?.fyi);
       // Beside the list, a step never brings back a message that has since left that tab.
       const sel = st?.selected ?? null;
+      if (sel && !store.state.loaded) unchecked.current = sel;
       if (sel && store.state.loaded && now.split && sel !== now.selected && !onTab(store.state, sel, to, now.groupFyi)) {
         history.replaceState({ selected: null, chat: false, tab: to }, '', location.href);
         setSelected(null);
@@ -194,7 +197,21 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       (document.querySelector<HTMLElement>('.fyi-summary') ?? document.querySelector<HTMLElement>('[role=tab][aria-selected=true]'))?.focus();
     }
   }, [showFyi]);
+  // Checked before paint, so it never shows beside a list it has left.
+  useLayoutEffect(() => {
+    const sel = unchecked.current;
+    if (!s.loaded || !sel) return;
+    if (sel === selected && layout !== 'phone' && s.messages.has(sel) && !onTab(s, sel, tab, groupFyi)) {
+      history.replaceState({ selected: null, chat: false, tab }, '', location.href);
+      setSelected(null);
+      setChatWanted(false);
+      setChatExplicit(false);
+      setViaReply(false);
+    }
+    if (s.messages.has(sel) || !s.morePages || sel !== selected) unchecked.current = null;
+  });
   const openFyi = () => {
+    if (showFyi) return;
     history.pushState({ fyi: true, opened: true, tab }, '', location.pathname);
     setSelected(null);
     setShowFyi(true);

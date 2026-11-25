@@ -498,6 +498,29 @@ test('Forward does not bring back a message that has left the tab', async ({ pag
   await expect(page.locator('.chat-col')).toHaveCount(0);
 });
 
+test('a step taken before the messages load does not bring back one that has left the tab', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  await page.getByTestId('row').filter({ hasText: 'Production deploy failed' }).click();
+  await page.goBack();
+  await fake(page, 'answer-elsewhere', { title: 'Production deploy failed', text: 'Rolled back' });
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route(/\/v2\/inbox(?:\?|$)/, async (route) => {
+    await held;
+    await route.fallback();
+  });
+  await page.reload();
+  await expect(page.getByRole('tab', { name: 'Inbox' })).toBeVisible();
+  await page.goForward();
+  release();
+  await expect(page.getByTestId('row').first()).toBeVisible();
+  await expect(page.getByText('Select a message')).toBeVisible();
+  await expect(page.locator('.chat-col')).toHaveCount(0);
+});
+
 test('a FYI answered some other way is one Replied row, under History or not', async ({ page }) => {
   await fake(page, 'reset');
   await sendFyi(page, 'f-ans', 'Answered notice');
