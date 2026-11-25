@@ -167,6 +167,24 @@ test('at wide width the chat stays a column beside the message: close hides it, 
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
+test('a chat closed by narrowing stays closed when a later chat is closed with Escape', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await openInbox(page);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  const chatButton = page.locator('.detail').getByRole('button', { name: /^Chat/ });
+  await chatButton.click();
+  await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await expect(page.locator('.chat-col')).toBeVisible();
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await chatButton.click();
+  await expect(page.getByRole('dialog', { name: 'Chat with Research agent' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Which hotel should I book for Lisbon?' })).toBeVisible();
+});
+
 test('the chat closes when the window narrows and comes back as the side panel, draft intact', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openInbox(page);

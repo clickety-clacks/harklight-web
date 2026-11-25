@@ -158,6 +158,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useLayoutEffect(() => {
     if (dropOnNarrow) {
       setChatWanted(false);
+      // The step that opened it no longer shows it, so stepping back to it must not either.
+      const st = history.state as { chat?: boolean } | null;
+      if (st?.chat) history.replaceState({ ...st, chat: false }, '', location.href);
       if (document.activeElement === document.body || !document.activeElement) {
         document.querySelector<HTMLElement>('.detail .msg-title')?.focus();
       }
