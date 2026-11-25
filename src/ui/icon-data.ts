@@ -7,8 +7,6 @@ const fineStroke = (path: string) => ({
 export const ICONS: Record<string, { viewBox: string; body: string }> = {
   'row-reply': fineStroke('M4 12h14m-9-5-5 5 5 5m10-13v8'),
   'row-check': fineStroke('m4 12 5 5L20 6'),
-  'row-error': fineStroke('M12 3 2.8 19a1 1 0 0 0 .9 1.5h16.6a1 1 0 0 0 .9-1.5zM12 9v4m0 3v.1'),
-  'row-chat': fineStroke('M5 4.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-9l-6 4v-4.4a2 2 0 0 1-1-1.6v-8a2 2 0 0 1 2-2Z'),
   'fyi-back': fineStroke('m15 5-7 7 7 7'),
   'fyi-sort': fineStroke('M4 6h16M4 12h11M4 18h6'),
   'fyi-next': fineStroke('m9 5 7 7-7 7'),

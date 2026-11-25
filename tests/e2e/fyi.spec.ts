@@ -108,12 +108,11 @@ test('desktop FYI keeps the real Inbox and Replied tabs with the approved row tr
   await page.request.post('/__fake/standard-order');
   await page.goto('/inbox#preview');
   const digest = page.getByRole('button', { name: 'Open FYIs, 2 unseen' });
-  await expect(digest.locator('.fyi-digest-agent')).toBeVisible();
-  await expect(digest.locator('.fyi-digest-heading')).toHaveCSS('font-family', /Georgia/);
+  await expect(digest.locator('.fyi-digest-heading')).toHaveCSS('font-family', /system-ui/);
 
   const request = page.getByTestId('row').filter({ hasText: 'Approve the survey questions?' });
   await expect(request.locator('.row-title .t')).toHaveCSS('font-weight', '650');
-  await expect(request.locator('.row-title .t')).toHaveCSS('font-size', '18px');
+  await expect(request.locator('.row-title .t')).toHaveCSS('font-size', '17px');
   await expect(request.locator('.row-tile--request')).toBeVisible();
 
   await digest.press('Enter');

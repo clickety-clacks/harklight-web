@@ -24,7 +24,7 @@ export function MessageHeading({ message, timestamp, priority }: { message: Held
         </> : <span>{sender}{timestamp !== null && ` · ${friendlyLong(timestamp)}`}</span>}
       </div>
       <h2 class="msg-title" tabIndex={-1}>
-        {!priority && <Icon name={TYPE_ICON[messageType(message.payload)]} />}
+        <Icon name={TYPE_ICON[messageType(message.payload)]} />
         <span>{title(message)}</span>
       </h2>
     </>

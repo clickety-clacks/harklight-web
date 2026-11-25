@@ -1,15 +1,12 @@
-/* Harklight web client look.
- * Dark mode is the harklight.net look as the site serves it. Light mode is
- * derived from it, value by value, as the accepted design lists. The page
- * follows the system's light or dark setting. */
+/* Shared appearance values and type metrics follow Harklight App's Design/tokens.json.
+ * The browser follows the system's light or dark setting. */
 
 :root {
   color-scheme: dark;
   --bg: #070b14;
   --fg: #e9edf5;
   --muted: #9aa4b8;
-  --faint: #5f6b82;
-  --label: #9aa4b8; /* small labels: the darker gray is too faint as text in dark */
+  --label: #9aa4b8;
   --line: rgba(255, 255, 255, 0.1);
   --raised: rgba(255, 255, 255, 0.025);
   --field: rgba(255, 255, 255, 0.04);
@@ -19,7 +16,7 @@
   --on-beam: #070b14;
   --panel: #101725;
   --panel-edge: #ffffff30;
-  --scrim: #02050be8;
+  --scrim: rgba(2, 5, 11, 0.91);
   --band: #07141c;
   --pane: rgba(0, 0, 0, 0.24); /* text pane inside the reply card */
   --chat-over-shadow: -18px 0 40px rgba(0, 0, 0, 0.35);
@@ -31,15 +28,37 @@
   --teal: #5fd3bc;
   --violet: #9d8cff;
   --coral: #ff8a5c;
-  /* the bright beams, used for mixing tints */
-  --amber-b: #ffc857;
-  --sky-b: #62b6ff;
-  --teal-b: #5fd3bc;
-  --violet-b: #9d8cff;
-  --coral-b: #ff8a5c;
-  --tint: 8%;
-  --wash-urgent: color-mix(in srgb, var(--coral-b) 16%, var(--bg));
-  --wash-high: color-mix(in srgb, var(--amber-b) 12%, var(--bg));
+  --tint-request: #131527;
+  --tint-info: #0e1927;
+  --tint-done: #0e1b21;
+  --tint-warn: #1b1a19;
+  --tint-error: #1b151a;
+  --wash-urgent: #2f1f20;
+  --wash-high: #25221c;
+  --row-request-ink: #ecd1b9;
+  --row-request-fill: #46382e;
+  --row-answered-ink: #c3dfc9;
+  --row-answered-fill: #2d4031;
+
+  --accent-fill: #ffc857;
+  --on-accent: #070b14;
+  --digest-fill: #334e58;
+  --digest-ink: #fffef6;
+  --digest-preview: #edf4f4;
+  --digest-badge-border: #9dafb2;
+  --digest-disclosure-fill: #314b56;
+  --digest-disclosure-border: #bdccce;
+
+  --radius-card: 12px;
+  --radius-small: 8px;
+  --control-size: 44px;
+  --row-inset: 16px;
+  --row-padding-block: 12px;
+  --row-symbol-size: 23px;
+  --row-symbol-gap: 8px;
+  --selection-bar: 8px;
+  --selection-inset: 16px;
+  --reply-pane-min-height: 92px;
 
   --serif: 'Fraunces', Georgia, 'Iowan Old Style', 'Times New Roman', serif;
   --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -51,7 +70,6 @@
     --bg: #e9edf5;
     --fg: #070b14;
     --muted: #3b444d;
-    --faint: #4f5a6e;
     --label: #4f5a6e;
     --line: rgba(7, 11, 20, 0.14);
     --raised: rgba(255, 255, 255, 0.55);
@@ -62,7 +80,7 @@
     --on-beam: #ffffff;
     --panel: #ffffff;
     --panel-edge: rgba(7, 11, 20, 0.19);
-    --scrim: rgba(7, 11, 20, 0.45);
+    --scrim: rgba(7, 11, 20, 0.32);
     --band: #d6e9ed;
     --pane: rgba(255, 255, 255, 0.48);
     --chat-over-shadow: -14px 0 36px rgba(7, 11, 20, 0.14);
@@ -73,19 +91,26 @@
     --teal: #0f6657;
     --violet: #5240cc;
     --coral: #a13811;
-    --tint: 16%;
-    --wash-urgent: color-mix(in srgb, var(--coral-b) 24%, var(--bg));
-    --wash-high: color-mix(in srgb, var(--amber-b) 26%, var(--bg));
+    --tint-request: #ddddf7;
+    --tint-info: #d3e4f7;
+    --tint-done: #d3e9ec;
+    --tint-warn: #ede7dc;
+    --tint-error: #eddddd;
+    --wash-urgent: #eed5d0;
+    --wash-high: #efe3cc;
+    --row-request-ink: #754e36;
+    --row-request-fill: #eee4da;
+    --row-answered-ink: #385943;
+    --row-answered-fill: #e1e9df;
   }
 }
 
 /* message types: each takes one beam */
-.type-request { --t-icon: var(--violet); --t-beam: var(--violet-b); }
-.type-info { --t-icon: var(--sky); --t-beam: var(--sky-b); }
-.type-done { --t-icon: var(--teal); --t-beam: var(--teal-b); }
-.type-warn { --t-icon: var(--amber); --t-beam: var(--amber-b); }
-.type-error { --t-icon: var(--coral); --t-beam: var(--coral-b); }
-[class*='type-'] { --t-bg: color-mix(in srgb, var(--t-beam) var(--tint), var(--bg)); }
+.type-request { --t-icon: var(--violet); --t-bg: var(--tint-request); }
+.type-info { --t-icon: var(--sky); --t-bg: var(--tint-info); }
+.type-done { --t-icon: var(--teal); --t-bg: var(--tint-done); }
+.type-warn { --t-icon: var(--amber); --t-bg: var(--tint-warn); }
+.type-error { --t-icon: var(--coral); --t-bg: var(--tint-error); }
 
 *,
 *::before,
@@ -144,7 +169,7 @@ svg.icon {
   justify-content: center;
   gap: 8px;
   padding: 14px 22px;
-  border-radius: 8px;
+  border-radius: var(--radius-small);
   border: 0;
   background: var(--fg);
   color: var(--on-fg);
@@ -179,12 +204,12 @@ svg.icon {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  min-width: 38px;
-  height: 38px;
+  min-width: var(--control-size);
+  height: var(--control-size);
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: 999px;
   border: 1px solid var(--line);
-  background: transparent;
+  background: var(--raised);
   color: var(--fg);
   font-size: 13.6px;
   font-weight: 500;
@@ -195,7 +220,7 @@ svg.icon {
   text-decoration: none;
 }
 .tool--square {
-  width: 38px;
+  width: var(--control-size);
   padding: 0;
 }
 .tool svg.icon {
@@ -266,29 +291,4 @@ svg.icon {
 .pill--bad::before {
   background: var(--coral);
   border-color: var(--coral);
-}
-
-:root {
-  --fyi-serif: Georgia, "Times New Roman", serif;
-  --row-clay: #ecd1b9;
-  --row-sand: #46382e;
-  --row-sage: #c3dfc9;
-  --row-leaf: #2d4031;
-  --row-red: #ffd1c6;
-  --row-blush: #513531;
-  --row-blue: #c5dce7;
-  --row-mist: #2e4149;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --row-clay: #754e36;
-    --row-sand: #eee4da;
-    --row-sage: #385943;
-    --row-leaf: #e1e9df;
-    --row-red: #893c39;
-    --row-blush: #f6e4df;
-    --row-blue: #3b5965;
-    --row-mist: #e2ecee;
-  }
 }

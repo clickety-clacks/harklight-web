@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
 import { fyiTab, type Tab } from '../state/inbox';
-import { body, createdAt, fyiSeen, initials, messageType, senderLabel, title } from '../state/message';
+import { body, createdAt, fyiSeen, messageType, title } from '../state/message';
 import type { State } from '../state/store';
 import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
@@ -36,47 +36,19 @@ const level = (item: Item) => priority[item.message.v2?.level ?? 'normal'];
 export function FyiSummary({ tab, items, incomplete, open }: { tab: Tab; items: Item[]; incomplete: boolean; open: () => void }) {
   const unseen = items.length;
   const latest = [...items].sort(byPosted)[0]?.message;
-  const sender = latest ? senderLabel(latest) : '';
   return (
     <button class="fyi-summary row" type="button"
       aria-label={tab === 'replied' ? 'Open seen FYIs' : `Open FYIs, ${incomplete ? 'at least ' : ''}${unseen} unseen`}
       aria-describedby={latest ? 'fyi-digest-content' : undefined} onClick={open}>
-      <DigestCoast />
       <span class="fyi-digest-text">
         <span class="fyi-summary-title">{tab === 'replied' ? 'Seen FYIs' : <>FYI digest <span class="fyi-count">{unseen}{incomplete ? '+' : ''} unseen</span></>}</span>
         {latest && <span id="fyi-digest-content">
           <strong class="fyi-digest-heading">{title(latest)}</strong>
           {body(latest) && <span class="fyi-preview">{body(latest)}</span>}
-          <span class="fyi-digest-agent">
-            <span class="initials" aria-hidden="true">{initials(sender)}</span>
-            <span>{sender}</span>
-          </span>
         </span>}
       </span>
       <span class="fyi-next"><Icon name="fyi-next" /></span>
     </button>
-  );
-}
-
-function DigestCoast() {
-  return (
-    <svg class="fyi-coast" viewBox="0 0 250 150" preserveAspectRatio="xMaxYMax slice" aria-hidden="true">
-      <defs>
-        <pattern id="fyi-sea" width="20" height="7" patternUnits="userSpaceOnUse">
-          <path d="M0 1h13" stroke="#9eafb0" opacity=".34" />
-        </pattern>
-      </defs>
-      <path fill="#b9c8bc" opacity=".16" d="M175 45 12 16v25l163 8z" />
-      <circle cx="216" cy="29" r="14" fill="none" stroke="#adc1bd" opacity=".44" />
-      <path fill="#779197" d="M0 116q42-16 69-8t75-3l32-13 35 2 39-19v75H0z" />
-      <path fill="url(#fyi-sea)" d="M0 120q56-15 96-8l154-16v54H0z" />
-      <path fill="#253f49" d="m68 150 38-17 17-7 13-17 27-5 12-13 13 2 17-11 23 5 22-10v73z" />
-      <g fill="#e4e9d9">
-        <path d="m166 101 5-47h9l6 42-9 3z" />
-        <path d="M169 50h13v3h-13zm3-10h7v9h-7zm-3-1 6.5-7 6.5 7z" />
-      </g>
-      <path d="m170 68 11-4 .9 8-13 5z" fill="#506b71" />
-    </svg>
   );
 }
 
@@ -134,7 +106,10 @@ export function FyiList(p: {
   return (
     <main class="fyi-list" aria-labelledby="fyi-title" ref={list}>
       <nav class="fyi-toolbar" aria-label="FYI list controls">
-        <button type="button" class="fyi-back" aria-label={`Back to ${p.tab === 'inbox' ? 'Inbox' : 'Replied'}`} onClick={p.close}><Icon name="fyi-back" />{p.tab === 'inbox' ? 'Inbox' : 'Replied'}</button>
+        <button type="button" class="fyi-back" aria-label={`Back to ${p.tab === 'inbox' ? 'Inbox' : 'Replied'}`} onClick={p.close}>
+          <Icon name="fyi-back" />
+        </button>
+        <h1 id="fyi-title" tabIndex={-1} ref={heading}>{p.tab === 'inbox' ? 'FYIs' : 'Seen FYIs'}</h1>
         <button type="button" aria-label={posted ? 'Sort: Posted' : 'Sort: Priority'} aria-pressed={posted} onClick={() => setPosted(!posted)}>
           <Icon name="fyi-sort" />{posted ? 'Posted' : 'Priority'}
         </button>
@@ -144,10 +119,7 @@ export function FyiList(p: {
           </button>
         )}
       </nav>
-      <header class="fyi-heading">
-        <h1 id="fyi-title" tabIndex={-1} ref={heading}>{p.tab === 'inbox' ? 'FYIs' : 'Seen FYIs'}</h1>
-        {p.tab === 'inbox' && <span class="fyi-unseen" aria-live="polite">{unseen.length}{p.incomplete ? '+' : ''} unseen</span>}
-      </header>
+      {p.tab === 'inbox' && <p class="fyi-unseen" aria-live="polite">{unseen.length}{p.incomplete ? '+' : ''} unseen</p>}
       {p.incomplete && <button type="button" class="btn" disabled={loading} onClick={() => void load()}>
         {loading ? 'Loading older FYIs…' : 'Load older FYIs'}
       </button>}

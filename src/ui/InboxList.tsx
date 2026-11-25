@@ -7,7 +7,6 @@ import { Icon } from './Icon';
 
 export function InboxList(props: {
   tab: Tab;
-  fyiDesign: boolean;
   fyiSummary?: import('preact').ComponentChildren;
   entries: Entry[];
   selected: string | null;
@@ -45,23 +44,23 @@ export function InboxList(props: {
       unread={props.unread(r.key)}
       seen={props.seen(r.key)}
       needsAnswer={props.needsAnswer(r.key)}
-      fyiDesign={props.fyiDesign}
+      tab={props.tab}
       submission={props.submission(r.key)}
       onOpen={props.onOpen}
     />
   );
   const tabs = (
-    <div class={props.phone ? 'tabbar' : 'seg'} role="tablist" aria-label="Messages">
+    <div class="message-tabs" role="tablist" aria-label="Messages">
       <TabButton tab="inbox" label="Inbox" icon="mail" current={props.tab} onTab={props.onTab} />
       <TabButton tab="replied" label="Replied" icon="mail-open" current={props.tab} onTab={props.onTab} />
     </div>
   );
   return (
-    <aside class={props.fyiDesign ? 'side side--fyi-design' : 'side'} aria-label="Inbox">
+    <aside class="side" aria-label="Inbox">
       <div class="side-head">
         <picture>
           <source media="(prefers-color-scheme: light)" srcSet={harklightNavy} />
-          <img class="brand" src={harklightMist} width="126" height="30" alt="Harklight" />
+          <img class="brand" src={harklightMist} width="128" height="30" alt="Harklight" />
         </picture>
         <button type="button" class="icon-btn" aria-label="Settings" onClick={props.onSettings}>
           <Icon name="gear" />
@@ -92,7 +91,6 @@ export function InboxList(props: {
               <ReplyRowView
                 key={`r:${e.key}`}
                 row={e}
-                fyiDesign={props.fyiDesign}
                 quote={props.replyText(e.key, e.conversationSeq)}
                 onOpen={() => props.onOpenReply(e)}
               />
@@ -139,7 +137,7 @@ function MessageRow(props: {
   unread: boolean;
   seen: boolean;
   needsAnswer: boolean;
-  fyiDesign: boolean;
+  tab: Tab;
   submission: 'sending' | 'failed' | null;
   onOpen: (key: string) => void;
 }) {
@@ -147,14 +145,14 @@ function MessageRow(props: {
   const m = row.message;
   const type = messageType(m.payload);
   const sender = senderLabel(m);
-  const answered = m.terminal?.state === 'answered' || m.terminal?.state === 'no_comment';
-  const rowIcon = answered ? 'row-check' : type === 'request' ? 'row-reply' : type === 'error' ? 'row-error' : TYPE_ICON[type];
-  const tile = answered ? 'check' : type === 'error' ? 'error' : 'request';
+  const replied = props.tab === 'replied';
+  const request = type === 'request';
+  const rowIcon = replied ? 'row-check' : request ? 'row-reply' : TYPE_ICON[type];
+  const tile = replied ? 'check' : request ? 'request' : null;
   const cls = ['row', `type-${type}`];
   if (row.priority === 'urgent') cls.push('row--urgent');
   else if (row.priority === 'high') cls.push('row--high');
   if (props.selected) cls.push('row--selected');
-  if (m.terminal) cls.push('row--done');
   if (row.history) cls.push('row--history');
   const meta: string[] = [];
   if (row.priority === 'urgent') meta.push('Urgent');
@@ -179,8 +177,9 @@ function MessageRow(props: {
         <span class="time">{friendlyTime(createdAt(m))}</span>
       </span>
       <span class="row-title">
-        <Icon name={props.fyiDesign ? rowIcon : TYPE_ICON[type]}
-          class={props.fyiDesign && (answered || type === 'request' || type === 'error') ? `ic row-tile row-tile--${tile}` : 'ic'} />
+        <span class={tile ? `row-symbol row-tile row-tile--${tile}` : 'row-symbol'}>
+          <Icon name={rowIcon} />
+        </span>
         <span class="t">{title(m)}</span>
         {props.unread && <Icon name="flag-fill" class="flag flag--unread" />}
         {props.seen && <Icon name="check" class="seen" />}
@@ -193,14 +192,19 @@ function MessageRow(props: {
         {props.unread && <span class="visually-hidden">Unread chat reply</span>}
         {props.seen && <span class="visually-hidden">Seen</span>}
       </span>
+      {meta.length > 0 && (
+        <span class="row-meta">
+          {row.priority && <Icon name="flag-fill" />}
+          {meta.join(' · ')}
+        </span>
+      )}
       {body(m) && <span class="row-body">{body(m)}</span>}
-      {meta.length > 0 && <span class="row-meta label">{meta.join(' · ')}</span>}
     </button>
   );
 }
 
 /** A chat reply row: the agent answered in a message's chat. */
-function ReplyRowView(p: { row: ReplyRow; fyiDesign: boolean; quote: string | null; onOpen: () => void }) {
+function ReplyRowView(p: { row: ReplyRow; quote: string | null; onOpen: () => void }) {
   const { row } = p;
   const m = row.message;
   const sender = m ? senderLabel(m) : row.key.split('\u0000')[0];
@@ -217,13 +221,13 @@ function ReplyRowView(p: { row: ReplyRow; fyiDesign: boolean; quote: string | nu
   return (
     <button type="button" class={cls.join(' ')} onClick={p.onOpen} data-testid="reply-row">
       <span class="row-head">
-        <Icon name={p.fyiDesign ? 'row-chat' : 'chat'} class={p.fyiDesign ? 'reply-ic row-tile row-tile--chat' : 'reply-ic'} />
+        <Icon name="row-reply" class="reply-ic" />
         <span class="sender">
           Reply · {sender} · {parent}
         </span>
       </span>
       <span class="row-body reply-quote">{p.quote ?? ''}</span>
-      {meta.length > 0 && <span class="row-meta label">{meta.join(' · ')}</span>}
+      {meta.length > 0 && <span class="row-meta">{meta.join(' · ')}</span>}
     </button>
   );
 }

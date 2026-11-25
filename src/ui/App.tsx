@@ -1,5 +1,5 @@
-import heronNavy from '../brand/heron-navy.svg?no-inline';
-import heronMist from '../brand/heron-mist.svg?no-inline';
+import harklightNavy from '../brand/harklight-navy.svg?no-inline';
+import harklightMist from '../brand/harklight-mist.svg?no-inline';
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Config } from '../config';
@@ -316,7 +316,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const list = (
     <InboxList
       tab={tab}
-      fyiDesign={groupFyi}
       fyiSummary={groupFyi && (fyis.length > 0 || (tab === 'inbox' && s.morePages)) &&
         <FyiSummary tab={tab} items={fyis} incomplete={s.morePages} open={openFyi} />}
       entries={listEntries}
@@ -462,8 +461,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
         {fyiDetail || (detail ?? (
           <div class="nothing">
             <picture>
-              <source media="(prefers-color-scheme: light)" srcSet={heronNavy} />
-              <img src={heronMist} width="44" height="44" alt="" />
+              <source media="(prefers-color-scheme: light)" srcSet={harklightNavy} />
+              <img class="brand" src={harklightMist} width="190" height="45" alt="" />
             </picture>
             <span>Select a message</span>
           </div>
