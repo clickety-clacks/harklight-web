@@ -116,6 +116,7 @@ export interface Turn {
   /** event_id when known, else a local id. */
   id: string;
   seq: number | null;
+  postedAt?: number;
   kind: string;
   author: TurnAuthor;
   text: string;

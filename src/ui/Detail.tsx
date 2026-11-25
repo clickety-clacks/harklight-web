@@ -39,6 +39,7 @@ export interface DetailProps {
   canAct: boolean;
   onPrev: (() => void) | null;
   onNext: (() => void) | null;
+  backLabel?: string;
   onBack: (() => void) | null;
   onChat: () => void;
   onAnswer: (a: AnswerChoice) => void;
@@ -143,7 +144,7 @@ export function Detail(p: DetailProps) {
       <div class="detail-bar">
         <div class="bar-group">
           {p.onBack && (
-            <button type="button" class="tool tool--square" aria-label="Back to inbox" onClick={p.onBack}>
+            <button type="button" class="tool tool--square" aria-label={p.backLabel ?? 'Back to inbox'} onClick={p.onBack}>
               <Icon name="back" />
             </button>
           )}

@@ -176,7 +176,7 @@ function entriesOf(w, m) {
       entry_id,
       item_id: itemId,
       position: positionFor(w, itemId, entry_id),
-      at_ms: e.at_ms ?? 0,
+      ...(e.at_ms !== undefined ? { at_ms: e.at_ms } : {}),
       request_revision: e.request_revision ?? m.revision,
     };
     if (e.kind === 'availability') {
