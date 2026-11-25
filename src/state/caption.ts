@@ -21,10 +21,11 @@ function hasReply(turn: Turn, turns: Turn[]): boolean {
 
 /**
  * First match wins. The Server's own `delivered` and `acted` are not evidence
- * that the agent has the turn, except on a turn it marks `legacy_caption`.
- * Nothing here depends on the time.
+ * that the agent has the turn, except on a turn it marks `legacy_caption`
+ * (older Servers). A turn on which no receipt is expected (newer Servers) shows
+ * no caption until evidence arrives. Nothing here depends on the time.
  */
-export function captionOf(turn: Turn, turns: Turn[], availability: Availability): Caption {
+export function captionOf(turn: Turn, turns: Turn[], availability: Availability): Caption | null {
   const d = turn.delivery ?? {};
   const unreachable = availability === 'gone' || availability === 'unsupported';
   if (d.agent_seen || d.agent_acted || hasReply(turn, turns)) return DELIVERED;
@@ -33,6 +34,7 @@ export function captionOf(turn: Turn, turns: Turn[], availability: Availability)
     if (unreachable) return NO_ONE;
     return { text: d.reason?.trim() ? `Not delivered: ${d.reason}` : 'Not delivered', bad: true };
   }
+  if (d.receipt_expected === false) return null;
   if (d.ack2_expected === false) {
     if (d.listener_received) return DELIVERED;
   } else if (d.legacy_caption) {

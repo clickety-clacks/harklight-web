@@ -128,6 +128,16 @@ test('a message from before handoffs were recorded keeps its caption, and a late
   await expect(c).toHaveText('Delivered');
 });
 
+test('an old message no receipt will come for shows no caption, and a later outcome applies', async ({ page }) => {
+  const c = await sendChat(page, TEXT);
+  await set(page, { delivered: true, receipt_expected: false });
+  await expect(c).toHaveCount(0);
+  await set(page, { outcome: 'not_handed' });
+  await expect(c).toHaveText('Not delivered');
+  await set(page, { outcome: 'handed' });
+  await expect(c).toHaveText('Delivered');
+});
+
 test('before it is served, the caption follows whether the agent is there', async ({ page }) => {
   const c = await sendChat(page, TEXT);
   await control(page, 'availability', { title: TITLE, state: 'not_listening' });
