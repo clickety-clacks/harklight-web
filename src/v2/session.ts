@@ -20,6 +20,7 @@ import type { LocalAnswer, Store } from '../state/store';
 import type { ChatSend, HeldMessage, Json } from '../state/types';
 import { parseUi1Limits } from '../ui1/validate';
 import { ErrorLog, type ErrorDetails } from './errorLog';
+import { browserDeviceName, FocusReporter, type FocusScreen } from './focus';
 import { ApiError, call, NetworkError, newKey, seg, type ApiDeps, type Response2 } from './http';
 import { applyEntry, applyItem, applyRemoved, itemIdOf, keyOfItem, Model, viewOf, wantThread } from './model';
 import {
@@ -107,6 +108,7 @@ export class V2Session {
   readonly log: ErrorLog;
   private model = new Model();
   private api: ApiDeps;
+  private focus?: FocusReporter;
   /** The rev of the last change applied from the feed. */
   private cursor = 0;
   private feed: EventSourceLike | null = null;
@@ -204,10 +206,19 @@ export class V2Session {
     void this.baseline(false);
   }
 
-  stop(): void {
+  stop(): void | Promise<void> {
     this.stopped = true;
     this.left = true;
     this.closeFeed();
+    return this.focus?.signOut();
+  }
+
+  reportFocus(screen: FocusScreen): void {
+    if (!this.deps.config.flags.webClient || this.stopped || !this.store.state.loaded) return;
+    // Focus failures use the same private log without affecting the UI or feed.
+    const { base, fetch, log } = this.api;
+    this.focus ??= new FocusReporter({ base, fetch, log }, browserDeviceName(navigator.userAgent));
+    this.focus.update(screen);
   }
 
   /** Try now instead of waiting, for example when the network comes back. */
@@ -286,6 +297,7 @@ export class V2Session {
   private ended(): void {
     if (this.stopped) return;
     this.stopped = true;
+    this.focus?.dispose();
     this.closeFeed();
     this.store.update((s) => {
       s.connection = 'ended';

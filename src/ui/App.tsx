@@ -231,6 +231,14 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     setShowFyi(false);
   };
   const message = selected ? s.messages.get(selected) : undefined;
+  const chatVisible = !!message && chatWanted && !dropOnNarrow;
+  const focusItem = message?.v2?.item_id;
+  useEffect(() => {
+    if (!config.flags.webClient || !s.loaded) return;
+    if (page === 'settings') session.reportFocus?.({ screen: 'settings' });
+    else if (focusItem) session.reportFocus?.({ screen: chatVisible ? 'chat' : 'message', item_id: focusItem });
+    else session.reportFocus?.({ screen: 'inbox' });
+  }, [config.flags.webClient, s.loaded, page, focusItem, chatVisible, session]);
 
   // Report the open once the detail is on screen (D-2).
   useEffect(() => {
@@ -301,7 +309,6 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   }
 
   const phone = layout === 'phone';
-  const chatVisible = !!message && chatWanted && !dropOnNarrow;
   const sender = message ? senderLabel(message) : '';
   const fileHref = (id: string) => session.fileHref(id);
   const canWrite = session.canWrite(s);
