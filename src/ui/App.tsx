@@ -149,6 +149,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     if ((history.state as HistoryPane | null)?.fyi && !restoredFyi) {
       history.replaceState(null, '', location.href);
     }
+    // The first entry records its tab, so Back to it restores that tab.
+    const first = history.state as HistoryPane | null;
+    if (!first?.tab) history.replaceState({ ...first, tab: restoredFyi?.tab ?? 'inbox' }, '', location.href);
     window.addEventListener('popstate', on);
     return () => window.removeEventListener('popstate', on);
   }, []);
