@@ -391,11 +391,13 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
         m.revision += 1;
         return json(res, 200, { ok: true });
       }
+      case 'expire':
       case 'retract': {
-        // The origin retracts a message (by title); it stays listed and readable.
+        // End a message by title. Its detail stays readable.
         const m = [...world.messages.values()].find((x) => x.payload?.title === body.title);
         if (!m) return json(res, 404, { error: 'no message with that title' });
-        terminate(world, key(m.sender_id, m.message_id), { state: 'cleared', terminal_reason: 'retracted' });
+        const terminal = what === 'expire' ? { state: 'expired' } : { state: 'cleared', terminal_reason: 'retracted' };
+        terminate(world, key(m.sender_id, m.message_id), terminal);
         return json(res, 200, { ok: true });
       }
       case 'delivery': {

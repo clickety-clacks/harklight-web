@@ -799,3 +799,22 @@ test('review: Back from a Forward-revisited collapsed FYI Chat restores row focu
   await detail.getByRole('button', { name: 'Back to FYIs' }).click();
   await expect(row).toBeFocused();
 });
+
+test('opening an expired flag-only FYI from an ordinary row files it under Seen FYIs', async ({ page }) => {
+  await fake(page, 'reset');
+  const title = 'Expired flag-only FYI';
+  await sendFyi(page, 'expired-flag-only', title, null);
+  expect((await fake(page, 'expire', { title })).ok()).toBe(true);
+  const writes = seenWrites(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  const row = page.getByTestId('row').filter({ hasText: title });
+  await expect(row).toContainText('Expired');
+  await row.click();
+  await expect(page.getByText('This message expired.')).toBeVisible();
+  await expect.poll(() => writes).toEqual(['expired-flag-only seen']);
+  await tabTo(page, 'Replied');
+  await page.getByRole('button', { name: 'Open seen FYIs' }).click();
+  await expect(page.getByRole('button', { name: title, exact: true })).toBeVisible();
+  await expect(row).toHaveCount(0);
+});

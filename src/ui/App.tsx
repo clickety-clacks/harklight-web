@@ -4,8 +4,8 @@ import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Config } from '../config';
 import type { ClientSession } from '../client';
-import { onTab, entries as entriesFor, messageRows, type ListOrder, type ReplyRow, type Tab } from '../state/inbox';
-import { answerForm, isFyi, seenKeepsOpen, seenWithoutAnswer, senderLabel } from '../state/message';
+import { fyiTab, onTab, entries as entriesFor, messageRows, type ListOrder, type ReplyRow, type Tab } from '../state/inbox';
+import { answerForm, seenKeepsOpen, seenWithoutAnswer, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
 import type { Json, WireFile } from '../state/types';
 import { imageUrlFor } from './images';
@@ -284,7 +284,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   useEffect(() => {
     if (!message || page !== 'inbox' || viaReply) return;
     // In the FYI list, Seen is explicit even when opening the full message.
-    if (showFyi || (groupFyi && isFyi(message.payload))) session.readConversation(message);
+    if (showFyi || (groupFyi && selected && fyiTab(s, selected) !== null)) session.readConversation(message);
     else session.messageOpened(message);
   }, [message?.sender_id, message?.message_id, message?.revision, page, s.connection, viaReply, showFyi, groupFyi]);
 
