@@ -142,6 +142,11 @@
   justify-content: space-between;
   padding: 10px 8px 6px 16px;
 }
+.side-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .brand {
   display: block;
   height: auto;
@@ -1345,6 +1350,7 @@ a.grow:hover .grow-l {
   background: var(--panel);
 }
 
+.sort-button,
 .fyi-toolbar button,
 .fyi-item button.fyi-seen {
   display: inline-flex;
@@ -1376,6 +1382,7 @@ a.grow:hover .grow-l {
   font-weight: var(--type-sheet-title-weight);
 }
 
+.sort-button .icon,
 .fyi-toolbar .icon {
   width: 14px;
   height: 14px;

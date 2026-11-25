@@ -4,7 +4,7 @@ import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Config } from '../config';
 import type { ClientSession } from '../client';
-import { onTab, entries as entriesFor, rows as rowsFor, type ReplyRow, type Tab } from '../state/inbox';
+import { onTab, entries as entriesFor, messageRows, type ListOrder, type ReplyRow, type Tab } from '../state/inbox';
 import { answerForm, seenKeepsOpen, seenWithoutAnswer, senderLabel } from '../state/message';
 import { chatOpen, hasUnread, type State, type Store } from '../state/store';
 import type { Json, WireFile } from '../state/types';
@@ -69,6 +69,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const layout = useLayout();
   const [page, setPage] = useState<Page>(() => pageFromPath(location.pathname));
   const [tab, setTab] = useState<Tab>('inbox');
+  const [orders, setOrders] = useState<Record<Tab, ListOrder>>({ inbox: 'priority', replied: 'priority' });
   const [showFyi, setShowFyi] = useState(false);
   const restoreFyiFocus = useRef(false);
   const closingTab = useRef<Tab | null>(null);
@@ -171,8 +172,9 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const groupFyi = !!config.flags.fyiInbox;
   current.current = { tab, selected, split: layout !== 'phone', groupFyi };
   const fyis = useMemo(() => groupFyi ? fyiItems(s, tab) : [], [s, groupFyi, tab]);
-  const listEntries = useMemo(() => entriesFor(s, tab, groupFyi), [s, tab, groupFyi]);
-  const rows = useMemo(() => rowsFor(s, tab, groupFyi), [s, tab, groupFyi]);
+  const order = orders[tab];
+  const listEntries = useMemo(() => entriesFor(s, tab, groupFyi, order), [s, tab, groupFyi, order]);
+  const rows = useMemo(() => messageRows(listEntries), [listEntries]);
   useEffect(() => {
     if (groupFyi && s.loaded && page === 'inbox') void session.loadAllPages();
   }, [groupFyi, s.loaded, page, session]);
@@ -323,6 +325,8 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const list = (
     <InboxList
       tab={tab}
+      order={order}
+      onOrder={(next) => setOrders((previous) => ({ ...previous, [tab]: next }))}
       fyiSummary={groupFyi && (fyis.length > 0 || (tab === 'inbox' && s.morePages)) &&
         <FyiSummary tab={tab} items={fyis} incomplete={s.morePages} open={openFyi} />}
       entries={listEntries}

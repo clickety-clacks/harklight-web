@@ -249,6 +249,10 @@ export function createdAt(m: HeldMessage): number | null {
   return typeof m.payload.created_at === 'number' ? m.payload.created_at : null;
 }
 
+export function postedAt(m: HeldMessage): number | null {
+  return m.v2?.createdAt ?? createdAt(m);
+}
+
 /** Friendly time: today shows the time, then Yesterday, a weekday within a
  * week, else a short date. */
 export function friendlyTime(ms: number | null, now: Date = new Date()): string {

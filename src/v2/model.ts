@@ -133,6 +133,7 @@ function toTurn(e: Entry): Turn {
   return {
     id: e.entry_id,
     seq: e.position,
+    ...(e.at_ms !== undefined ? { postedAt: e.at_ms } : {}),
     kind,
     author: e.author,
     text: e.text ?? '',

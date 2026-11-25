@@ -1,12 +1,15 @@
 import harklightNavy from '../brand/harklight-navy.svg?no-inline';
 import harklightMist from '../brand/harklight-mist.svg?no-inline';
 import { useEffect, useRef } from 'preact/hooks';
-import type { Entry, ReplyRow, Row, Tab } from '../state/inbox';
-import { body, createdAt, friendlyTime, initials, messageType, senderLabel, title, TYPE_ICON } from '../state/message';
+import type { Entry, ListOrder, ReplyRow, Row, Tab } from '../state/inbox';
+import { body, friendlyTime, initials, messageType, postedAt, senderLabel, title, TYPE_ICON } from '../state/message';
 import { Icon } from './Icon';
+import { SortButton } from './SortButton';
 
 export function InboxList(props: {
   tab: Tab;
+  order: ListOrder;
+  onOrder: (order: ListOrder) => void;
   fyiSummary?: import('preact').ComponentChildren;
   entries: Entry[];
   selected: string | null;
@@ -62,9 +65,12 @@ export function InboxList(props: {
           <source media="(prefers-color-scheme: light)" srcSet={harklightNavy} />
           <img class="brand" src={harklightMist} width="126" height="30" alt="Harklight" />
         </picture>
-        <button type="button" class="icon-btn" aria-label="Settings" onClick={props.onSettings}>
-          <Icon name="gear" />
-        </button>
+        <div class="side-actions">
+          <SortButton order={props.order} onOrder={props.onOrder} />
+          <button type="button" class="icon-btn" aria-label="Settings" onClick={props.onSettings}>
+            <Icon name="gear" />
+          </button>
+        </div>
       </div>
       {!props.phone && tabs}
       <div
@@ -174,7 +180,7 @@ function MessageRow(props: {
           {initials(sender)}
         </span>
         <span class="sender">{sender}</span>
-        <span class="time">{friendlyTime(createdAt(m))}</span>
+        <span class="time">{friendlyTime(postedAt(m))}</span>
       </span>
       <span class="row-title">
         <span class={tile ? `row-symbol row-tile row-tile--${tile}` : 'row-symbol'}>
@@ -220,6 +226,7 @@ function ReplyRowView(p: { row: ReplyRow; quote: string | null; onOpen: () => vo
         <span class="sender">
           Reply · {sender} · {parent}
         </span>
+        {row.postedAt !== null && <time class="time">{friendlyTime(row.postedAt)}</time>}
       </span>
       <span class="row-body reply-quote">{p.quote ?? ''}</span>
       {meta.length > 0 && <span class="row-meta">{meta.join(' · ')}</span>}

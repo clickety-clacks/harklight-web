@@ -38,7 +38,7 @@ test('FYI preview, full list and Seen actions at phone width using the keyboard'
   const rows = page.locator('.fyi-open');
   await expect(rows.first()).toHaveAccessibleName('The hosting card expires next month');
   await expect(page.getByText('Renewals after December 1 will fail unless the card is replaced.')).toBeVisible();
-  await page.getByRole('button', { name: 'Sort: Priority' }).press('Space');
+  await page.getByRole('navigation', { name: 'FYI list controls' }).getByRole('button', { name: 'Sort: Priority' }).press('Space');
   await expect(rows.first()).toHaveAccessibleName('Quarterly report is ready');
   await expect(rows).toHaveCount(2);
   expect(writes).toEqual([]);
@@ -571,7 +571,7 @@ test('Mark All Seen skips a FYI that is retracted while it runs', async ({ page 
   await fake(page, 'hold-answers');
   const writes = seenWrites(page);
   await openFyis(page);
-  await page.getByRole('button', { name: 'Sort: Priority' }).click(); // newest first
+  await page.getByRole('navigation', { name: 'FYI list controls' }).getByRole('button', { name: 'Sort: Priority' }).click(); // newest first
   await page.getByRole('button', { name: 'Mark All Seen' }).click();
   await expect.poll(() => writes.length).toBeGreaterThan(0);
   const pending = ['First notice', 'Second notice', 'Quarterly report is ready', 'The hosting card expires next month'];
@@ -593,7 +593,7 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 650 });
     await page.goto('/inbox#preview');
     await page.getByRole('button', { name: /Open FYIs/ }).click();
-    await page.getByRole('button', { name: 'Sort: Priority' }).click();
+    await page.getByRole('navigation', { name: 'FYI list controls' }).getByRole('button', { name: 'Sort: Priority' }).click();
     const list = page.getByRole('main', { name: 'FYIs', exact: true });
     const row = list.locator('.fyi-open').last();
     await row.scrollIntoViewIfNeeded();
@@ -605,7 +605,7 @@ for (const width of [390, 1280]) {
     await expect(detail).toBeFocused();
     await page.getByRole('button', { name: 'Back to FYIs' }).press('Enter');
     await expect(row).toBeFocused();
-    await expect(page.getByRole('button', { name: 'Sort: Posted' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'FYI list controls' }).getByRole('button', { name: 'Sort: Posted' })).toBeVisible();
     expect(await list.evaluate((node) => node.scrollTop)).toBe(scroll);
     await page.goForward();
     await expect(detail).toBeFocused();
@@ -614,3 +614,63 @@ for (const width of [390, 1280]) {
     expect(await list.evaluate((node) => node.scrollTop)).toBe(scroll);
   });
 }
+
+test('main Inbox and Replied remember independent orders and keep their details', async ({ page }) => {
+  await fake(page, 'reset');
+  await fake(page, 'standard-order');
+  const titles = ['Older request', 'Newer request', 'Older answered', 'Newer answered'];
+  for (const [index, title] of titles.entries()) {
+    await fake(page, 'send', { message: { sender_id: 'agent:order', message_id: `sort-${index}`, title, message_type: 'request' } });
+    if (index >= 2) expect((await fake(page, 'answer-elsewhere', { title, text: 'Done' })).ok()).toBe(true);
+  }
+  await page.route(/\/v2\/inbox(?:\?|$)/, async (route) => {
+    const response = await route.fetch();
+    const json = await response.json();
+    for (const item of json.items) {
+      const index = titles.indexOf(item.message.title);
+      if (index < 0) continue;
+      item.rank.key = `000${index}`;
+      item.created_at_ms = 1000 * (index + 1);
+    }
+    await route.fulfill({ response, json });
+  });
+  const writes = seenWrites(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/inbox#preview');
+  const sidebar = page.getByRole('complementary', { name: 'Inbox' });
+  const sort = sidebar.getByRole('button', { name: /^Sort:/ });
+  const rows = sidebar.getByTestId('row').filter({ hasText: /(?:Older|Newer) (?:request|answered)/ });
+  const titlesInOrder = (first: string, second: string) =>
+    expect(rows.locator('.row-title .t')).toHaveText([first, second]);
+  const detail = (title: string) => page.locator('.detail').getByRole('heading', { name: title, exact: true });
+
+  await titlesInOrder('Older request', 'Newer request');
+  await sort.press('Space');
+  await expect(sort).toHaveAccessibleName('Sort: Posted');
+  await titlesInOrder('Newer request', 'Older request');
+  await rows.filter({ hasText: 'Newer request' }).click();
+  await expect(detail('Newer request')).toBeVisible();
+  await sort.click();
+  await expect(sort).toHaveAccessibleName('Sort: Priority');
+  await expect(detail('Newer request')).toBeVisible();
+  await rows.filter({ hasText: 'Older request' }).click();
+  await expect(detail('Older request')).toBeVisible();
+  await expect.poll(() => writes).toEqual(['sort-1 seen', 'sort-0 seen']);
+  await sort.click();
+
+  await tabTo(page, 'Replied');
+  await expect(sort).toHaveAccessibleName('Sort: Priority');
+  await titlesInOrder('Older answered', 'Newer answered');
+  await sort.click();
+  await titlesInOrder('Newer answered', 'Older answered');
+  await rows.filter({ hasText: 'Older answered' }).click();
+  await expect(detail('Older answered')).toBeVisible();
+
+  await tabTo(page, 'Inbox');
+  await expect(sort).toHaveAccessibleName('Sort: Posted');
+  await expect(detail('Older request')).toBeVisible();
+  await sort.click();
+  await tabTo(page, 'Replied');
+  await expect(sort).toHaveAccessibleName('Sort: Posted');
+  await expect(detail('Older answered')).toBeVisible();
+});

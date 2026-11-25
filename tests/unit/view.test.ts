@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { entries } from '../../src/state/inbox';
 import { messageType } from '../../src/state/message';
 import { initialState } from '../../src/state/store';
-import { applyItem, Model, viewOf } from '../../src/v2/model';
+import { applyEntry, applyItem, Model, viewOf, wantThread } from '../../src/v2/model';
 import type { Item } from '../../src/v2/wire';
 
 function item(id: string, rank: Item['rank'], over: Partial<Item> = {}): Item {
@@ -35,6 +35,29 @@ describe('inbox from the items’ rank', () => {
     applyItem(s, m, item('m3', { key: 'd', section: 'resolved' }, { terminal: { state: 'answered', at_ms: 1, answer: { kind: 'reply', text: 'x' } } }));
     s.view = viewOf(s);
     expect(entries(s, 'inbox').map(label)).toEqual(['message:m2', 'reply:m1', 'message:m1', '#History', 'message:m3']);
+  });
+
+  it('sorts the full projection by known posting times and keeps Priority order for ties and unknowns', () => {
+    const s = initialState();
+    const model = new Model();
+    const rank = (key: string) => ({ key, section: 'current' as const, group: 'common' as const });
+    applyItem(s, model, item('older', rank('a'), { created_at_ms: 20, thread: 'one' }));
+    applyItem(s, model, item('newer', rank('b'), { created_at_ms: 30, thread: 'one' }));
+    applyItem(s, model, item('tie', rank('c'), { message: { title: 'tie', created_at: 30 } }));
+    applyItem(s, model, item('unknown', rank('d'), {
+      chat: { available: true, started: true, last_origin_reply: 'reply-1', unread_replies: 1, reply_rank_key: 'e' },
+    }));
+    applyItem(s, model, item('history', { key: 'f', section: 'resolved' }, {
+      created_at_ms: 40, terminal: { state: 'answered', at_ms: 90 },
+    }));
+    wantThread(s, model.keyFor('unknown')!);
+    applyEntry(s, model, { entry_id: 'reply-1', item_id: 'unknown', rev: 1, position: 1,
+      kind: 'reply', author: 'origin', request_revision: 1, at_ms: 50 });
+    s.view = viewOf(s);
+    expect(entries(s, 'inbox').map(label)).toEqual(['thread', 'message:tie', 'message:unknown',
+      'reply:unknown', '#History', 'message:history']);
+    expect(entries(s, 'inbox', false, 'posted').map(label)).toEqual(['reply:unknown', 'message:history',
+      'message:newer', 'message:tie', 'message:older', 'message:unknown']);
   });
 
   it('without free order there are no headings, and the tabs split by membership', () => {

@@ -1,11 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { ClientSession } from '../client';
-import { fyiTab, type Tab } from '../state/inbox';
-import { body, createdAt, fyiSeen, friendlyTime, initials, messageType, senderLabel, title, TYPE_ICON } from '../state/message';
+import { fyiTab, type ListOrder, type Tab } from '../state/inbox';
+import { body, fyiSeen, friendlyTime, initials, messageType, postedAt, senderLabel, title, TYPE_ICON } from '../state/message';
 import type { State } from '../state/store';
-import type { HeldMessage } from '../state/types';
 import { compareCodePoints } from '../v2/model';
 import { Icon } from './Icon';
+import { SortButton } from './SortButton';
 
 /** One tab's FYIs: Inbox's are not marked Seen, Replied's are. */
 export function fyiItems(state: State, tab: Tab) {
@@ -20,10 +20,6 @@ export function fyiItems(state: State, tab: Tab) {
       failed: !!(local?.seen && local.state === 'failed'),
     }];
   });
-}
-
-function postedAt(message: HeldMessage) {
-  return message.v2?.createdAt ?? createdAt(message);
 }
 
 type Item = ReturnType<typeof fyiItems>[number];
@@ -61,7 +57,7 @@ export function FyiList(p: {
   close: () => void;
   openMessage: (key: string) => void;
 }) {
-  const [posted, setPosted] = useState(false);
+  const [order, setOrder] = useState<ListOrder>('priority');
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -79,7 +75,7 @@ export function FyiList(p: {
     // When Seen removed the row, the heading is the next stable focus target.
     (previous?.button.isConnected ? previous.button : heading.current)?.focus({ preventScroll: true });
   }, [p.active]);
-  const items = [...p.items].sort(posted ? byPosted :
+  const items = [...p.items].sort(order === 'posted' ? byPosted :
     (a, b) => level(b) - level(a) || (b.message.v2?.score ?? 0) - (a.message.v2?.score ?? 0) || byPosted(a, b));
   const unseen = p.tab === 'inbox' ? items : [];
   // Marking one Seen takes it off this list. Focus that was on it goes to the
@@ -116,9 +112,7 @@ export function FyiList(p: {
           <Icon name="fyi-back" />
         </button>
         <h1 id="fyi-title" tabIndex={-1} ref={heading}>{p.tab === 'inbox' ? 'FYIs' : 'Seen FYIs'}</h1>
-        <button type="button" aria-label={posted ? 'Sort: Posted' : 'Sort: Priority'} aria-pressed={posted} onClick={() => setPosted(!posted)}>
-          <Icon name="fyi-sort" />{posted ? 'Posted' : 'Priority'}
-        </button>
+        <SortButton order={order} onOrder={setOrder} />
         {p.tab === 'inbox' && (
           <button type="button" disabled={!p.canWrite || p.incomplete || marking || !unseen.length || unseen.some((item) => item.sending)} onClick={() => void markAll()}>
             Mark All Seen

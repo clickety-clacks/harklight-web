@@ -3,13 +3,14 @@
 // free-order section headings and thread groups, as the iPhone app draws it.
 // Without a view it falls back to open messages first, newest first.
 
-import { belongsToReplied, fyiSeen, isFyi, senderLabel, type Priority } from './message';
+import { belongsToReplied, fyiSeen, isFyi, postedAt, senderLabel, type Priority } from './message';
 import type { State } from './store';
 import type { HeldMessage } from './types';
 import { keyOf } from './types';
 import type { FreeSection, ListItem } from './view';
 
 export type Tab = 'inbox' | 'replied';
+export type ListOrder = 'priority' | 'posted';
 
 export interface MessageRow {
   type: 'message';
@@ -26,6 +27,7 @@ export interface ReplyRow {
   message: HeldMessage | undefined;
   conversationSeq: number;
   openAt: number;
+  postedAt: number | null;
   unseen: number;
   priority: Priority;
   historical: boolean;
@@ -102,17 +104,40 @@ function rowDetails(s: State) {
 
 /** Every row of a tab, flattened: the messages the detail can step through. */
 export function rows(s: State, tab: Tab, groupFyi = false): MessageRow[] {
+  return messageRows(entries(s, tab, groupFyi));
+}
+
+export function messageRows(list: Entry[]): MessageRow[] {
   const out: MessageRow[] = [];
-  for (const e of entries(s, tab, groupFyi)) {
+  for (const e of list) {
     if (e.type === 'message') out.push(e);
     if (e.type === 'thread') out.push(...e.members);
   }
   return out;
 }
 
-export function entries(s: State, tab: Tab, groupFyi = false): Entry[] {
+export function entries(s: State, tab: Tab, groupFyi = false, order: ListOrder = 'priority'): Entry[] {
   const items = s.view?.listItems;
-  return items ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox', groupFyi) : fallback(s, tab, groupFyi);
+  const priority = items
+    ? fromListItems(s, tab, items, s.view!.freeOrder && tab === 'inbox', groupFyi)
+    : fallback(s, tab, groupFyi);
+  if (order === 'priority') return priority;
+
+  // Chronological order spans the whole projection. Headings and thread
+  // groups belong to Priority; equal and undated rows stay in Server order.
+  const chronological = [];
+  for (const entry of priority) {
+    if (entry.type === 'heading') continue;
+    if (entry.type === 'thread') {
+      for (const row of entry.members) chronological.push({ row, at: postedAt(row.message) });
+    } else {
+      const at = entry.type === 'message' ? postedAt(entry.message) : entry.postedAt;
+      chronological.push({ row: entry, at });
+    }
+  }
+  return chronological
+    .sort((a, b) => (b.at ?? -Infinity) - (a.at ?? -Infinity))
+    .map(({ row }) => row);
 }
 
 function messageRow(s: State, key: string, m: HeldMessage, sc: ReturnType<typeof rowDetails>, history: boolean): MessageRow {
@@ -168,12 +193,17 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
     if (it.kind === 'message') {
       flat.push(messageRow(s, it.key, s.messages.get(it.key)!, sc, history));
     } else {
+      const message = s.messages.get(it.key);
+      const reply = s.threads.get(it.key)?.turns.find((turn) =>
+        it.conversationSeq > 0 ? turn.seq === it.conversationSeq : turn.id === message?.v2?.lastOriginReply
+      );
       flat.push({
         type: 'reply',
         key: it.key,
-        message: s.messages.get(it.key),
+        message,
         conversationSeq: it.conversationSeq,
         openAt: it.openAt,
+        postedAt: reply?.postedAt ?? null,
         unseen: it.unseen ?? 0,
         priority: it.priority,
         historical: it.historical,
