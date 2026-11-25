@@ -88,5 +88,15 @@ describe('which FYIs count as marked Seen', () => {
     expect(fyiSeen(held({}, true, 'reply'))).toBe(false);
     expect(fyiSeen(held({ ...action, progress: progress() }, true, 'reply'))).toBe(false);
     expect(fyiSeen(held({}, false))).toBe(false);
+    const ended = (payload: JsonObject, state: string, retracted = false, seen = true) =>
+      ({ ...held(payload, seen), terminal: { state, retracted, outcome: null } }) as unknown as HeldMessage;
+    for (const state of ['expired', 'cleared']) {
+      expect(fyiSeen(ended({}, state))).toBe(true);
+      expect(fyiSeen(ended({ ...action, progress: progress() }, state))).toBe(true);
+      expect(fyiSeen(ended(action, state))).toBe(false);
+      expect(fyiSeen(ended({}, state, false, false))).toBe(false);
+    }
+    expect(fyiSeen(ended({}, 'cleared', true))).toBe(false);
+    expect(fyiSeen(ended({ ...action, progress: progress() }, 'cleared', true))).toBe(false);
   });
 });
