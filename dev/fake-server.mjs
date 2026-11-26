@@ -344,7 +344,7 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
           };
           m.answerSpeaker = dana;
           world.sharedFixture = m;
-          world.sharedViewer = sam;
+          world.sharedViewer = body.viewer === 'answerer' ? dana : sam;
           syncV2(world);
         }
         world.sharedMessages = body.on === true;

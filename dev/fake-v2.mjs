@@ -240,11 +240,13 @@ function itemOf(w, m) {
   const readSeq = w.readPositions.get(key(m.sender_id, m.message_id));
   const readEv = readSeq === undefined ? null : conv.find((e) => e.conversation_seq === readSeq);
   const placed = placementOf(w, m);
-  const unread = conv.filter((e) => e.conversation_seq > (readSeq ?? 0) &&
-    ((e.kind === 'reply' && e.author !== 'server') || (m.shared && e.kind === 'discussion' && e.speaker?.id && e.speaker.id !== w.sharedViewer.id))).length;
+  const unreadOrigin = conv.filter((e) => e.conversation_seq > (readSeq ?? 0) && e.kind === 'reply' && e.author !== 'server').length;
+  const unreadPeople = m.shared ? conv.filter((e) => e.conversation_seq > (readSeq ?? 0) &&
+    e.kind === 'discussion' && e.speaker && e.speaker.id !== w.sharedViewer.id).length : 0;
+  const unread = unreadOrigin + unreadPeople;
   const terminal = terminalOf(w, m);
   if (terminal && m.answerSpeaker) Object.assign(terminal, {
-    speaker: m.answerSpeaker, answer_id: 'example-answer', by_this_person: false,
+    speaker: m.answerSpeaker, answer_id: 'example-answer', by_this_person: m.answerSpeaker.id === w.sharedViewer.id,
   });
   if (!firstSeen.has(m)) firstSeen.set(m, Date.now());
   return {
@@ -261,7 +263,7 @@ function itemOf(w, m) {
       read_position: readEv ? entryIdFor(w, readEv) : null,
       last_origin_reply: replies.length ? replies[replies.length - 1].entry_id : null,
       unread_replies: unread,
-      ...(unread > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey, reply_priority: { level: levelOf(m) } } : {}),
+      ...(unreadOrigin > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey, reply_priority: { level: levelOf(m) } } : {}),
     },
     created_at_ms: firstSeen.get(m),
     // The fake's effective thread is the message's own thread, when it has one.
@@ -346,6 +348,10 @@ export async function serveV2(req, res, url, w, ctx) {
   const method = req.method;
   // A signed-out browser gets 401 JSON on every /v2 path, never a redirect.
   if (!w.sessionLive) return fail(res, 401, 'unauthorized');
+  const requested = req.headers['harklight-features'];
+  if (p !== '/changes' && requested !== undefined && (requested !== 'shared_messages' || !w.sharedMessages)) {
+    return fail(res, 400, 'unsupported');
+  }
   // A paused account: 403 account_paused on every /v2 request but GET /v2/me.
   if (w.inactive && p !== '/me') return fail(res, 403, 'account_paused');
   const fault = v.internalError;
@@ -701,14 +707,27 @@ function changes(req, res, url, w) {
   const afterText = typeof lastId === 'string' && lastId !== '' ? lastId : (url.searchParams.get('after') ?? '0');
   const after = Number(afterText);
   if (!Number.isInteger(after) || after < 0) return fail(res, 400, 'invalid_field', { field: 'after' });
-  const shared = sharedEnabled(req, w);
-  const token = req.headers['harklight-continuation'];
+  const sse = String(req.headers.accept ?? '').includes('text/event-stream');
+  const features = req.headers['harklight-features'];
+  const continuation = req.headers['harklight-continuation'];
+  const queryFeatures = sse ? url.searchParams.getAll('features') : [];
+  const queryTokens = sse ? url.searchParams.getAll('continuation') : [];
+  if (queryFeatures.length > 1 || queryTokens.length > 1 ||
+      (queryFeatures.length && features !== undefined && features !== queryFeatures[0]) ||
+      (queryTokens.length && continuation !== undefined && continuation !== queryTokens[0])) {
+    return fail(res, 400, 'invalid_field');
+  }
+  const capability = queryFeatures[0] ?? features;
+  if (capability !== undefined && (capability !== 'shared_messages' || !w.sharedMessages)) {
+    return fail(res, 400, 'unsupported');
+  }
+  const shared = capability === 'shared_messages';
+  const token = queryTokens[0] ?? continuation;
   const baseline = v.continuations.get(token);
   if ((shared && (baseline === undefined || baseline > after)) || (!shared && token !== undefined)) {
     return fail(res, 410, 'cursor_expired');
   }
   if (after < v.floor) return fail(res, 410, 'cursor_expired');
-  const sse = String(req.headers.accept ?? '').includes('text/event-stream');
   if (!sse) {
     const limit = Math.min(Number(url.searchParams.get('limit') ?? 500) || 500, 500);
     const eligible = v.changes.filter((c) => c.rev > after && visibleChange(c, shared, w));

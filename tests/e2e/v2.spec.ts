@@ -343,17 +343,22 @@ test('a message with no agent conversation has no composer (Chat.available false
 
 test('shared chat names speakers, shows Seen and the answer, and clears scope on downgrade', async ({ page }) => {
   await control(page, 'shared-messages', { on: true });
-  const requests: { path: string; feature?: string; token?: string; after?: string | null }[] = [];
+  const requests: { path: string; feature?: string; token?: string; after?: string | null; queryFeature?: string | null; queryToken?: string | null; sse?: boolean }[] = [];
   page.on('request', (r) => {
-    const path = new URL(r.url()).pathname;
+    const { pathname: path, searchParams } = new URL(r.url());
     if (path.startsWith('/v2/')) requests.push({
       path, feature: r.headers()['harklight-features'], token: r.headers()['harklight-continuation'],
-      ...(path === '/v2/changes' ? { after: new URL(r.url()).searchParams.get('after') } : {}),
+      ...(path === '/v2/changes' ? {
+        after: searchParams.get('after'), queryFeature: searchParams.get('features'),
+        queryToken: searchParams.get('continuation'), sse: r.headers().accept === 'text/event-stream',
+      } : {}),
     });
   });
   await openInbox(page);
   await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toContainText('2 new');
   const seen = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/seen'));
+  await expect(row(page, 'Launch date')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Replied' }).click();
   await openRow(page, 'Launch date');
   expect((await seen).postDataJSON()).toEqual({ request_revision: 2 });
   await expect(page.getByLabel('Shared with')).toContainText('Dana · Seen');
@@ -369,13 +374,9 @@ test('shared chat names speakers, shows Seen and the answer, and clears scope on
   await expect(page.locator('.turn--me', { hasText: 'Checking the date' })).toContainText('You');
   await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toHaveCount(0);
   expect(requests.find((r) => r.path === '/v2/me')?.feature).toBeUndefined();
-  expect(requests.find((r) => r.path === '/v2/changes')).toMatchObject({ feature: 'shared_messages', token: expect.any(String) });
-  expect(requests.filter((r) => r.path !== '/v2/me').every((r) => r.feature === 'shared_messages')).toBe(true);
-  const initial = requests.find((r) => r.path === '/v2/changes');
-  const batch = page.waitForRequest((r) => new URL(r.url()).pathname === '/v2/changes' && r.headers().accept === 'application/json');
-  await control(page, 'drop-feeds');
-  expect((await batch).headers()['harklight-continuation']).toBe(initial?.token);
-  await expect.poll(() => requests.filter((r) => r.path === '/v2/changes').length).toBeGreaterThanOrEqual(3);
+  const firstFeed = requests.find((r) => r.sse);
+  expect(firstFeed).toMatchObject({ queryFeature: 'shared_messages', queryToken: expect.any(String), feature: undefined, token: undefined });
+  expect(requests.filter((r) => r.path !== '/v2/me' && !r.sse).every((r) => r.feature === 'shared_messages')).toBe(true);
 
   const legacyBaseline = page.waitForResponse((r) => new URL(r.url()).pathname === '/v2/inbox' && !r.request().headers()['harklight-features']);
   await control(page, 'shared-messages', { on: false, drop: true });
@@ -383,6 +384,7 @@ test('shared chat names speakers, shows Seen and the answer, and clears scope on
   await expect(row(page, 'Launch date')).toHaveCount(0);
   await expect.poll(() => requests.filter((r) => r.path === '/v2/changes').at(-1)).toEqual({
     path: '/v2/changes', feature: undefined, token: undefined, after: String(rev),
+    queryFeature: null, queryToken: null, sse: true,
   });
 });
 
@@ -402,10 +404,19 @@ test('feature off keeps legacy attribution and omits shared request headers', as
 
 test('a shared feed rejected with 410 uses a new baseline and continuation', async ({ page }) => {
   await control(page, 'shared-messages', { on: true });
-  const tokens: (string | undefined)[] = [];
+  const tokens: (string | null)[] = [];
+  const batches: { feature?: string; token?: string }[] = [];
   const feeds = /\/v2\/changes\?/;
   await page.route(feeds, async (route) => {
-    tokens.push(route.request().headers()['harklight-continuation']);
+    const headers = route.request().headers();
+    if (headers.accept !== 'text/event-stream') {
+      batches.push({ feature: headers['harklight-features'], token: headers['harklight-continuation'] });
+      if (batches.length === 1) {
+        await route.fulfill({ status: 410, json: { error: 'cursor_expired', retryable: false } });
+      } else await route.continue();
+      return;
+    }
+    tokens.push(new URL(route.request().url()).searchParams.get('continuation'));
     if (tokens.length === 1) {
       await route.fulfill({ status: 410, json: { error: 'cursor_expired', retryable: false } });
     } else {
@@ -413,10 +424,62 @@ test('a shared feed rejected with 410 uses a new baseline and continuation', asy
     }
   });
   await openInbox(page);
-  await expect(row(page, 'Launch date')).toBeVisible();
   await expect.poll(() => tokens.length).toBe(2);
   expect(tokens[0]).toBeTruthy();
   expect(tokens[1]).toBeTruthy();
   expect(tokens[1]).not.toBe(tokens[0]);
+  expect(batches).toEqual([{ feature: 'shared_messages', token: tokens[0] }]);
   await expect.poll(async () => (await control(page, 'state')).feeds).toBe(1);
+});
+
+
+test('the answerer also finds the settled shared message only in Replied', async ({ page }) => {
+  await control(page, 'shared-messages', { on: true, viewer: 'answerer' });
+  await openInbox(page);
+  await expect(row(page, 'Launch date')).toHaveCount(0);
+  await page.getByRole('tab', { name: 'Replied' }).click();
+  await openRow(page, 'Launch date');
+  await expect(page.getByTestId('answered')).toContainText('Answered by Dana');
+});
+
+test('shared native reconnect keeps the scoped URL and Last-Event-ID', async ({ page }) => {
+  await control(page, 'shared-messages', { on: true });
+  const urls: string[] = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname === '/v2/changes' && r.headers().accept === 'text/event-stream') urls.push(r.url());
+  });
+  await openInbox(page);
+  await control(page, 'send', { message: { sender_id: 'example:release', message_id: 'before-drop', title: 'Before the reconnect' } });
+  await expect(row(page, 'Before the reconnect')).toBeVisible();
+  await control(page, 'drop-feeds');
+  await expect.poll(() => urls.length, { timeout: 6000 }).toBe(2);
+  expect(urls[1]).toBe(urls[0]);
+  const after = Number(new URL(urls[0]).searchParams.get('after'));
+  await expect.poll(async () => (await control(page, 'state')).feedOpens.at(-1)).toMatchObject({
+    lastEventId: expect.any(String),
+  });
+  const resumed = (await control(page, 'state')).feedOpens.at(-1);
+  expect(resumed.after).toBe(Number(resumed.lastEventId));
+  expect(resumed.after).toBeGreaterThan(after);
+});
+
+test('the shared SSE fixture refuses duplicate aliases, conflicts and unavailable opt-in', async ({ page }) => {
+  await control(page, 'shared-messages', { on: true });
+  const shared = 'features=shared_messages&continuation=example';
+  for (const [query, headers] of [
+    [shared + '&features=shared_messages', {}],
+    [shared + '&continuation=example', {}],
+    [shared, { 'harklight-features': 'different' }],
+    [shared, { 'harklight-continuation': 'different' }],
+  ] as const) {
+    const response = await page.request.get(`/v2/changes?after=0&${query}`, {
+      headers: { accept: 'text/event-stream', ...headers },
+    });
+    expect(response.status()).toBe(400);
+    expect(await response.json()).toMatchObject({ error: 'invalid_field' });
+  }
+  await control(page, 'shared-messages', { on: false });
+  const response = await page.request.get(`/v2/changes?after=0&${shared}`, { headers: { accept: 'text/event-stream' } });
+  expect(response.status()).toBe(400);
+  expect(await response.json()).toMatchObject({ error: 'unsupported' });
 });

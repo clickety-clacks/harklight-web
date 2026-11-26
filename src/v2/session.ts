@@ -20,7 +20,6 @@ import type { LocalAnswer, Store } from '../state/store';
 import type { ChatSend, HeldMessage, Json } from '../state/types';
 import { parseUi1Limits } from '../ui1/validate';
 import { ErrorLog, type ErrorDetails } from './errorLog';
-import { SharedFeed } from './feed';
 import { browserDeviceName, FocusReporter, type FocusScreen } from './focus';
 import { ApiError, call, NetworkError, newKey, seg, type ApiDeps, type Response2 } from './http';
 import { applyEntry, applyItem, applyRemoved, isOwnEntry, itemIdOf, keyOfItem, Model, viewOf, wantThread } from './model';
@@ -508,7 +507,15 @@ export class V2Session {
   /** File limits for the chat's pre-check; 413 stays the authority. */
   private async readMe(): Promise<Me | null> {
     try {
-      const me = readMe((await this.get('/me', 'me')).body);
+      let response: Response2;
+      try {
+        response = await this.get('/me', 'me');
+      } catch (e) {
+        if (!this.sharedMessages || !(e instanceof ApiError) || e.token !== 'unsupported') throw e;
+        // An upgraded server may refuse the old opt-in after losing eligibility.
+        response = await call({ ...this.api, fetch: this.deps.fetch }, '/me', { op: 'me', automatic: true });
+      }
+      const me = readMe(response.body);
       if (!me) return null;
       this.store.update((s) => {
         // The answer-screen limits the Server publishes; the web's own generous set otherwise.
@@ -642,13 +649,19 @@ export class V2Session {
     f?.close();
   }
 
+  private feedUrl(): string {
+    const params = new URLSearchParams({ after: String(this.cursor) });
+    if (this.continuation) {
+      params.set('features', 'shared_messages');
+      params.set('continuation', this.continuation);
+    }
+    return `${this.api.base}/changes?${params}`;
+  }
+
   private openFeed(): void {
     if (this.stopped || this.feedFault) return;
     this.closeFeed();
-    const url = `${this.api.base}/changes?after=${this.cursor}`;
-    const es = this.continuation
-      ? new SharedFeed(this.api.fetch, url, this.continuation)
-      : this.deps.eventSource(url);
+    const es = this.deps.eventSource(this.feedUrl());
     this.feed = es;
     this.watchLiveness(es);
     es.onopen = () => {

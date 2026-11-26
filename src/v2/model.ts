@@ -233,11 +233,12 @@ export function viewOf(s: State): ServerView {
     if (v.group) grouped = true;
     const section: FreeSection = { state: v.section === 'resolved' ? 'history' : 'active', group: v.group ?? 'common' };
     rows.push({ sort: v.rankKey, tie: 1, key, item: { kind: 'message', key, section } });
-    if ((v.unreadReplies ?? 0) > 0 && (v.shared || v.lastOriginReply)) {
-      const turns = s.threads.get(key)?.turns;
-      const reply = v.shared
-        ? turns?.reduce<Turn | undefined>((last, t) => isIncomingReply(t) ? t : last, undefined)
-        : turns?.find((t) => t.id === v.lastOriginReply);
+    const turns = s.threads.get(key)?.turns;
+    const reply = turns?.find((t) => t.id === v.lastOriginReply);
+    const read = turns?.find((t) => t.id === v.readPosition)?.seq;
+    const originUnread = !v.shared || v.readPosition === null ||
+      (read != null && reply?.seq != null ? reply.seq > read : v.replyRankKey !== null);
+    if ((v.unreadReplies ?? 0) > 0 && v.lastOriginReply && originUnread) {
       const seq = reply?.seq ?? 0;
       rows.push({
         sort: v.replyRankKey ?? v.rankKey,
