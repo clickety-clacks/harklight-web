@@ -123,6 +123,8 @@ export class V2Session {
   private retry: (() => void) | null = null;
   private recovering = false;
   private baselining = false;
+  private discovering = false;
+  private pendingUpgrade: Me | null = null;
   private feedFault = false;
   private internalFaults = new Map<string, ApiError>();
   private requestErrors = new Map<string, ErrorDetails>();
@@ -206,8 +208,8 @@ export class V2Session {
   }
 
   /** Where a file is read from. */
-  fileHref(fileId: string): string | null {
-    if (this.sharedMessages) return null;
+  fileHref(fileId: string, shared = false): string | null {
+    if (shared) return null;
     return `${this.deps.config.apiPath}/files/${seg(fileId)}`;
   }
 
@@ -293,7 +295,10 @@ export class V2Session {
       }
       this.failedEntryReads.clear();
     }
-    if (operations.has('me')) void this.readMe();
+    if (operations.has('me')) {
+      if (this.sharedMessages) void this.readMe();
+      else void this.discoverLegacy();
+    }
   }
 
   private later(run: () => void): void {
@@ -414,11 +419,12 @@ export class V2Session {
     this.nextPage = null;
     this.closeFeed();
     try {
-      const me = discovered ?? await this.readMe();
+      const me = discovered ?? (this.sharedMessages ? await this.readMe() : null);
       if (this.stopped) return;
       if (this.sharedMessages && !me) throw new NetworkError('me');
       if (me && me.sharedMessages !== this.sharedMessages) {
         this.sharedMessages = me.sharedMessages;
+        this.retry = null;
         this.scopeGeneration++;
         this.cursor = 0;
         this.continuation = null;
@@ -497,11 +503,35 @@ export class V2Session {
       }
       this.loadReplyThreads();
       this.openFeed();
+      if (!this.sharedMessages && !me && !this.store.state.fileLimits) void this.discoverLegacy();
     } catch (e) {
       this.readFailed(e, () => void this.baseline(full));
     } finally {
       this.baselining = false;
+      this.upgradeIfReady();
     }
+  }
+
+  /** Legacy startup and reconnect do not depend on the discovery request. */
+  private async discoverLegacy(): Promise<void> {
+    if (this.discovering) return;
+    this.discovering = true;
+    try {
+      const me = await this.readMe();
+      if (!this.stopped && !this.sharedMessages && me?.sharedMessages) {
+        this.pendingUpgrade = me;
+        this.upgradeIfReady();
+      }
+    } finally {
+      this.discovering = false;
+    }
+  }
+
+  private upgradeIfReady(): void {
+    if (this.stopped || this.baselining || !this.pendingUpgrade) return;
+    const me = this.pendingUpgrade;
+    this.pendingUpgrade = null;
+    void this.baseline(true, me);
   }
 
   /** File limits for the chat's pre-check; 413 stays the authority. */
@@ -802,6 +832,7 @@ export class V2Session {
   private async recover(): Promise<void> {
     if (this.stopped || this.feedFault || this.recovering || this.baselining) return;
     this.recovering = true;
+    const generation = this.scopeGeneration;
     try {
       if (this.sharedMessages) {
         const me = await this.readMe();
@@ -814,6 +845,7 @@ export class V2Session {
         }
       }
       const r = await this.get(`/changes?after=${this.cursor}`, 'changes');
+      if (generation !== this.scopeGeneration || this.stopped) return;
       const b = r.body as { changes?: unknown; rev?: unknown } | null;
       const list = (Array.isArray(b?.changes) ? b!.changes : []).map(readBatchChange).filter((c): c is Change => c !== null);
       this.applyChanges(list);
@@ -822,6 +854,7 @@ export class V2Session {
       if (typeof b?.rev === 'number' && Number.isSafeInteger(b.rev) && b.rev > this.cursor) this.cursor = b.rev;
       this.openFeed();
     } catch (e) {
+      if (generation !== this.scopeGeneration) return;
       if (e instanceof ApiError && e.status === 410) {
         this.recovering = false;
         return void this.baseline(true);
@@ -864,7 +897,7 @@ export class V2Session {
   private async write(w: FrozenWrite, file?: { bytes: Blob; name: string }): Promise<Response2> {
     for (let busy = 0; ; busy++) {
       try {
-        const generation = this.scopeGeneration;
+        const generation = this.sharedMessages ? this.scopeGeneration : null;
         const response = await call(this.api, w.path, {
           op: w.op,
           method: w.method,
@@ -872,7 +905,7 @@ export class V2Session {
           ...(file ? { bytes: file.bytes, fileName: file.name } : { json: w.body }),
           idempotencyKey: w.key,
         });
-        if (generation !== this.scopeGeneration) throw new Ended();
+        if (generation !== null && generation !== this.scopeGeneration) throw new Ended();
         return response;
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {

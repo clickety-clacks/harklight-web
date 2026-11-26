@@ -374,9 +374,11 @@ test('shared chat names speakers, shows Seen and the answer, and clears scope on
   await expect(page.locator('.turn--me', { hasText: 'Checking the date' })).toContainText('You');
   await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toHaveCount(0);
   expect(requests.find((r) => r.path === '/v2/me')?.feature).toBeUndefined();
-  const firstFeed = requests.find((r) => r.sse);
+  const firstFeed = requests.find((r) => r.sse && r.queryFeature === 'shared_messages');
   expect(firstFeed).toMatchObject({ queryFeature: 'shared_messages', queryToken: expect.any(String), feature: undefined, token: undefined });
-  expect(requests.filter((r) => r.path !== '/v2/me' && !r.sse).every((r) => r.feature === 'shared_messages')).toBe(true);
+  const optIn = requests.findIndex((r) => r.path === '/v2/inbox' && r.feature === 'shared_messages');
+  expect(optIn).toBeGreaterThan(0);
+  expect(requests.slice(optIn).filter((r) => !r.sse).every((r) => r.feature === 'shared_messages')).toBe(true);
 
   const legacyBaseline = page.waitForResponse((r) => new URL(r.url()).pathname === '/v2/inbox' && !r.request().headers()['harklight-features']);
   await control(page, 'shared-messages', { on: false, drop: true });
@@ -416,7 +418,9 @@ test('a shared feed rejected with 410 uses a new baseline and continuation', asy
       } else await route.continue();
       return;
     }
-    tokens.push(new URL(route.request().url()).searchParams.get('continuation'));
+    const token = new URL(route.request().url()).searchParams.get('continuation');
+    if (!token) return route.continue();
+    tokens.push(token);
     if (tokens.length === 1) {
       await route.fulfill({ status: 410, json: { error: 'cursor_expired', retryable: false } });
     } else {
@@ -446,9 +450,11 @@ test('shared native reconnect keeps the scoped URL and Last-Event-ID', async ({ 
   await control(page, 'shared-messages', { on: true });
   const urls: string[] = [];
   page.on('request', (r) => {
-    if (new URL(r.url()).pathname === '/v2/changes' && r.headers().accept === 'text/event-stream') urls.push(r.url());
+    const url = new URL(r.url());
+    if (url.pathname === '/v2/changes' && url.searchParams.has('features') && r.headers().accept === 'text/event-stream') urls.push(r.url());
   });
   await openInbox(page);
+  await expect.poll(() => urls.length).toBe(1);
   await control(page, 'send', { message: { sender_id: 'example:release', message_id: 'before-drop', title: 'Before the reconnect' } });
   await expect(row(page, 'Before the reconnect')).toBeVisible();
   await control(page, 'drop-feeds');
@@ -482,4 +488,52 @@ test('the shared SSE fixture refuses duplicate aliases, conflicts and unavailabl
   const response = await page.request.get(`/v2/changes?after=0&${shared}`, { headers: { accept: 'text/event-stream' } });
   expect(response.status()).toBe(400);
   expect(await response.json()).toMatchObject({ error: 'unsupported' });
+});
+
+test('a held discovery leaves the legacy Inbox live, then upgrades without duplicate rows', async ({ page }) => {
+  await control(page, 'shared-messages', { on: true });
+  const release = Promise.withResolvers<void>();
+  const discovery = page.waitForRequest('**/v2/me');
+  await page.route('**/v2/me', async (route) => {
+    await release.promise;
+    await route.continue();
+  });
+  const feeds: URL[] = [];
+  page.on('request', (request) => {
+    if (request.headers().accept === 'text/event-stream') feeds.push(new URL(request.url()));
+  });
+  try {
+    await page.goto('/inbox');
+    await discovery;
+    const legacy = row(page, 'Which hotel should I book for Lisbon?');
+    await expect(legacy).toHaveCount(1);
+    await expect.poll(() => feeds.length).toBe(1);
+    expect(feeds[0].searchParams.has('features')).toBe(false);
+    await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toHaveCount(0);
+
+    release.resolve();
+    await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toHaveCount(1);
+    await expect(legacy).toHaveCount(1);
+    await expect.poll(() => feeds.length).toBe(2);
+    expect(feeds[1].searchParams.get('features')).toBe('shared_messages');
+    expect(feeds[1].searchParams.get('continuation')).toBeTruthy();
+  } finally {
+    release.resolve();
+  }
+});
+
+test('unshared attachments keep native download links after opting in', async ({ page }) => {
+  await control(page, 'shared-messages', { on: true });
+  await openInbox(page);
+  await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toBeVisible();
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  const file = page.locator('.chat input[type=file]');
+  await file.setInputFiles({ name: 'hotel.txt', mimeType: 'text/plain', buffer: Buffer.from('Hotel details') });
+  await page.getByRole('button', { name: 'Send message' }).click();
+  const link = page.getByRole('link', { name: 'Download', exact: true }).filter({ visible: true }).last();
+  await expect(link).toHaveAttribute('download', 'hotel.txt');
+  await expect(link).toHaveAttribute('href', /^\/v2\/files\//);
+  const downloaded = page.waitForEvent('download');
+  await link.click();
+  expect((await downloaded).suggestedFilename()).toBe('hotel.txt');
 });

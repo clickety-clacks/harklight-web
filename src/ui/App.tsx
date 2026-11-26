@@ -361,7 +361,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const phone = layout === 'phone';
   const sender = message ? senderLabel(message) : '';
-  const fileHref = (id: string) => session.fileHref(id);
+  const fileHref = (id: string) => session.fileHref(id, !!message?.v2?.shared);
   const canWrite = session.canWrite(s);
 
   const list = (
