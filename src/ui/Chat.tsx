@@ -1,3 +1,4 @@
+import { isIncomingReply, isOwnTurn } from '../v2/model';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { captionOf, type Caption } from '../state/caption';
 import type { ChatSend, HeldMessage, PickedFile, Thread } from '../state/types';
@@ -29,7 +30,7 @@ export interface ChatProps {
   onDiscard?: (opId: string) => void;
   onRemovePendingFile?: (opId: string, fileId: string) => void;
   onReplyVisible: (seq: number) => void;
-  fileHref: (uploadId: string) => string;
+  fileHref: (uploadId: string) => string | null;
 }
 
 export interface ChatDraft {
@@ -98,7 +99,7 @@ export function Chat(p: ChatProps) {
   useEffect(() => {
     const el = list.current;
     if (!el || typeof IntersectionObserver === 'undefined') {
-      for (const t of turns) if (t.kind === 'reply' && t.author !== 'person' && t.seq !== null) p.onReplyVisible(t.seq);
+      for (const t of turns) if (isIncomingReply(t) && t.seq !== null) p.onReplyVisible(t.seq);
       return;
     }
     const io = new IntersectionObserver(
@@ -116,6 +117,7 @@ export function Chat(p: ChatProps) {
   }, [turns.length, p.onReplyVisible]);
 
   const availability = p.message.v2?.availability ?? p.thread?.availability ?? null;
+  const closed = p.message.v2?.shared?.chat_writable === false;
   const away = availability === 'not_listening' || availability === 'gone';
   const shown = turns.filter((t) => t.kind === 'discussion' || t.kind === 'reply');
   const empty = shown.length === 0 && pending.length === 0;
@@ -153,27 +155,28 @@ export function Chat(p: ChatProps) {
       </header>
       <div class="turns" ref={list}>
         {!p.available && <p class="chat-empty">Chat is not available yet.</p>}
-        {p.available && !p.open && (
+        {p.available && closed && <p class="chat-empty">This chat is closed.</p>}
+        {p.available && !p.open && !closed && (
           <p class="chat-empty">
             <Icon name="chat" />
             {p.sender} did not open a chat for this message.
           </p>
         )}
-        {p.available && empty && p.open && (
+        {p.available && empty && p.open && !closed && (
           <p class="chat-empty">
             <Icon name="chat" />
             Ask {p.sender} about this message.
           </p>
         )}
         {shown.map((t) => {
-          const mine = t.author === 'person';
+          const mine = isOwnTurn(t);
           return (
             <div
               key={t.id}
               class={mine ? 'turn turn--me' : 'turn'}
-              data-seq={!mine && t.kind === 'reply' && t.seq !== null ? t.seq : undefined}
+              data-seq={isIncomingReply(t) && t.seq !== null ? t.seq : undefined}
             >
-              <span class="who">{mine ? 'You' : p.sender}</span>
+              <span class="who">{mine ? 'You' : (t.speaker?.display_name ?? p.sender)}</span>
               <span class="turn-text">{t.text}</span>
               {t.files.map((f, i) => (
                 <FileRow key={`${i}\u0000${f.name}`} file={f} download={p.attachments} fileHref={p.fileHref} />
@@ -226,7 +229,7 @@ export function Chat(p: ChatProps) {
           {p.sender} isn't listening right now. What you send is kept and delivered when it's back.
         </p>
       )}
-      {p.available && p.open && (
+      {p.available && p.open && !closed && (
         <div class="composer-wrap">
           {files.length > 0 && (
             <div class="pending-files">

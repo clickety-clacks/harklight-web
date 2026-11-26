@@ -224,7 +224,7 @@ function ReplyRowView(p: { row: ReplyRow; quote: string | null; onOpen: () => vo
       <span class="row-head">
         <Icon name="row-reply" class="reply-ic" />
         <span class="sender">
-          Reply · {sender} · {parent}
+          Reply · {row.speakerName ?? sender} · {parent}
         </span>
         {row.postedAt !== null && <time class="time">{friendlyTime(row.postedAt)}</time>}
       </span>

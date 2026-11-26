@@ -56,7 +56,31 @@ export interface Delivery {
   rerouted?: boolean;
 }
 
+export interface Speaker {
+  kind: 'person' | 'sender' | 'server';
+  id: string;
+  display_name: string;
+  handle?: string | null;
+}
+
+export interface SharedMember {
+  person: Speaker;
+  seen_revision: number | null;
+  seen_at_ms: number | null;
+}
+
+export interface SharedItem {
+  shared_id: string;
+  chat_writable: boolean;
+  can_answer: boolean;
+  answer_policy: { kind: 'first' | 'everyone' } | { kind: 'named'; people: string[] } | null;
+  members: SharedMember[];
+  answers: { person_id: string; terminal: Terminal }[];
+}
+
 export interface Terminal {
+  answer_id?: string;
+  speaker?: Speaker;
   state: TerminalState;
   at_ms: number;
   answer?: Answer;
@@ -65,6 +89,7 @@ export interface Terminal {
 }
 
 export interface Item {
+  shared?: SharedItem;
   item_id: string;
   rev: number;
   sender: string;
@@ -116,6 +141,8 @@ export interface OriginResult {
 }
 
 export interface Entry {
+  shared_entry_id?: string;
+  speaker?: Speaker;
   entry_id: string;
   item_id: string;
   rev: number;
@@ -136,6 +163,7 @@ export interface Entry {
 }
 
 export interface InboxPage {
+  continuation?: string;
   rev: number;
   items: Item[];
   next_page?: string;
@@ -262,15 +290,53 @@ function readFiles(v: unknown): FileRef[] {
   return v.map(readFileRef).filter((f): f is FileRef => f !== null);
 }
 
+function readSpeaker(value: unknown): Speaker | undefined {
+  const o = obj(value);
+  const speakerId = id(o?.id);
+  if (!o || !speakerId || typeof o.display_name !== 'string') return;
+  if (o.kind !== 'person' && o.kind !== 'sender' && o.kind !== 'server') return;
+  return {
+    kind: o.kind, id: speakerId, display_name: o.display_name,
+    ...(typeof o.handle === 'string' || o.handle === null ? { handle: o.handle } : {}),
+  };
+}
+
+function readShared(value: unknown): SharedItem | undefined {
+  const o = obj(value);
+  const sharedId = id(o?.shared_id);
+  if (!o || !sharedId || !Array.isArray(o.members) || !Array.isArray(o.answers)) return;
+  const policy = obj(o.answer_policy);
+  let answer_policy: SharedItem['answer_policy'] = null;
+  if (policy?.kind === 'first' || policy?.kind === 'everyone') answer_policy = { kind: policy.kind };
+  else if (policy?.kind === 'named' && Array.isArray(policy.people)) {
+    answer_policy = { kind: 'named', people: policy.people.map(id).filter((person): person is string => !!person) };
+  }
+  const members = o.members.flatMap((value): SharedMember[] => {
+    const member = obj(value);
+    const person = readSpeaker(member?.person);
+    return person ? [{ person, seen_revision: int(member?.seen_revision, 1), seen_at_ms: int(member?.seen_at_ms, 0) }] : [];
+  });
+  const answers = o.answers.flatMap((value): SharedItem['answers'] => {
+    const row = obj(value);
+    const person_id = id(row?.person_id);
+    const terminal = readTerminal(row?.terminal);
+    return person_id && terminal?.speaker ? [{ person_id, terminal }] : [];
+  });
+  return { shared_id: sharedId, chat_writable: o.chat_writable === true, can_answer: o.can_answer === true, answer_policy, members, answers };
+}
+
 export function readTerminal(v: unknown): Terminal | null {
   const o = obj(v);
   if (!o || !TERMINAL.includes(o.state as TerminalState)) return null;
   const answer = readAnswer(o.answer);
+  const speaker = o.state === 'answered' ? readSpeaker(o.speaker) : undefined;
+  const answer_id = id(o.answer_id);
   return {
     state: o.state as TerminalState,
     at_ms: int(o.at_ms, 0) ?? 0,
     ...(answer ? { answer } : {}),
     by_this_person: o.by_this_person === true,
+    ...(speaker && answer_id ? { speaker, answer_id } : {}),
   };
 }
 
@@ -310,11 +376,13 @@ export function readItem(v: unknown): Item | null {
   const replyLevel = readLevel(replyPriority?.level);
   const replyScore = readScore(replyPriority?.score);
   const rankScore = readScore(rank.score);
+  const shared = readShared(o.shared);
   return {
     item_id,
     rev,
     sender: o.sender,
     request_revision,
+    ...(shared ? { shared } : {}),
     message: message as JsonObject,
     files: readFiles(o.files),
     seen: o.seen === true,
@@ -356,10 +424,13 @@ export function readEntry(v: unknown): Entry | null {
   if (!author) return null;
   const state = o.state === 'active' || o.state === 'withdrawn' || o.state === 'retracted' ? o.state : undefined;
   const delivery = readDelivery(o.delivery);
+  const speaker = readSpeaker(o.speaker);
+  const shared_entry_id = id(o.shared_entry_id);
   const result = o.kind === 'result' ? readResult(o.result) : undefined;
   return {
     ...(result ? { result } : {}),
     entry_id,
+    ...(speaker && shared_entry_id ? { speaker, shared_entry_id } : {}),
     item_id,
     rev,
     position,
@@ -383,6 +454,7 @@ export function readInboxPage(v: unknown): InboxPage | null {
   if (!o || rev === null || !Array.isArray(o.items)) return null;
   return {
     rev,
+    ...(id(o.continuation) ? { continuation: o.continuation as string } : {}),
     items: o.items.map(readItem).filter((i): i is Item => i !== null),
     ...(id(o.next_page) ? { next_page: o.next_page as string } : {}),
   };
@@ -438,6 +510,8 @@ export function readBatchChange(v: unknown): Change | null {
 
 /** What GET /v2/me says about this person's account and limits. */
 export interface Me {
+  sharedMessages: boolean;
+  personId: string | null;
   paused: boolean;
   /** Per-file upload cap in bytes, or null for none. */
   uploadCap: number | null;
@@ -454,6 +528,8 @@ export function readMe(v: unknown): Me | null {
   const caps: Record<string, number> = {};
   for (const [k, n] of Object.entries(ui ?? {})) if (int(n, 0) !== null) caps[k] = n as number;
   return {
+    sharedMessages: obj(o.features)?.shared_messages === true,
+    personId: id(obj(o.principal)?.person_id),
     paused: obj(o.account)?.state === 'paused',
     uploadCap: int(cap, 0),
     inlineBudget: int(limits.inline_decoded_bytes_per_entry, 0) ?? 0,

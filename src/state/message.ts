@@ -177,8 +177,8 @@ export function progressFinished(payload: JsonObject): boolean {
  * updates. Progress that offers Seen and is not finished is marked Seen
  * without one.
  */
-export function seenKeepsOpen(m: { payload: JsonObject; terminal: unknown }): boolean {
-  return !m.terminal && isProgress(m.payload) && seenValue(m.payload) !== null && !progressFinished(m.payload);
+export function seenKeepsOpen(m: { payload: JsonObject; terminal: unknown; v2?: HeldMessage['v2'] }): boolean {
+  return !m.terminal && (m.v2?.shared?.answer_policy === null || (isProgress(m.payload) && seenValue(m.payload) !== null && !progressFinished(m.payload)));
 }
 
 /**
@@ -192,12 +192,12 @@ export function fyiSeen(m: HeldMessage): boolean {
   if (m.terminal?.outcome?.kind === 'seen') return true;
   const t = m.terminal;
   if (t && (t.retracted || (t.state !== 'cleared' && t.state !== 'expired'))) return false;
-  return !!m.v2?.seen && (seenValue(m.payload) === null || isProgress(m.payload));
+  return !!m.v2?.seen && (m.v2?.shared?.answer_policy === null || seenValue(m.payload) === null || isProgress(m.payload));
 }
 
 /** Progress the person has marked Seen without ending it, finished since or not: nothing is left to mark. */
 export function seenWithoutAnswer(m: HeldMessage): boolean {
-  return !m.terminal && isProgress(m.payload) && seenValue(m.payload) !== null && !!m.v2?.seen;
+  return !m.terminal && (m.v2?.shared?.answer_policy === null || (isProgress(m.payload) && seenValue(m.payload) !== null)) && !!m.v2?.seen;
 }
 
 export function messageType(payload: JsonObject): MessageType {

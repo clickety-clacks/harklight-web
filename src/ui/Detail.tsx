@@ -48,7 +48,7 @@ export interface DetailProps {
   onRetry: () => void;
   /** Turn a failed written answer back into a draft; the next send is new. */
   onEdit: () => void;
-  fileHref: (uploadId: string) => string;
+  fileHref: (uploadId: string) => string | null;
 }
 
 export function Detail(p: DetailProps) {
@@ -86,7 +86,9 @@ export function Detail(p: DetailProps) {
   // Only an answer the Server took may speak for the message; a refused one
   // (say, the phone answered first) never shows as the answer.
   const kept = local?.state === 'accepted' ? local : undefined;
-  const open = m.terminal === null && !answered && !seenDone && !ended;
+  const shared = m.v2?.shared;
+  const canRespond = !shared || shared.answer_policy === null || shared.can_answer;
+  const open = canRespond && m.terminal === null && !answered && !seenDone && !ended;
   // A line only when the reason is not already visible where they tapped:
   // once the message shows its own closed or retracted state, it says why.
   const refusalLine = refused && m.terminal === null ? (REFUSAL_TEXT[refused] ?? REFUSAL_TEXT.closed) : null;
@@ -220,6 +222,13 @@ export function Detail(p: DetailProps) {
       <div class="detail-scroll">
         <div class="detail-body">
           <MessageHeading message={m} timestamp={createdAt(m)} />
+          {!!shared?.members.length && (
+            <ul class="shared-members" aria-label="Shared with">
+              {shared.members.map(({ person, seen_revision }) => (
+                <li key={person.id}>{person.display_name} · {seen_revision === m.revision ? 'Seen' : 'Unseen'}</li>
+              ))}
+            </ul>
+          )}
           <MessageContent message={m} attachments={p.attachments} fileHref={p.fileHref} />
 
           {m.terminal?.retracted && <p class="msg-note">The sender retracted this message.</p>}
@@ -232,6 +241,7 @@ export function Detail(p: DetailProps) {
 
           {answered && (
             <AnsweredCard
+              by={m.terminal?.speaker?.display_name}
               text={
                 m.terminal?.state === 'no_comment' || kept?.noComment
                   ? 'No comment'
@@ -239,6 +249,13 @@ export function Detail(p: DetailProps) {
               }
             />
           )}
+          {shared?.answers.filter(({ terminal }) => terminal.answer_id !== m.terminal?.answerId).map(({ terminal }) => (
+            <AnsweredCard
+              key={terminal.answer_id}
+              by={terminal.speaker?.display_name}
+              text={terminal.answer?.label ?? terminal.answer?.text ?? (terminal.answer?.kind === 'no_comment' ? 'No comment' : 'Answered')}
+            />
+          ))}
           {seenDone && (
             <span class="tool tool--seen seen-under seen-done" data-testid="seen-done">
               <Icon name="check" />
@@ -553,13 +570,14 @@ const REFUSAL_TEXT: Record<string, string> = {
 };
 
 /** A confirmed answer: the check and what was answered, with no heading. */
-function AnsweredCard(p: { text: string }) {
+function AnsweredCard(p: { text: string; by?: string }) {
+  const text = p.by ? `Answered by ${p.by}${p.text === 'Answered' ? '' : ` · ${p.text}`}` : p.text;
   return (
     <div class="answered" data-testid="answered">
       <span class="an-check" role="img" aria-label="Answered">
         <Icon name="check" />
       </span>
-      <div class="an-text">{p.text}</div>
+      <div class="an-text">{text}</div>
     </div>
   );
 }

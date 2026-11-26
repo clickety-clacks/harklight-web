@@ -54,6 +54,7 @@ function v2State(w) {
       downloadableUploads: new Map(), // download FileRef id -> upload
       inlineFiles: new Map(), // file id -> {bytes, name}
       feeds: new Set(),
+      continuations: new Map(),
       removed: new Set(),
       failFeeds: 0,
     };
@@ -160,6 +161,20 @@ function positionFor(w, itemId, entryId) {
 }
 
 /** The item's entries, without rev, in creation order. */
+function sharedEnabled(req, w) {
+  return w.sharedMessages && req.headers['harklight-features'] === 'shared_messages';
+}
+
+function fixtureSpeaker(w, m, entry) {
+  if (entry.speaker) return entry.speaker;
+  if (entry.author === 'person') return w.sharedViewer;
+  return { kind: 'sender', id: m.sender_id, display_name: 'Release team' };
+}
+
+function visibleChange(change, shared, w) {
+  return shared || !w.sharedFixture || change.data.item_id !== itemIdOf(w.sharedFixture);
+}
+
 function entriesOf(w, m) {
   const itemId = itemIdOf(m);
   const conv = convOf(w, m);
@@ -188,11 +203,12 @@ function entriesOf(w, m) {
     out.push({
       ...base,
       kind: 'reply',
-      author: person ? 'person' : 'origin',
+      author: e.author === 'server' ? 'server' : person ? 'person' : 'origin',
       text: e.text ?? '',
       ...(files.length ? { files } : {}),
       ...(!person && e.in_reply_to ? { in_reply_to: `en_${e.in_reply_to}` } : {}),
       state: e.state ?? 'active',
+      ...(m.shared ? { shared_entry_id: `shared_${entry_id}`, speaker: fixtureSpeaker(w, m, e) } : {}),
       ...(person ? { delivery: { delivered: delivered.has(e.event_id), acted: false, ...e.delivery } } : {}),
     });
   }
@@ -224,7 +240,14 @@ function itemOf(w, m) {
   const readSeq = w.readPositions.get(key(m.sender_id, m.message_id));
   const readEv = readSeq === undefined ? null : conv.find((e) => e.conversation_seq === readSeq);
   const placed = placementOf(w, m);
-  const unread = conv.filter((e) => e.kind === 'reply' && e.conversation_seq > (readSeq ?? 0)).length;
+  const unreadOrigin = conv.filter((e) => e.conversation_seq > (readSeq ?? 0) && e.kind === 'reply' && e.author !== 'server').length;
+  const unreadPeople = m.shared ? conv.filter((e) => e.conversation_seq > (readSeq ?? 0) &&
+    e.kind === 'discussion' && e.speaker && e.speaker.id !== w.sharedViewer.id).length : 0;
+  const unread = unreadOrigin + unreadPeople;
+  const terminal = terminalOf(w, m);
+  if (terminal && m.answerSpeaker) Object.assign(terminal, {
+    speaker: m.answerSpeaker, answer_id: 'example-answer', by_this_person: m.answerSpeaker.id === w.sharedViewer.id,
+  });
   if (!firstSeen.has(m)) firstSeen.set(m, Date.now());
   return {
     item_id: itemIdOf(m),
@@ -240,13 +263,14 @@ function itemOf(w, m) {
       read_position: readEv ? entryIdFor(w, readEv) : null,
       last_origin_reply: replies.length ? replies[replies.length - 1].entry_id : null,
       unread_replies: unread,
-      ...(unread > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey, reply_priority: { level: levelOf(m) } } : {}),
+      ...(unreadOrigin > 0 && placed.replyKey ? { reply_rank_key: placed.replyKey, reply_priority: { level: levelOf(m) } } : {}),
     },
     created_at_ms: firstSeen.get(m),
     // The fake's effective thread is the message's own thread, when it has one.
     ...(typeof m.payload.thread === 'string' ? { thread: m.payload.thread } : {}),
     ...(m.session_handle ? { availability: { state: m.availability ?? 'listening' } } : {}),
-    terminal: terminalOf(w, m),
+    terminal,
+    ...(m.shared ? { shared: m.shared } : {}),
     rank: placed.rank,
   };
 }
@@ -324,6 +348,10 @@ export async function serveV2(req, res, url, w, ctx) {
   const method = req.method;
   // A signed-out browser gets 401 JSON on every /v2 path, never a redirect.
   if (!w.sessionLive) return fail(res, 401, 'unauthorized');
+  const requested = req.headers['harklight-features'];
+  if (p !== '/changes' && requested !== undefined && (requested !== 'shared_messages' || !w.sharedMessages)) {
+    return fail(res, 400, 'unsupported');
+  }
   // A paused account: 403 account_paused on every /v2 request but GET /v2/me.
   if (w.inactive && p !== '/me') return fail(res, 403, 'account_paused');
   const fault = v.internalError;
@@ -375,24 +403,36 @@ export async function serveV2(req, res, url, w, ctx) {
         answer_ui_limits: PUBLISHED_UI1_LIMITS,
         retention_days: 30,
       },
-      features: { server_matched_push_routing: true, priority_level_editing: true },
+      features: { server_matched_push_routing: true, priority_level_editing: true,
+        ...(w.sharedMessages !== undefined ? { shared_messages: w.sharedMessages } : {}) },
+      ...(w.sharedViewer ? { principal: { kind: 'person', person_id: w.sharedViewer.id } } : {}),
     });
   }
   if (method === 'GET' && p === '/inbox') {
-    const items = [...w.messages.values()].map((m) => withRev(w, itemIdOf(m), itemOf(w, m)));
+    const shared = sharedEnabled(req, w);
+    const items = [...w.messages.values()].filter((m) => shared || !m.shared).map((m) => withRev(w, itemIdOf(m), itemOf(w, m)));
     items.sort((a, b) => (a.rank.key < b.rank.key ? -1 : a.rank.key > b.rank.key ? 1 : 0));
     const limit = Math.min(Number(url.searchParams.get('limit') ?? INBOX_PAGE) || INBOX_PAGE, 200);
-    const at = Number(url.searchParams.get('page') ?? 0);
+    const token = url.searchParams.get('page');
+    const prefix = 'shared:';
+    if (token && token.startsWith(prefix) !== !!shared) return fail(res, 410, 'cursor_expired');
+    const at = Number(token ? (shared ? token.slice(prefix.length) : token) : 0);
     const page = items.slice(at, at + limit);
+    const continuation = shared ? randomUUID() : null;
+    if (continuation) v.continuations.set(continuation, v.rev);
     return send(res, 200, {
       rev: v.rev,
       items: page,
+      ...(continuation ? { continuation } : {}),
       counts: { unresolved: items.filter((i) => !i.terminal).length },
-      ...(items.length > at + limit ? { next_page: String(at + limit) } : {}),
+      ...(items.length > at + limit ? { next_page: (shared ? prefix : '') + (at + limit) } : {}),
     });
   }
   if (method === 'GET' && p.startsWith('/files/')) {
     const id = decodeURIComponent(p.slice('/files/'.length));
+    if (!sharedEnabled(req, w) && w.sharedFixture?.files.some((f) => fileRef(w, f).file_id === id)) {
+      return fail(res, 404, 'not_found');
+    }
     const up = v.downloadableUploads.get(id);
     const inline = v.inlineFiles.get(id);
     const bytes = up?.bytes ?? inline?.bytes;
@@ -425,7 +465,7 @@ export async function serveV2(req, res, url, w, ctx) {
   const m = /^\/items\/([^/]+)(\/[a-z-]+(?:\/[0-9]+)?)?$/.exec(p);
   if (!m) return fail(res, 404, 'not_found');
   const item = findItem(w, decodeURIComponent(m[1]));
-  if (!item) return fail(res, 404, 'not_found');
+  if (!item || (item.shared && !sharedEnabled(req, w))) return fail(res, 404, 'not_found');
   const k = key(item.sender_id, item.message_id);
   const sub = m[2] ?? '';
   if (method === 'GET' && sub === '') return send(res, 200, { rev: v.rev, item: withRev(w, itemIdOf(item), itemOf(w, item)) });
@@ -461,7 +501,14 @@ export async function serveV2(req, res, url, w, ctx) {
 
   if (method === 'POST' && sub === '/seen') {
     return idempotent(req, res, w, raw, () => {
-      if (Object.keys(body).length) return [400, { error: 'invalid_field', retryable: false }];
+      if (item.shared) {
+        if (Object.keys(body).length !== 1 || !Number.isInteger(body.request_revision)) {
+          return [400, { error: 'invalid_field', retryable: false }];
+        }
+        if (body.request_revision !== item.revision) return [409, { error: 'stale_request', retryable: false }];
+        item.shared = { ...item.shared, members: item.shared.members.map((member) => member.person.id === w.sharedViewer.id
+          ? { ...member, seen_revision: item.revision, seen_at_ms: member.seen_at_ms ?? Date.now() } : member) };
+      } else if (Object.keys(body).length) return [400, { error: 'invalid_field', retryable: false }];
       item.seenRevision = item.revision;
       w.opens = (w.opens ?? 0) + 1;
       return [200, done()];
@@ -470,7 +517,7 @@ export async function serveV2(req, res, url, w, ctx) {
   if (method === 'PUT' && sub === '/read-position') {
     const keys = Object.keys(body);
     if (keys.length !== 1 || typeof body.entry_id !== 'string') return fail(res, 400, 'invalid_field', { field: 'entry_id' });
-    const ev = convOf(w, item).find((e) => e.kind === 'reply' && entryIdFor(w, e) === body.entry_id);
+    const ev = convOf(w, item).find((e) => (e.kind === 'reply' || (item.shared && e.kind === 'discussion')) && entryIdFor(w, e) === body.entry_id);
     if (!ev) return fail(res, 400, 'invalid_field', { field: 'entry_id' });
     const cur = w.readPositions.get(k) ?? 0;
     if (ev.conversation_seq > cur) ctx.readTo(k, ev.conversation_seq);
@@ -660,12 +707,32 @@ function changes(req, res, url, w) {
   const afterText = typeof lastId === 'string' && lastId !== '' ? lastId : (url.searchParams.get('after') ?? '0');
   const after = Number(afterText);
   if (!Number.isInteger(after) || after < 0) return fail(res, 400, 'invalid_field', { field: 'after' });
-  if (after < v.floor) return fail(res, 410, 'cursor_expired');
   const sse = String(req.headers.accept ?? '').includes('text/event-stream');
+  const features = req.headers['harklight-features'];
+  const continuation = req.headers['harklight-continuation'];
+  const queryFeatures = sse ? url.searchParams.getAll('features') : [];
+  const queryTokens = sse ? url.searchParams.getAll('continuation') : [];
+  if (queryFeatures.length > 1 || queryTokens.length > 1 ||
+      (queryFeatures.length && features !== undefined && features !== queryFeatures[0]) ||
+      (queryTokens.length && continuation !== undefined && continuation !== queryTokens[0])) {
+    return fail(res, 400, 'invalid_field');
+  }
+  const capability = queryFeatures[0] ?? features;
+  if (capability !== undefined && (capability !== 'shared_messages' || !w.sharedMessages)) {
+    return fail(res, 400, 'unsupported');
+  }
+  const shared = capability === 'shared_messages';
+  const token = queryTokens[0] ?? continuation;
+  const baseline = v.continuations.get(token);
+  if ((shared && (baseline === undefined || baseline > after)) || (!shared && token !== undefined)) {
+    return fail(res, 410, 'cursor_expired');
+  }
+  if (after < v.floor) return fail(res, 410, 'cursor_expired');
   if (!sse) {
     const limit = Math.min(Number(url.searchParams.get('limit') ?? 500) || 500, 500);
-    const list = v.changes.filter((c) => c.rev > after).slice(0, limit);
-    const more = v.changes.some((c) => c.rev > (list.at(-1)?.rev ?? after));
+    const eligible = v.changes.filter((c) => c.rev > after && visibleChange(c, shared, w));
+    const list = eligible.slice(0, limit);
+    const more = eligible.length > list.length;
     // rev is the position the batch is complete through: past its last change
     // when the rest of the log is rows with nothing to send.
     return send(res, 200, { changes: list, rev: more ? list[list.length - 1].rev : Math.max(v.rev, after), more });
@@ -685,8 +752,9 @@ function changes(req, res, url, w) {
       if (this.muted) return;
       for (const c of v.changes) {
         if (c.rev <= this.sent) continue;
-        res.write(`id: ${c.rev}\nevent: ${c.kind}\ndata: ${JSON.stringify(c.data)}\n\n`);
         this.sent = c.rev;
+        if (!visibleChange(c, shared, w)) continue;
+        res.write(`id: ${c.rev}\nevent: ${c.kind}\ndata: ${JSON.stringify(c.data)}\n\n`);
       }
     },
     close(reason) {
@@ -714,6 +782,10 @@ function changes(req, res, url, w) {
 export function v2Control(w, what, body) {
   const v = v2State(w);
   switch (what) {
+    case 'change-shared-scope':
+      v.continuations.clear();
+      for (const f of [...v.feeds]) body.drop ? f.drop() : f.close('cursor_expired');
+      return true;
     case 'expire-cursor': {
       // Cursors from before now are past retention: the next resume gets 410.
       // With `remove`, that message is removed first, so no tab sees the

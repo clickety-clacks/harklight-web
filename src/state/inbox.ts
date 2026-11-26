@@ -28,6 +28,7 @@ export interface ReplyRow {
   conversationSeq: number;
   openAt: number;
   postedAt: number | null;
+  speakerName?: string;
   unseen: number;
   priority: Priority;
   historical: boolean;
@@ -162,8 +163,9 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
     if (it.kind === 'message') {
       const m = s.messages.get(it.key);
       if (!m || !visible(m) || (groupFyi && fyiTab(s, it.key) !== null)) continue;
-      // An FYI answered some other way is in Replied only, History or not.
-      if (groupFyi && tab === 'inbox' && isFyi(m.payload) && inReplied(s, it.key)) continue;
+      // Shared settlements and FYIs answered some other way belong to Replied,
+      // even when the Server's free-order Inbox includes resolved items.
+      if (tab === 'inbox' && (m.v2?.shared || (groupFyi && isFyi(m.payload))) && inReplied(s, it.key)) continue;
       if (!freeOrder && (tab === 'replied') !== inReplied(s, it.key)) continue;
     } else {
       if (it.unseen === null) continue;
@@ -204,6 +206,7 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
         conversationSeq: it.conversationSeq,
         openAt: it.openAt,
         postedAt: reply?.postedAt ?? null,
+        ...(reply?.speaker ? { speakerName: reply.speaker.display_name } : {}),
         unseen: it.unseen ?? 0,
         priority: it.priority,
         historical: it.historical,

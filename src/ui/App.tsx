@@ -1,3 +1,4 @@
+import { DownloadBytes } from './FileRow';
 import heronNavy from '../brand/heron-navy.svg?no-inline';
 import heronMist from '../brand/heron-mist.svg?no-inline';
 import type { ComponentChildren } from 'preact';
@@ -320,7 +321,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
   const needsAnswer = useCallback(
     (k: string) => {
       const m = s.messages.get(k);
-      return !!m && m.terminal === null && answerForm(m.payload).kind !== 'seen';
+      return !!m && m.terminal === null && m.v2?.shared?.can_answer !== false && answerForm(m.payload).kind !== 'seen';
     },
     [s],
   );
@@ -360,7 +361,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
 
   const phone = layout === 'phone';
   const sender = message ? senderLabel(message) : '';
-  const fileHref = (id: string) => session.fileHref(id);
+  const fileHref = (id: string) => session.fileHref(id, !!message?.v2?.shared);
   const canWrite = session.canWrite(s);
 
   const list = (
@@ -455,7 +456,7 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
       available={s.chatAvailable}
       attachments={config.flags.attachments}
       uploadCap={s.fileLimits?.cap ?? null}
-      canSend={canWrite && chatOpen(thread, message)}
+      canSend={canWrite && chatOpen(thread, message) && message.v2?.shared?.chat_writable !== false}
       paused={s.connection === 'inactive'}
       column={panel}
       draft={drafts.current.get(selected!) ?? { text: '', files: [] }}
@@ -491,36 +492,41 @@ export function App(props: { config: Config; store: Store; session: ClientSessio
     </ChatModal>
   );
 
+  const downloadBytes = (id: string) => session.downloadBytes?.(id);
   if (phone) {
     return (
-      <div class="app app--phone">
-        {banner}
-        {fyiList}
-        {message ? detail : !fyiList && list}
-        {modal}
-      </div>
+      <DownloadBytes.Provider value={downloadBytes}>
+        <div class="app app--phone">
+          {banner}
+          {fyiList}
+          {message ? detail : !fyiList && list}
+          {modal}
+        </div>
+      </DownloadBytes.Provider>
     );
   }
 
   return (
-    <div class={`app app--${layout}${chatVisible && panel ? ' app--chat' : ''}`}>
-      {list}
-      <div class="main-col">
-        {banner}
-        {fyiList}
-        {detail || (!fyiList && (
-          <div class="nothing">
-            <picture>
-              <source media="(prefers-color-scheme: light)" srcSet={heronNavy} />
-              <img src={heronMist} width="44" height="44" alt="" />
-            </picture>
-            <span>Select a message</span>
-          </div>
-        ))}
+    <DownloadBytes.Provider value={downloadBytes}>
+      <div class={`app app--${layout}${chatVisible && panel ? ' app--chat' : ''}`}>
+        {list}
+        <div class="main-col">
+          {banner}
+          {fyiList}
+          {detail || (!fyiList && (
+            <div class="nothing">
+              <picture>
+                <source media="(prefers-color-scheme: light)" srcSet={heronNavy} />
+                <img src={heronMist} width="44" height="44" alt="" />
+              </picture>
+              <span>Select a message</span>
+            </div>
+          ))}
+        </div>
+        {chatVisible && panel && <div class="chat-col">{chat}</div>}
+        {modal}
       </div>
-      {chatVisible && panel && <div class="chat-col">{chat}</div>}
-      {modal}
-    </div>
+    </DownloadBytes.Provider>
   );
 }
 

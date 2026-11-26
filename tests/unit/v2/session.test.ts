@@ -158,7 +158,8 @@ describe('client API v2 session', () => {
     await until(() => h.sources.length >= 2 && h.store.state.connection === 'connected');
     expect([...h.store.state.messages.values()].some((m) => m.payload.title === 'Quarterly report is ready')).toBe(false);
     expect(h.store.state.messages.size).toBe(5);
-    // Held conversations are read again.
+    // Held conversations are read again independently of the feed reopening.
+    await until(() => h.store.state.threads.get(LISBON)?.turns.length === 3);
     expect(h.store.state.threads.get(LISBON)?.turns.length).toBe(3);
     expect(h.requests.filter((r) => r.url.includes('/v2/inbox')).length).toBeGreaterThanOrEqual(2);
     h.s.stop();
@@ -212,12 +213,13 @@ describe('client API v2 session', () => {
     await post('hold-answers');
     void h.s.answer(lisbon, 'plaza', 'Lisboa Plaza', { control: 'plaza' });
     await until(() => h.store.state.answers.get(LISBON)?.state === 'sending');
-    // The connection drops with the answer in flight: the outcome is unknown.
+    // Drop after the server has accepted the request into its hold queue.
+    await expect.poll(async () => (await fakeState()).heldAnswers).toBe(1);
     await post('drop');
     await until(() => h.store.state.answers.get(LISBON)?.state === 'failed');
     expect(h.store.state.answers.get(LISBON)?.reason).toBe('connection');
     // The resend (once the feed is back) waits at the Server behind the first.
-    await until(() => h.requests.filter((r) => r.url.endsWith('/answer')).length === 2);
+    await expect.poll(async () => (await fakeState()).heldAnswers).toBe(2);
     // The Server applies the first; the resend gets the stored response, replayed.
     await post('release-answers');
     await until(() => h.store.state.answers.get(LISBON)?.state === 'accepted');
