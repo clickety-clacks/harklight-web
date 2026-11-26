@@ -1,7 +1,7 @@
 # Harklight web client
 
-Read and answer your Harklight messages in the browser: the inbox, an open
-message, answering (choices, your own reply, Seen and No comment), chat with
+Harklight's attention-based UI in the browser: read and answer your messages,
+with the message list, an open message, answering (choices, your own reply, Seen and No comment), chat with
 files, live updates, settings and sign out. It works in light and dark, at
 desktop, tablet and phone widths.
 
