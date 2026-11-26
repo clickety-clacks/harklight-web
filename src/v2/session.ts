@@ -20,9 +20,10 @@ import type { LocalAnswer, Store } from '../state/store';
 import type { ChatSend, HeldMessage, Json } from '../state/types';
 import { parseUi1Limits } from '../ui1/validate';
 import { ErrorLog, type ErrorDetails } from './errorLog';
+import { SharedFeed } from './feed';
 import { browserDeviceName, FocusReporter, type FocusScreen } from './focus';
 import { ApiError, call, NetworkError, newKey, seg, type ApiDeps, type Response2 } from './http';
-import { applyEntry, applyItem, applyRemoved, itemIdOf, keyOfItem, Model, viewOf, wantThread } from './model';
+import { applyEntry, applyItem, applyRemoved, isOwnEntry, itemIdOf, keyOfItem, Model, viewOf, wantThread } from './model';
 import {
   CHANGE_KINDS,
   readBatchChange,
@@ -36,6 +37,7 @@ import {
   readWriteResult,
   type Change,
   type InboxPage,
+  type Me,
   type WriteResult,
 } from './wire';
 
@@ -95,8 +97,8 @@ class Ended extends Error {}
  * same text from another device, so only the send's own response, replay or
  * failure does.
  */
-function markLookalike(s: import('../state/store').State, key: string | undefined, e: import('./wire').Entry): void {
-  if (!key || e.kind !== 'reply' || e.author !== 'person') return;
+function markLookalike(s: import('../state/store').State, key: string | undefined, e: import('./wire').Entry, personId: string | null): void {
+  if (!key || e.kind !== 'reply' || !isOwnEntry(e, personId)) return;
   if (s.chatSends.some((c) => c.lookalike === e.entry_id)) return;
   const i = s.chatSends.findIndex(
     (c) => c.key === key && c.state === 'sending' && !c.lookalike && c.text === (e.text ?? '') && c.files.length === (e.files?.length ?? 0),
@@ -111,6 +113,9 @@ export class V2Session {
   private focus?: FocusReporter;
   /** The rev of the last change applied from the feed. */
   private cursor = 0;
+  private sharedMessages = false;
+  private continuation: string | null = null;
+  private scopeGeneration = 0;
   private feed: EventSourceLike | null = null;
   private nextPage: string | null = null;
   private paging: Promise<boolean> | null = null;
@@ -118,6 +123,7 @@ export class V2Session {
   private attempt = 0;
   private retry: (() => void) | null = null;
   private recovering = false;
+  private baselining = false;
   private feedFault = false;
   private internalFaults = new Map<string, ApiError>();
   private requestErrors = new Map<string, ErrorDetails>();
@@ -144,7 +150,9 @@ export class V2Session {
     this.log = deps.log ?? new ErrorLog();
     this.api = {
       base: `${deps.origin ?? ''}${deps.config.apiPath}`,
-      fetch: deps.fetch,
+      fetch: (input, init) => deps.fetch(input, this.sharedMessages
+        ? { ...init, headers: { ...init?.headers, 'harklight-features': 'shared_messages' } }
+        : init),
       log: this.log,
       internalFaults: this.internalFaults,
       onInternalError: (key, details) => {
@@ -193,8 +201,14 @@ export class V2Session {
     return result.body as ArrayBuffer;
   }
 
+  /** Native download links cannot carry the feature header. */
+  downloadBytes(id: string): Promise<ArrayBuffer> {
+    return call(this.api, `/files/${seg(id)}`, { op: 'download_file', responseBytes: true }).then((result) => result.body as ArrayBuffer);
+  }
+
   /** Where a file is read from. */
-  fileHref(fileId: string): string {
+  fileHref(fileId: string): string | null {
+    if (this.sharedMessages) return null;
     return `${this.deps.config.apiPath}/files/${seg(fileId)}`;
   }
 
@@ -328,7 +342,7 @@ export class V2Session {
       return;
     }
     try {
-      const me = readMe((await this.get('/me', 'me')).body);
+      const me = await this.readMe();
       if (me && !me.paused) {
         this.pausePolling = false;
         this.stopped = false;
@@ -380,7 +394,7 @@ export class V2Session {
   // ---------- snapshot ----------
 
   private async get(path: string, op: string): Promise<Response2> {
-    return call(this.api, path, { op, automatic: true });
+    return call(this.api, path, { op, automatic: true, continuation: op === 'changes' ? this.continuation ?? undefined : undefined });
   }
 
   private async inboxPage(page: string | null): Promise<InboxPage> {
@@ -395,11 +409,44 @@ export class V2Session {
    * page, drops what no page holds, and reads the held conversations again
    * (after the cursor expired, spec section 5.1).
    */
-  private async baseline(full: boolean): Promise<void> {
-    if (this.stopped) return;
+  private async baseline(full: boolean, discovered?: Me): Promise<void> {
+    if (this.stopped || this.baselining) return;
+    this.baselining = true;
+    this.nextPage = null;
     this.closeFeed();
     try {
+      const me = discovered ?? await this.readMe();
+      if (this.stopped) return;
+      if (this.sharedMessages && !me) throw new NetworkError('me');
+      if (me && me.sharedMessages !== this.sharedMessages) {
+        this.sharedMessages = me.sharedMessages;
+        this.scopeGeneration++;
+        this.cursor = 0;
+        this.continuation = null;
+        this.nextPage = null;
+        this.entriesGeneration++;
+        this.internalFaults.clear();
+        if (this.store.state.loaded) {
+          full = true;
+          this.store.update((s) => {
+            for (const [key, message] of s.messages) {
+              if (!message.v2?.shared) continue;
+              s.messages.delete(key);
+              s.threads.delete(key);
+              s.answers.delete(key);
+              s.chatSends = s.chatSends.filter((send) => send.key !== key);
+              this.answerWaiting.delete(key);
+            }
+            s.view = viewOf(s);
+            s.morePages = false;
+          });
+        }
+      }
+      if (me) this.model.personId = me.personId;
       const first = await this.inboxPage(null);
+      if (this.sharedMessages && !first.continuation) {
+        throw new ApiError(200, 'unknown', null, false, null, null);
+      }
       const pages = [first];
       if (full) {
         let next = first.next_page ?? null;
@@ -442,6 +489,7 @@ export class V2Session {
       this.nextPage = full ? null : (first.next_page ?? null);
       // Anything that changed between pages has a change after the first
       // page's rev, so the feed delivers it.
+      this.continuation = this.sharedMessages ? first.continuation! : null;
       this.cursor = first.rev;
       if (full) {
         for (const [key, reloadFull] of reloadThreads) {
@@ -450,24 +498,26 @@ export class V2Session {
       }
       this.loadReplyThreads();
       this.openFeed();
-      if (!this.store.state.fileLimits) void this.readMe();
     } catch (e) {
       this.readFailed(e, () => void this.baseline(full));
+    } finally {
+      this.baselining = false;
     }
   }
 
   /** File limits for the chat's pre-check; 413 stays the authority. */
-  private async readMe(): Promise<void> {
+  private async readMe(): Promise<Me | null> {
     try {
       const me = readMe((await this.get('/me', 'me')).body);
-      if (!me) return;
+      if (!me) return null;
       this.store.update((s) => {
         // The answer-screen limits the Server publishes; the web's own generous set otherwise.
         const ui1 = parseUi1Limits(me.answerUiLimits);
         s.fileLimits = { inline: me.inlineBudget, cap: me.uploadCap, ...(ui1 ? { ui1 } : {}) };
       });
+      return me;
     } catch {
-      // The upload's own answer still says when a file is too large.
+      return null;
     }
   }
 
@@ -475,10 +525,12 @@ export class V2Session {
   async loadMore(): Promise<boolean> {
     if (this.paging) return this.paging;
     const page = this.nextPage;
-    if (!page || this.stopped) return false;
+    if (!page || this.stopped || this.baselining) return false;
+    const generation = this.scopeGeneration;
     this.paging = (async () => {
       try {
         const p = await this.inboxPage(page);
+        if (generation !== this.scopeGeneration || this.nextPage !== page) return false;
         this.nextPage = p.next_page ?? null;
         this.store.update((s) => {
           for (const item of p.items) applyItem(s, this.model, item);
@@ -488,6 +540,7 @@ export class V2Session {
         return this.nextPage !== page;
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) this.ended();
+        if (e instanceof ApiError && e.status === 410 && this.sharedMessages && generation === this.scopeGeneration) void this.baseline(true);
         // Otherwise the next scroll or explicit retry asks again.
         return false;
       } finally {
@@ -527,7 +580,7 @@ export class V2Session {
         this.failedEntryReads.delete(key);
         this.store.update((s) => {
           // Only the newest page can hold a turn a pending send looks like.
-          for (const e of page.entries) if (applyEntry(s, this.model, e) && before === null) markLookalike(s, key, e);
+          for (const e of page.entries) if (applyEntry(s, this.model, e) && before === null) markLookalike(s, key, e, this.model.personId);
           s.view = viewOf(s);
         });
         if (!page.older || page.entries.length === 0) return;
@@ -547,8 +600,10 @@ export class V2Session {
   }
 
   private async refreshItem(key: string): Promise<void> {
+    const generation = this.scopeGeneration;
     try {
       const r = await this.get(`/items/${seg(itemIdOf(key))}`, 'item');
+      if (generation !== this.scopeGeneration) return;
       const item = readItem((r.body as { item?: unknown } | null)?.item);
       if (item) this.applyItems([item]);
     } catch {
@@ -574,7 +629,7 @@ export class V2Session {
     if (!w) return;
     this.store.update((s) => {
       if (w.item) applyItem(s, this.model, w.item);
-      if (w.entry && applyEntry(s, this.model, w.entry)) markLookalike(s, this.model.keyFor(w.entry.item_id), w.entry);
+      if (w.entry && applyEntry(s, this.model, w.entry)) markLookalike(s, this.model.keyFor(w.entry.item_id), w.entry, this.model.personId);
       s.view = viewOf(s);
     });
   }
@@ -590,7 +645,10 @@ export class V2Session {
   private openFeed(): void {
     if (this.stopped || this.feedFault) return;
     this.closeFeed();
-    const es = this.deps.eventSource(`${this.api.base}/changes?after=${this.cursor}`);
+    const url = `${this.api.base}/changes?after=${this.cursor}`;
+    const es = this.continuation
+      ? new SharedFeed(this.api.fetch, url, this.continuation)
+      : this.deps.eventSource(url);
     this.feed = es;
     this.watchLiveness(es);
     es.onopen = () => {
@@ -664,7 +722,7 @@ export class V2Session {
       if (reason === 'cursor_expired') return void this.baseline(true);
       // server_shutdown, storage_unavailable (and any other): reopen from the
       // cursor after a backoff; nothing is re-read.
-      this.later(() => this.openFeed());
+      this.later(() => this.continuation ? void this.recover() : this.openFeed());
     });
   }
 
@@ -686,7 +744,10 @@ export class V2Session {
       this.store.update((s) => {
         s.connection = 'reconnecting';
       });
-      this.openFeed();
+      if (this.continuation) {
+        this.closeFeed();
+        void this.recover();
+      } else this.openFeed();
     };
     this.timer(check, window);
   }
@@ -710,7 +771,7 @@ export class V2Session {
           }
         } else if (c.kind === 'entry') {
           const e = readEntry(c.data);
-          if (e && applyEntry(s, this.model, e)) markLookalike(s, this.model.keyFor(e.item_id), e);
+          if (e && applyEntry(s, this.model, e)) markLookalike(s, this.model.keyFor(e.item_id), e, this.model.personId);
         }
         // counts and settings: nothing the web client draws.
       }
@@ -726,9 +787,19 @@ export class V2Session {
    * full). Otherwise its changes are applied and the feed reopens after them.
    */
   private async recover(): Promise<void> {
-    if (this.stopped || this.feedFault || this.recovering) return;
+    if (this.stopped || this.feedFault || this.recovering || this.baselining) return;
     this.recovering = true;
     try {
+      if (this.sharedMessages) {
+        const me = await this.readMe();
+        if (this.stopped) return;
+        if (!me) {
+          // The batch can still tell us if the browser session has ended.
+          if (!this.continuation) return void this.baseline(true);
+        } else if (!me.sharedMessages || !this.continuation) {
+          return void this.baseline(true, me);
+        }
+      }
       const r = await this.get(`/changes?after=${this.cursor}`, 'changes');
       const b = r.body as { changes?: unknown; rev?: unknown } | null;
       const list = (Array.isArray(b?.changes) ? b!.changes : []).map(readBatchChange).filter((c): c is Change => c !== null);
@@ -780,13 +851,16 @@ export class V2Session {
   private async write(w: FrozenWrite, file?: { bytes: Blob; name: string }): Promise<Response2> {
     for (let busy = 0; ; busy++) {
       try {
-        return await call(this.api, w.path, {
+        const generation = this.scopeGeneration;
+        const response = await call(this.api, w.path, {
           op: w.op,
           method: w.method,
           automatic: (w.op === 'seen' && !w.explicit) || w.op === 'read_position',
           ...(file ? { bytes: file.bytes, fileName: file.name } : { json: w.body }),
           idempotencyKey: w.key,
         });
+        if (generation !== this.scopeGeneration) throw new Ended();
+        return response;
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           this.ended();
@@ -819,7 +893,7 @@ export class V2Session {
     const id = `${key}\u0000${m.revision}`;
     if (m.v2.seen || this.seenSent.has(id)) return;
     this.seenSent.add(id);
-    const w: FrozenWrite = { type: 'v2', op: 'seen', method: 'POST', path: `/items/${seg(m.v2.item_id)}/seen`, body: {}, key: newKey() };
+    const w: FrozenWrite = { type: 'v2', op: 'seen', method: 'POST', path: `/items/${seg(m.v2.item_id)}/seen`, body: m.v2.shared ? { request_revision: m.revision } : {}, key: newKey() };
     void this.enqueue(key, async () => {
       try {
         const r = await this.write(w);
@@ -869,7 +943,7 @@ export class V2Session {
     }
     const w: FrozenWrite = {
       type: 'v2', op: 'seen', method: 'POST', path: `/items/${seg(current.v2.item_id)}/seen`,
-      body: {}, key: newKey(), explicit: true,
+      body: current.v2.shared ? { request_revision: current.revision } : {}, key: newKey(), explicit: true,
     };
     this.store.update((s) => {
       s.answers.set(key, { state: 'sending', label: null, seen: true, noComment: false, control: 'seen', resend: w });
@@ -886,7 +960,7 @@ export class V2Session {
     body: Record<string, unknown>,
     what: { label: string | null; seen: boolean; noComment: boolean; control: string; text?: string; draft?: unknown },
   ): Promise<void> {
-    if (!m.v2) return;
+    if (!m.v2 || m.v2.shared?.can_answer === false) return;
     const key = keyOfItem({ sender: m.sender_id, item_id: m.v2.item_id });
     const w: FrozenWrite = { type: 'v2', op: 'answer', method: 'POST', path: `/items/${seg(m.v2.item_id)}/answer`, body, key: newKey() };
     this.store.update((s) => {
@@ -935,7 +1009,7 @@ export class V2Session {
         this.applyWrite(readWriteResult(r.body));
         // Progress keeps its Seen on the item, which the agent may change again.
         const m = this.store.state.messages.get(key);
-        if (w.op === 'seen' && m && isProgress(m.payload) && seenValue(m.payload) !== null) this.store.update((s) => void (s.answers.get(key)?.resend === w && s.answers.delete(key)));
+        if (w.op === 'seen' && m && (m.v2?.shared?.answer_policy === null || (isProgress(m.payload) && seenValue(m.payload) !== null))) this.store.update((s) => void (s.answers.get(key)?.resend === w && s.answers.delete(key)));
         else this.setAnswer(key, { state: 'accepted', resend: undefined }, w);
       } catch (e) {
         if (e instanceof Ended) return;
@@ -976,7 +1050,7 @@ export class V2Session {
 
   /** Send a chat reply. Files go up first with POST /v2/files, then the reply names them. */
   async chat(m: HeldMessage, text: string, files: ChatSend['files']): Promise<void> {
-    if (!m.v2) return;
+    if (!m.v2 || m.v2.shared?.chat_writable === false) return;
     const key = keyOfItem({ sender: m.sender_id, item_id: m.v2.item_id });
     const send: ChatSend = { op_id: newKey(), key, revision: m.revision, text, files, state: 'sending' };
     this.chatFiles.set(send.op_id, { keys: new Map(files.map((f) => [f.id, newKey()])), ids: new Map() });

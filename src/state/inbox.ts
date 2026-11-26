@@ -28,6 +28,7 @@ export interface ReplyRow {
   conversationSeq: number;
   openAt: number;
   postedAt: number | null;
+  speakerName?: string;
   unseen: number;
   priority: Priority;
   historical: boolean;
@@ -204,6 +205,7 @@ function fromListItems(s: State, tab: Tab, items: ListItem[], freeOrder: boolean
         conversationSeq: it.conversationSeq,
         openAt: it.openAt,
         postedAt: reply?.postedAt ?? null,
+        ...(reply?.speaker ? { speakerName: reply.speaker.display_name } : {}),
         unseen: it.unseen ?? 0,
         priority: it.priority,
         historical: it.historical,

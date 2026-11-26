@@ -14,6 +14,7 @@ import type { Entry, FileRef, Item, Terminal } from './wire';
 
 /** Bookkeeping the store does not draw: tombstones and which threads are wanted. */
 export class Model {
+  personId: string | null = null;
   /** item_id -> rev of its removal. */
   readonly tombstones = new Map<string, number>();
   /** item_id -> message key, for entries and removals, which carry only the item_id. */
@@ -50,11 +51,14 @@ function terminalOf(t: Terminal | null | undefined, rev: number): HeldTerminal |
       }
     : null;
   if (t.state !== 'answered') return { state: t.state, seq: rev, retracted: false, outcome };
-  if (outcome?.kind === 'no_comment') return { state: 'no_comment', seq: rev, retracted: false, outcome };
-  return { state: 'answered', seq: rev, retracted: false, outcome };
+  return {
+    state: outcome?.kind === 'no_comment' ? 'no_comment' : 'answered',
+    seq: rev, retracted: false, outcome,
+    ...(t.speaker && t.answer_id ? { speaker: t.speaker, answerId: t.answer_id } : {}),
+  };
 }
 
-function toHeld(item: Item): HeldMessage {
+function toHeld(item: Item, personId: string | null): HeldMessage {
   const files = item.files.map(toWireFile);
   return {
     sender_id: item.sender,
@@ -71,6 +75,7 @@ function toHeld(item: Item): HeldMessage {
     chat: item.chat.available,
     v2: {
       item_id: item.item_id,
+      ...(item.shared ? { shared: { ...item.shared, members: item.shared.members.filter((member) => member.person.id !== personId) } } : {}),
       rev: item.rev,
       rankKey: item.rank.key,
       createdAt: item.created_at_ms,
@@ -105,7 +110,7 @@ export function applyItem(s: State, model: Model, item: Item): boolean {
   if (prev?.v2 && prev.v2.rev >= item.rev) return false;
   model.keys.set(item.item_id, key);
   const thread = s.threads.get(key);
-  const held = toHeld(item);
+  const held = toHeld(item, model.personId);
   s.messages.set(key, held);
   if (thread) {
     const retracted = item.terminal?.state === 'retracted';
@@ -126,22 +131,34 @@ export function applyRemoved(s: State, model: Model, itemId: string, rev: number
   model.tombstones.set(itemId, Math.max(rev, model.tombstones.get(itemId) ?? 0));
 }
 
-function toTurn(e: Entry): Turn {
-  // The person's chat turns read as `discussion`, the agent's as `reply`, as
-  // the chat draws them; other kinds keep their own name and are not drawn.
-  const kind = e.kind === 'reply' ? (e.author === 'person' ? 'discussion' : 'reply') : e.kind;
+export function isOwnEntry(e: Entry, personId: string | null): boolean {
+  return e.speaker ? e.speaker.kind === 'person' && e.speaker.id === personId : e.author === 'person';
+}
+
+export function isOwnTurn(t: Turn): boolean {
+  return t.mine ?? t.author === 'person';
+}
+
+export function isIncomingReply(t: Turn): boolean {
+  return t.kind === 'reply' && !isOwnTurn(t) && t.speaker?.kind !== 'server';
+}
+
+function toTurn(e: Entry, personId: string | null): Turn {
+  const mine = isOwnEntry(e, personId);
+  const kind = e.kind === 'reply' && mine ? 'discussion' : e.kind;
   return {
     id: e.entry_id,
     seq: e.position,
     ...(e.at_ms !== undefined ? { postedAt: e.at_ms } : {}),
     kind,
     author: e.author,
+    ...(e.speaker ? { speaker: e.speaker, mine } : {}),
     text: e.text ?? '',
     files: (e.files ?? []).map(toWireFile),
     revision: e.request_revision,
     ...(e.in_reply_to ? { in_reply_to: e.in_reply_to } : {}),
     rev: e.rev,
-    ...(e.author === 'person' && e.delivery ? { delivery: e.delivery } : {}),
+    ...(mine && e.delivery ? { delivery: e.delivery } : {}),
     ...(e.state ? { state: e.state } : {}),
     ...(e.result ? { result: e.result } : {}),
   };
@@ -172,7 +189,7 @@ export function applyEntry(s: State, model: Model, e: Entry): boolean {
   const i = held.turns.findIndex((t) => t.id === e.entry_id);
   if (i >= 0 && (held.turns[i].rev ?? 0) >= e.rev) return false;
   const t: Thread = { ...held, turns: [...held.turns] };
-  const turn = toTurn(e);
+  const turn = toTurn(e, model.personId);
   if (i >= 0) t.turns[i] = turn;
   else {
     // Entries sort by position, their creation order, which never changes.
@@ -216,8 +233,12 @@ export function viewOf(s: State): ServerView {
     if (v.group) grouped = true;
     const section: FreeSection = { state: v.section === 'resolved' ? 'history' : 'active', group: v.group ?? 'common' };
     rows.push({ sort: v.rankKey, tie: 1, key, item: { kind: 'message', key, section } });
-    if ((v.unreadReplies ?? 0) > 0 && v.lastOriginReply) {
-      const seq = s.threads.get(key)?.turns.find((t) => t.id === v.lastOriginReply)?.seq ?? 0;
+    if ((v.unreadReplies ?? 0) > 0 && (v.shared || v.lastOriginReply)) {
+      const turns = s.threads.get(key)?.turns;
+      const reply = v.shared
+        ? turns?.reduce<Turn | undefined>((last, t) => isIncomingReply(t) ? t : last, undefined)
+        : turns?.find((t) => t.id === v.lastOriginReply);
+      const seq = reply?.seq ?? 0;
       rows.push({
         sort: v.replyRankKey ?? v.rankKey,
         tie: 0,

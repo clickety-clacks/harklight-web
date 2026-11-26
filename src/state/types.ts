@@ -41,6 +41,8 @@ export interface AnswerOutcome {
 }
 
 export interface Terminal {
+  speaker?: import('../v2/wire').Speaker;
+  answerId?: string;
   state: LifecycleState;
   seq: number;
   retracted: boolean;
@@ -76,6 +78,7 @@ export interface HeldMessage extends MessageKey {
 /** What client API v2 adds to a held message: its resource version, its
  * place in the inbox and its chat read state. */
 export interface V2Item {
+  shared?: import('../v2/wire').SharedItem;
   item_id: string;
   /** The change that last wrote the item; a snapshot or change applies only if newer. */
   rev: number;
@@ -110,6 +113,8 @@ export interface V2Item {
 export type TurnAuthor = 'person' | 'origin' | 'agent' | 'server';
 
 export interface Turn {
+  speaker?: import('../v2/wire').Speaker;
+  mine?: boolean;
   /** The person's turn: what is recorded of it reaching the agent, as of this rev. */
   delivery?: import('../v2/wire').Delivery;
   result?: import('../v2/wire').OriginResult;

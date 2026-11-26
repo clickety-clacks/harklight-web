@@ -54,6 +54,7 @@ export interface CallOptions {
   fileName?: string;
   responseBytes?: boolean;
   automatic?: boolean;
+  continuation?: string;
   signal?: AbortSignal;
 }
 
@@ -83,6 +84,7 @@ export async function call(deps: ApiDeps, path: string, o: CallOptions): Promise
     if (o.fileName !== undefined) headers['content-disposition'] = contentDisposition(o.fileName);
     body = o.bytes;
   }
+  if (o.continuation) headers['harklight-continuation'] = o.continuation;
   if (o.idempotencyKey) headers['idempotency-key'] = o.idempotencyKey;
   let res: Response;
   try {

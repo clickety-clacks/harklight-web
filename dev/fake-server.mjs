@@ -128,6 +128,7 @@ function agentOrPersonTurn(w, k, c) {
       channel: 'chat',
       event_id: `e${w.convSeq + 1}`,
       ...(c.files ? { files: c.files } : {}),
+      ...(c.speaker ? { speaker: c.speaker } : {}),
     });
     if (c.delivered) pushConv(w, k, { kind: 'receipt', author: 'origin', event_id: ev.event_id, delivered: true });
     return ev;
@@ -135,7 +136,8 @@ function agentOrPersonTurn(w, k, c) {
   const prev = [...w.conv].reverse().find((e) => e.kind === 'discussion' && key(e.sender_id, e.message_id) === k);
   return pushConv(w, k, {
     kind: 'reply',
-    author: 'origin',
+    author: c.speaker?.kind === 'server' ? 'server' : 'origin',
+    ...(c.speaker ? { speaker: c.speaker } : {}),
     session_handle: 'h',
     in_reply_to: prev?.event_id ?? null,
     op_id: randomUUID(),
@@ -314,8 +316,43 @@ export async function startFakeServer({ port = PORT, vite = USE_VITE, dist = DIS
       case 'standard-order':
         world.standardOrder = true;
         return json(res, 200, { ok: true });
+      case 'shared-messages': {
+        if (body.on && !world.sharedFixture) {
+          const speaker = (name) => ({ kind: 'person', id: `fixture-${name.toLowerCase()}`, display_name: name });
+          const sam = speaker('Sam');
+          const dana = speaker('Dana');
+          const lee = speaker('Lee');
+          const m = addMessage(world, { sender_id: 'example:release', message_id: 'launch', title: 'Launch date' }, {
+            chatTurns: [
+              { author: 'person', speaker: sam, text: 'Checking the date', delivered: true },
+              { author: 'origin', text: 'Thursday is available' },
+              { author: 'server', speaker: { kind: 'server', id: 'example-server', display_name: 'Harklight' }, text: 'Chat opened' },
+              { author: 'person', speaker: dana, text: 'Works for me', delivered: true },
+            ],
+            answered: { kind: 'choice', id: 'thu', label: 'Thursday' },
+            files: [{ name: 'schedule.txt', fixtureBytesBase64: 'VGh1cnNkYXkK' }],
+          });
+          m.revision = 2;
+          m.shared = {
+            shared_id: 'example-shared-launch', chat_writable: true, can_answer: false,
+            answer_policy: { kind: 'first' }, answers: [],
+            members: [
+              { person: dana, seen_revision: 2, seen_at_ms: 290 },
+              { person: lee, seen_revision: 1, seen_at_ms: 280 },
+              { person: sam, seen_revision: null, seen_at_ms: null },
+            ],
+          };
+          m.answerSpeaker = dana;
+          world.sharedFixture = m;
+          world.sharedViewer = sam;
+          syncV2(world);
+        }
+        world.sharedMessages = body.on === true;
+        v2Control(world, 'change-shared-scope', body);
+        return json(res, 200, { ok: true });
+      }
       case 'state':
-        return json(res, 200, { lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [], replays: world.replays ?? 0, v2Rev: world.v2?.rev ?? 0, focusReports: world.focusReports ?? [] });
+        return json(res, 200, { heldAnswers: world.held?.length ?? 0, lastAnswer: world.lastAnswer ?? null, lastDiscussion: world.lastDiscussion ?? null, opens: world.opens ?? 0, answerFrames: world.answerFrames ?? [], feeds: v2Feeds(world), feedOpens: world.feedOpens ?? [], v2Uploads: world.v2Uploads ?? [], replays: world.replays ?? 0, v2Rev: world.v2?.rev ?? 0, focusReports: world.focusReports ?? [] });
       case 'send': {
         const m = addMessage(world, { created_at: Date.now(), ...body.message }, { chat: body.chat });
         return json(res, 200, { ok: true, seq: m.acceptedSeq });

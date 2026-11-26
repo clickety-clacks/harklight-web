@@ -850,6 +850,13 @@
   text-decoration: underline;
   white-space: nowrap;
 }
+button.dl {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
 .file .rm {
   border: 0;
   background: none;
@@ -1471,4 +1478,14 @@ span.fyi-seen {
 .fyi-seen .icon {
   width: 13px;
   height: 13px;
+}
+
+.shared-members {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85em;
 }

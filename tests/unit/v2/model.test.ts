@@ -313,7 +313,7 @@ describe('client API v2 readers', () => {
       features: { priority_level_editing: true },
       limits: { upload_cap_bytes_per_file: 'none', inline_decoded_bytes_per_entry: 1000, answer_ui_limits: { inputs: 128 }, retention_days: 30 },
     });
-    expect(me).toEqual({ paused: true, uploadCap: null, inlineBudget: 1000, answerUiLimits: { inputs: 128 } });
+    expect(me).toEqual({ paused: true, sharedMessages: false, personId: null, uploadCap: null, inlineBudget: 1000, answerUiLimits: { inputs: 128 } });
     // Limits beside `limits` are not the contract's shape.
     expect(readMe({ account: { state: 'active' }, limits: { inline_decoded_bytes_per_entry: 0 }, answer_ui_limits: { inputs: 1 } })?.answerUiLimits).toBeNull();
   });

@@ -63,7 +63,7 @@ function CopyMessageId({ id }: { id: string }) {
   );
 }
 
-export function MessageContent(p: { message: HeldMessage; attachments: boolean; fileHref: (id: string) => string }) {
+export function MessageContent(p: { message: HeldMessage; attachments: boolean; fileHref: (id: string) => string | null }) {
   const text = body(p.message);
   return (
     <>

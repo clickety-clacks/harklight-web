@@ -340,3 +340,83 @@ test('a message with no agent conversation has no composer (Chat.available false
   await expect(page.locator('.chat-col')).toContainText('did not open a chat');
   await expect(page.getByRole('textbox', { name: 'Write a message' })).toHaveCount(0);
 });
+
+test('shared chat names speakers, shows Seen and the answer, and clears scope on downgrade', async ({ page }) => {
+  await control(page, 'shared-messages', { on: true });
+  const requests: { path: string; feature?: string; token?: string; after?: string | null }[] = [];
+  page.on('request', (r) => {
+    const path = new URL(r.url()).pathname;
+    if (path.startsWith('/v2/')) requests.push({
+      path, feature: r.headers()['harklight-features'], token: r.headers()['harklight-continuation'],
+      ...(path === '/v2/changes' ? { after: new URL(r.url()).searchParams.get('after') } : {}),
+    });
+  });
+  await openInbox(page);
+  await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toContainText('2 new');
+  const seen = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname.endsWith('/seen'));
+  await openRow(page, 'Launch date');
+  expect((await seen).postDataJSON()).toEqual({ request_revision: 2 });
+  await expect(page.getByLabel('Shared with')).toContainText('Dana · Seen');
+  await expect(page.getByLabel('Shared with')).toContainText('Lee · Unseen');
+  await expect(page.getByTestId('answered')).toContainText('Answered by Dana');
+  await expect(page.locator('.turn', { hasText: 'Works for me' })).toContainText('Dana');
+  await expect(page.locator('.turn', { hasText: 'Works for me' })).not.toContainText('Delivered');
+  await expect(page.locator('.turn', { hasText: 'Thursday is available' })).toContainText('Release team');
+  await expect(page.locator('.turn', { hasText: 'Chat opened' })).toContainText('Harklight');
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
+  expect((await downloaded).suggestedFilename()).toBe('schedule.txt');
+  await expect(page.locator('.turn--me', { hasText: 'Checking the date' })).toContainText('You');
+  await expect(page.getByTestId('reply-row').filter({ hasText: 'Launch date' })).toHaveCount(0);
+  expect(requests.find((r) => r.path === '/v2/me')?.feature).toBeUndefined();
+  expect(requests.find((r) => r.path === '/v2/changes')).toMatchObject({ feature: 'shared_messages', token: expect.any(String) });
+  expect(requests.filter((r) => r.path !== '/v2/me').every((r) => r.feature === 'shared_messages')).toBe(true);
+  const initial = requests.find((r) => r.path === '/v2/changes');
+  const batch = page.waitForRequest((r) => new URL(r.url()).pathname === '/v2/changes' && r.headers().accept === 'application/json');
+  await control(page, 'drop-feeds');
+  expect((await batch).headers()['harklight-continuation']).toBe(initial?.token);
+  await expect.poll(() => requests.filter((r) => r.path === '/v2/changes').length).toBeGreaterThanOrEqual(3);
+
+  const legacyBaseline = page.waitForResponse((r) => new URL(r.url()).pathname === '/v2/inbox' && !r.request().headers()['harklight-features']);
+  await control(page, 'shared-messages', { on: false, drop: true });
+  const { rev } = await (await legacyBaseline).json();
+  await expect(row(page, 'Launch date')).toHaveCount(0);
+  await expect.poll(() => requests.filter((r) => r.path === '/v2/changes').at(-1)).toEqual({
+    path: '/v2/changes', feature: undefined, token: undefined, after: String(rev),
+  });
+});
+
+test('feature off keeps legacy attribution and omits shared request headers', async ({ page }) => {
+  await control(page, 'shared-messages', { on: false });
+  const headers: Record<string, string>[] = [];
+  page.on('request', (r) => {
+    if (new URL(r.url()).pathname.startsWith('/v2/')) headers.push(r.headers());
+  });
+  await openInbox(page);
+  await expect(row(page, 'Launch date')).toHaveCount(0);
+  await openRow(page, 'Which hotel should I book for Lisbon?');
+  await expect(page.locator('.turn--me').first()).toContainText('You');
+  await expect(page.getByLabel('Shared with')).toHaveCount(0);
+  expect(headers.every((h) => !h['harklight-features'] && !h['harklight-continuation'])).toBe(true);
+});
+
+test('a shared feed rejected with 410 uses a new baseline and continuation', async ({ page }) => {
+  await control(page, 'shared-messages', { on: true });
+  const tokens: (string | undefined)[] = [];
+  const feeds = /\/v2\/changes\?/;
+  await page.route(feeds, async (route) => {
+    tokens.push(route.request().headers()['harklight-continuation']);
+    if (tokens.length === 1) {
+      await route.fulfill({ status: 410, json: { error: 'cursor_expired', retryable: false } });
+    } else {
+      await route.continue();
+    }
+  });
+  await openInbox(page);
+  await expect(row(page, 'Launch date')).toBeVisible();
+  await expect.poll(() => tokens.length).toBe(2);
+  expect(tokens[0]).toBeTruthy();
+  expect(tokens[1]).toBeTruthy();
+  expect(tokens[1]).not.toBe(tokens[0]);
+  await expect.poll(async () => (await control(page, 'state')).feeds).toBe(1);
+});
