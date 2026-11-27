@@ -7,7 +7,7 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
 server_repo=https://github.com/clickety-clacks/harklight-server
-fixture_commit=bfe210839c74ba2833d50a6287b59304cf5ecd0a
+fixture_commit=b53bf742c2ead8a9d10fa1794d9d317f1a8ca033
 fixture="$scratch/synthetic-history-inventory.exs"
 curl -fsSL --retry 3 \
   "https://raw.githubusercontent.com/clickety-clacks/harklight-server/$fixture_commit/scripts/synthetic-history-inventory.exs" \
