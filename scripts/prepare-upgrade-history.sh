@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 output="$(realpath -m "${1:?Usage: prepare-upgrade-history.sh NEW_OUTPUT_DIRECTORY}")"
 mkdir "$output"
@@ -34,6 +35,9 @@ mkdir "$scratch/"{home,original,upgrade}
 export HOME="$scratch/home" ATTENTION_SERVER_ENABLE=0
 export ERL_FLAGS='+S 2:2 +SDcpu 1 +SDio 1'
 export FIXTURE_SCRIPT="$fixture"
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+  -keyout "$scratch/owner.key" -out "$scratch/owner.der" -outform DER -days 1 \
+  -subj /CN=synthetic-owner 2>/dev/null
 
 isolated() {
   sudo systemd-run --quiet --wait --pipe --collect --property=PrivateNetwork=yes \
@@ -41,7 +45,7 @@ isolated() {
     --working-directory="$scratch" /usr/bin/env HOME="$HOME" \
     ATTENTION_SERVER_ENABLE="$ATTENTION_SERVER_ENABLE" ERL_FLAGS="$ERL_FLAGS" \
     FIXTURE_SCRIPT="$FIXTURE_SCRIPT" FIXTURE_DB="$db" STAGE="$version" \
-    INVENTORY="$output/$version.json" "$@"
+    OWNER_DER="$scratch/owner.der" INVENTORY="$output/$version.json" "$@"
 }
 
 inventory() {

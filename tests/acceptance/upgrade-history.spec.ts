@@ -28,7 +28,7 @@ test('read old message history through the upgraded fixture browser session', as
   await expect(page.getByRole('tab', { name: 'Replied' })).toBeVisible();
   const observations = await observeOldHistory(page);
   writeFileSync(reportPath, JSON.stringify({
-    platform: 'web',
+    platform: 'Web',
     client_build, server_version, server_commit, fixture_sha256,
     outcome: 'pass',
     observations,

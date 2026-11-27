@@ -7,7 +7,7 @@ export async function observeOldHistory(page: Page) {
     await expect(page.getByRole('heading', { name: title })).toBeVisible();
     const pill = page.getByRole('button', { name: 'Copy message ID' });
     await expect(pill).toContainText(id);
-    return { id, title };
+    return (await pill.innerText()).trim();
   }
 
   const current = await openMessage('unanswered', 'i1');
@@ -31,8 +31,11 @@ export async function observeOldHistory(page: Page) {
   await expect(answer).toBeVisible();
 
   return {
-    current,
-    answered: { ...answered, answer: await answer.innerText() },
-    discussed: { ...discussed, chat: { entry_id: 'e1', text: chatText } },
+    unanswered_item: current,
+    answered_item: answered,
+    answer: await answer.innerText(),
+    discussion_item: discussed,
+    discussion_entry: entries.find((entry: { entry_id: string }) => entry.entry_id === 'e1').entry_id,
+    discussion: chatText,
   };
 }
