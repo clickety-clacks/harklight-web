@@ -143,7 +143,7 @@ export function entries(s: State, tab: Tab, groupFyi = false, order: ListOrder =
 
 function messageRow(s: State, key: string, m: HeldMessage, sc: ReturnType<typeof rowDetails>, history: boolean): MessageRow {
   const open = m.terminal === null && !inReplied(s, key);
-  const mark = sc.priority.get(key) ?? null;
+  const mark = m.payload.alarm === true ? 'alarm' : sc.priority.get(key) ?? null;
   return { type: 'message', key, message: m, priority: open ? mark : null, history };
 }
 

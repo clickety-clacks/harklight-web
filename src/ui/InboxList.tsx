@@ -156,12 +156,13 @@ function MessageRow(props: {
   const rowIcon = replied ? 'row-check' : request ? 'row-reply' : TYPE_ICON[type];
   const tile = replied ? 'check' : request ? 'request' : null;
   const cls = ['row', `type-${type}`];
-  if (row.priority === 'urgent') cls.push('row--urgent');
+  if (row.priority === 'alarm' || row.priority === 'urgent') cls.push('row--urgent');
   else if (row.priority === 'high') cls.push('row--high');
   if (props.selected) cls.push('row--selected');
   if (row.history) cls.push('row--history');
   const meta: string[] = [];
-  if (row.priority === 'urgent') meta.push('Urgent');
+  if (row.priority === 'alarm') meta.push('Alarm');
+  else if (row.priority === 'urgent') meta.push('Urgent');
   if (row.priority === 'high') meta.push('High priority');
   if (row.priority && props.needsAnswer) meta.push('Needs an answer');
   if (m.terminal?.retracted) meta.push('Retracted');
