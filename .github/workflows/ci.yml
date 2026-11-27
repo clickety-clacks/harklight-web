@@ -20,7 +20,17 @@ jobs:
       - run: npm run build
       - run: npm test
       - run: npx playwright install --with-deps chromium
+      - name: Seed and upgrade the Server history fixture
+        run: bash scripts/prepare-upgrade-history.sh "$RUNNER_TEMP/upgrade-history"
       - run: npm run test:e2e
+        env:
+          UPGRADE_HISTORY_INVENTORY: ${{ runner.temp }}/upgrade-history
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upgrade-history-inventory
+          path: ${{ runner.temp }}/upgrade-history
+          if-no-files-found: ignore
       - name: Package the site
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
         run: |
