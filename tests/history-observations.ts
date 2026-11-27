@@ -31,11 +31,14 @@ export async function observeOldHistory(page: Page) {
   await expect(answer).toBeVisible();
 
   return {
-    unanswered_item: current,
-    answered_item: answered,
-    answer: await answer.innerText(),
-    discussion_item: discussed,
-    discussion_entry: entries.find((entry: { entry_id: string }) => entry.entry_id === 'e1').entry_id,
-    discussion: chatText,
+    current: { id: current },
+    answered: { id: answered, answer: await answer.innerText() },
+    discussed: {
+      id: discussed,
+      chat: {
+        entry_id: entries.find((entry: { entry_id: string }) => entry.entry_id === 'e1').entry_id,
+        text: chatText,
+      },
+    },
   };
 }

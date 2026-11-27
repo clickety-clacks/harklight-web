@@ -23,7 +23,8 @@ test('read old message history through the upgraded fixture browser session', as
     throw new Error('Could not open the isolated browser handoff');
   }
   // Match only the final address's origin and path. The handoff may include a secret.
-  await page.waitForURL((url) => url.origin === fixture.origin && /^\/app\/(inbox)?\/?$/.test(url.pathname))
+  const webPaths = new Set(['/inbox', '/app/', '/app/inbox']);
+  await page.waitForURL((url) => url.origin === fixture.origin && webPaths.has(url.pathname))
     .catch(() => { throw new Error('Isolated handoff did not reach Web'); });
   await expect(page.getByRole('tab', { name: 'Replied' })).toBeVisible();
   const observations = await observeOldHistory(page);
