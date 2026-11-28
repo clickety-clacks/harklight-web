@@ -112,7 +112,7 @@ export function InboxList(props: {
             </div>
           );
         })}
-        {props.loaded && props.entries.length === 0 && !props.morePages && (
+        {props.loaded && props.entries.length === 0 && !props.morePages && !props.fyiSummary && (
           <p class="rows-empty">{props.tab === 'inbox' ? 'No messages' : 'Nothing replied yet'}</p>
         )}
       </div>
