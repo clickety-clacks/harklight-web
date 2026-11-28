@@ -287,10 +287,10 @@ function jsonText(v: Json): string {
   return typeof v === 'string' ? v : stringify(v);
 }
 
-export type Priority = 'urgent' | 'high' | null;
+export type Priority = 'alarm' | 'urgent' | 'high' | null;
 
 /** Priority comes from the priority view's score, as on the phone. */
-export function priorityOf(score: number | null): Priority {
+export function priorityOf(score: number | null): Exclude<Priority, 'alarm'> {
   if (score === null || !Number.isFinite(score)) return null;
   if (score >= 0.9) return 'urgent';
   if (score >= 0.7) return 'high';
